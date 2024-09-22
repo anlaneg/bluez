@@ -29,7 +29,7 @@ typedef void (*bt_shell_prompt_input_func) (const char *input, void *user_data);
 typedef bool (*bt_shell_menu_exists_t) (const struct bt_shell_menu *menu);
 
 struct bt_shell_menu_entry {
-	const char *cmd;
+	const char *cmd;/*命令标识*/
 	const char *arg;
 	bt_shell_menu_cb_t func;
 	const char *desc;

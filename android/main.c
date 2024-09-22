@@ -597,7 +597,7 @@ static guint setup_signalfd(void)
 
 	source = g_io_add_watch(channel,
 				G_IO_IN | G_IO_HUP | G_IO_ERR | G_IO_NVAL,
-				signal_handler, NULL);
+				signal_handler/*添加信号处理*/, NULL);
 
 	g_io_channel_unref(channel);
 
@@ -693,6 +693,7 @@ static void set_version(void)
 	config_pnp_version = major << 8 | minor;
 }
 
+/*bluetoothd入口*/
 int main(int argc, char *argv[])
 {
 	GOptionContext *context;
@@ -717,6 +718,7 @@ int main(int argc, char *argv[])
 	g_option_context_free(context);
 
 	if (option_version == TRUE) {
+		/*显示版本号，并退出*/
 		printf("%s\n", VERSION);
 		exit(EXIT_SUCCESS);
 	}
@@ -725,6 +727,7 @@ int main(int argc, char *argv[])
 	if (!signal)
 		return EXIT_FAILURE;
 
+	/*日志初始化*/
 	if (option_dbg || option_mgmt_dbg)
 		__btd_log_init("*", 0);
 	else
@@ -739,6 +742,7 @@ int main(int argc, char *argv[])
 	quit_timeout = g_timeout_add_seconds(STARTUP_GRACE_SECONDS,
 							quit_eventloop, NULL);
 	if (quit_timeout == 0) {
+		/*超时退出*/
 		error("Failed to init startup timeout");
 		__btd_log_cleanup();
 		g_source_remove(signal);
@@ -753,7 +757,7 @@ int main(int argc, char *argv[])
 	}
 
 	/* Use params: mtu = 0, flags = 0 */
-	start_sdp_server(0, 0);
+	start_sdp_server(0, 0);/*启动sdp server*/
 
 	DBG("Entering main loop");
 

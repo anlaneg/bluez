@@ -2636,6 +2636,7 @@ uuid_t *sdp_uuid32_create(uuid_t *u, uint32_t val)
 
 uuid_t *sdp_uuid128_create(uuid_t *u, const void *val)
 {
+	/*利用128bits创建uuid*/
 	memset(u, 0, sizeof(uuid_t));
 	u->type = SDP_UUID128;
 	memcpy(&u->value.uuid128, val, sizeof(uint128_t));
@@ -2648,6 +2649,7 @@ uuid_t *sdp_uuid128_create(uuid_t *u, const void *val)
  */
 int sdp_uuid_cmp(const void *p1, const void *p2)
 {
+	/*两个uudi比较*/
 	uuid_t *u1 = sdp_uuid_to_uuid128(p1);
 	uuid_t *u2 = sdp_uuid_to_uuid128(p2);
 	int ret;

@@ -3563,6 +3563,7 @@ static void read_version_complete(uint8_t status, uint16_t length,
 	info("Bluetooth management interface %u.%u initialized",
 						mgmt_version, mgmt_revision);
 
+	/*版本过小*/
 	if (MGMT_VERSION(mgmt_version, mgmt_revision) < MGMT_VERSION(1, 3)) {
 		error("Version 1.3 or later of management interface required");
 		goto failed;
@@ -3579,6 +3580,7 @@ static void read_version_complete(uint8_t status, uint16_t length,
 	mgmt_register(mgmt_if, MGMT_EV_INDEX_REMOVED, MGMT_INDEX_NONE,
 					mgmt_index_removed_event, NULL, NULL);
 
+	/*发送index list*/
 	if (mgmt_send(mgmt_if, MGMT_OP_READ_INDEX_LIST, MGMT_INDEX_NONE, 0,
 				NULL, read_index_list_complete, cb, NULL) > 0)
 		return;
@@ -3593,6 +3595,7 @@ bool bt_bluetooth_start(int index, bool mgmt_dbg, bt_bluetooth_ready cb)
 {
 	DBG("index %d", index);
 
+	/*创建mgmt*/
 	mgmt_if = mgmt_new_default();
 	if (!mgmt_if) {
 		error("Failed to access management interface");
@@ -3603,7 +3606,8 @@ bool bt_bluetooth_start(int index, bool mgmt_dbg, bt_bluetooth_ready cb)
 		mgmt_set_debug(mgmt_if, mgmt_debug, "mgmt_if: ", NULL);
 
 	if (mgmt_send(mgmt_if, MGMT_OP_READ_VERSION, MGMT_INDEX_NONE, 0, NULL,
-				read_version_complete, cb, NULL) == 0) {
+				read_version_complete/*read version完成*/, cb, NULL) == 0) {
+		/*发送read_version失败*/
 		error("Error sending READ_VERSION mgmt command");
 
 		mgmt_unref(mgmt_if);

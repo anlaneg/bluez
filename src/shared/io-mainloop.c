@@ -24,16 +24,22 @@ struct io {
 	int ref_count;
 	int fd;
 	uint32_t events;
-	bool close_on_destroy;
+	bool close_on_destroy;/*destory时是否关闭fd*/
+	/*遇到epoll in事件时调用*/
 	io_callback_func_t read_callback;
+	/*遇到epoll in事件，但read_callback返回0，则调用*/
 	io_destroy_func_t read_destroy;
-	void *read_data;
+	void *read_data;/*上面read两个回调对应的参数*/
+	/*遇到epoll out事件时调用*/
 	io_callback_func_t write_callback;
+	/*遇到epoll out事件，但write_callback返回0，则调用*/
 	io_destroy_func_t write_destroy;
-	void *write_data;
+	void *write_data;/*上面write两个回调对应的参数*/
+	/*遇到epoll RDHUP, HUP ,ERR事件时调用*/
 	io_callback_func_t disconnect_callback;
+	/*disconnect_callback回调调用返回0时，则触发此调用*/
 	io_destroy_func_t disconnect_destroy;
-	void *disconnect_data;
+	void *disconnect_data;/*上面两个disconnect对应的参数*/
 };
 
 static struct io *io_ref(struct io *io)
@@ -70,12 +76,14 @@ static void io_cleanup(void *user_data)
 	if (io->disconnect_destroy)
 		io->disconnect_destroy(io->disconnect_data);
 
+	/*指配置关闭fd*/
 	if (io->close_on_destroy)
 		close(io->fd);
 
 	io->fd = -1;
 }
 
+/*处理io事件*/
 static void io_callback(int fd, uint32_t events, void *user_data)
 {
 	struct io *io = user_data;
@@ -87,13 +95,16 @@ static void io_callback(int fd, uint32_t events, void *user_data)
 		io->write_callback = NULL;
 
 		if (!io->disconnect_callback) {
+			/*fd遇到错误，没有设置disconnect_callback，移除此io*/
 			mainloop_remove_fd(io->fd);
 			io_unref(io);
 			return;
 		}
 
+		/*执行disconnect_callback回调*/
 		if (!io->disconnect_callback(io, io->disconnect_data)) {
 			if (io->disconnect_destroy)
+				/*触发disconnect回调*/
 				io->disconnect_destroy(io->disconnect_data);
 
 			io->disconnect_callback = NULL;
@@ -106,8 +117,10 @@ static void io_callback(int fd, uint32_t events, void *user_data)
 		}
 	}
 
+	/*events中包含epoll in事件，且包括read_callback,则执行回调*/
 	if ((events & EPOLLIN) && io->read_callback) {
 		if (!io->read_callback(io, io->read_data)) {
+			/*回调出错，如有read_destroy回调，则触发*/
 			if (io->read_destroy)
 				io->read_destroy(io->read_data);
 
@@ -122,6 +135,7 @@ static void io_callback(int fd, uint32_t events, void *user_data)
 	}
 
 	if ((events & EPOLLOUT) && io->write_callback) {
+		/*遇到epoll out事件，触发write_callback回调*/
 		if (!io->write_callback(io, io->write_data)) {
 			if (io->write_destroy)
 				io->write_destroy(io->write_data);
@@ -139,6 +153,7 @@ static void io_callback(int fd, uint32_t events, void *user_data)
 	io_unref(io);
 }
 
+/*将此io添加进mainloop*/
 struct io *io_new(int fd)
 {
 	struct io *io;
@@ -151,6 +166,7 @@ struct io *io_new(int fd)
 	io->events = 0;
 	io->close_on_destroy = false;
 
+	/*将fd加入mainloop,并关注事件*/
 	if (mainloop_add_fd(io->fd, io->events, io_callback,
 						io, io_cleanup) < 0) {
 		free(io);
@@ -192,6 +208,7 @@ bool io_set_close_on_destroy(struct io *io, bool do_close)
 	return true;
 }
 
+/*设置read handler*/
 bool io_set_read_handler(struct io *io, io_callback_func_t callback,
 				void *user_data, io_destroy_func_t destroy)
 {
@@ -200,24 +217,30 @@ bool io_set_read_handler(struct io *io, io_callback_func_t callback,
 	if (!io || io->fd < 0)
 		return false;
 
+	/*io原来有read_destroy,则触发*/
 	if (io->read_destroy)
 		io->read_destroy(io->read_data);
 
+	/*如指定了callback，则关注poll in事件*/
 	if (callback)
 		events = io->events | EPOLLIN;
 	else
 		events = io->events & ~EPOLLIN;
 
+	/*设置read相关几个回调*/
 	io->read_callback = callback;
 	io->read_destroy = destroy;
 	io->read_data = user_data;
 
 	if (events == io->events)
+		/*events无变化，直接返回*/
 		return true;
 
+	/*events有变更，需要先自epoll中移除，再添加*/
 	if (mainloop_modify_fd(io->fd, events) < 0)
 		return false;
 
+	/*更新关注的events*/
 	io->events = events;
 
 	return true;

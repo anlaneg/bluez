@@ -317,6 +317,7 @@ static int hostname_init(void)
 
 	g_dbus_proxy_set_property_watch(hostname_proxy, property_changed, NULL);
 
+	/*注册hostname驱动*/
 	err = btd_register_adapter_driver(&hostname_driver);
 	if (err < 0) {
 		g_dbus_proxy_unref(hostname_proxy);

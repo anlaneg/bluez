@@ -84,8 +84,8 @@ static struct {
 	struct queue *prompts;
 
 	const struct bt_shell_menu *menu;
-	const struct bt_shell_menu *main;
-	struct queue *submenus;
+	const struct bt_shell_menu *main;/*主菜单*/
+	struct queue *submenus;/*子菜单*/
 	const struct bt_shell_menu_entry *exec;
 
 	struct queue *envs;
@@ -368,6 +368,7 @@ static int cmd_exec(const struct bt_shell_menu_entry *entry,
 
 	if (argc == 2 && (!memcmp(argv[1], "help", 4) ||
 				!memcmp(argv[1], "--help", 6))) {
+		/*显示帮助信息*/
 		printf("%s\n", entry->desc);
 		printf(COLOR_HIGHLIGHT "Usage:" COLOR_OFF "\n");
 		printf("\t %s %-*s\n", entry->cmd,
@@ -448,6 +449,7 @@ optional:
 exec:
 	data.exec = entry;
 
+	/*执行此命令*/
 	if (entry->func)
 		entry->func(argc, argv);
 
@@ -476,6 +478,7 @@ static int menu_exec(const struct bt_shell_menu_entry *entry,
 		if (data.menu == data.main && !strcmp(entry->cmd, "back"))
 			continue;
 
+		/*名称匹配，执行entry对应的命令*/
 		return cmd_exec(entry, argc, argv);
 	}
 
@@ -510,6 +513,7 @@ static int submenu_exec(int argc, char *argv[])
 	return menu_exec(submenu->entries, argc, argv);
 }
 
+/*shell执行命令及参数*/
 static int shell_exec(int argc, char *argv[])
 {
 	int err;
@@ -517,10 +521,13 @@ static int shell_exec(int argc, char *argv[])
 	if (!data.menu || !argv[0])
 		return -EINVAL;
 
+	/*在default menu中查找并执行*/
 	err  = menu_exec(default_menu, argc, argv);
 	if (err == -ENOENT) {
+		/*命令不在default menu中，在data.menu中查找并执行*/
 		err  = menu_exec(data.menu->entries, argc, argv);
 		if (err == -ENOENT) {
+			/*命令不在data.menu中，在submenu中查找并执行*/
 			err = submenu_exec(argc, argv);
 			if (err == -ENOENT) {
 				print_text(COLOR_HIGHLIGHT,
@@ -546,7 +553,7 @@ void bt_shell_printf(const char *fmt, ...)
 
 	if (data.mode) {
 		va_start(args, fmt);
-		vprintf(fmt, args);
+		vprintf(fmt, args);/*显示内容*/
 		va_end(args);
 		return;
 	}
@@ -1154,6 +1161,7 @@ static void usage(int argc, char **argv, const struct bt_shell_opt *opt)
 		"\t--help \t\tDisplay help\n");
 }
 
+/*参数解析*/
 void bt_shell_init(int argc, char **argv, const struct bt_shell_opt *opt)
 {
 	int c, index = -1;
@@ -1301,6 +1309,7 @@ static int bt_shell_queue_exec(char *line)
 
 	bt_shell_printf("%s\n", line);
 
+	/*执行命令*/
 	err = bt_shell_exec(line);
 	if (!err)
 		data.line = strdup(line);
@@ -1316,6 +1325,7 @@ int bt_shell_exec(const char *input)
 	if (!input)
 		return 0;
 
+	/*按workd将input打散*/
 	err = wordexp(input, &w, WRDE_NOCMD);
 	switch (err) {
 	case WRDE_BADCHAR:
@@ -1336,6 +1346,7 @@ int bt_shell_exec(const char *input)
 		return -ENOEXEC;
 	}
 
+	/*按argv执行shell*/
 	err = shell_exec(w.we_wordc, w.we_wordv);
 
 	wordfree(&w);
@@ -1404,11 +1415,13 @@ bool bt_shell_add_submenu(const struct bt_shell_menu *menu)
 		return false;
 
 	if (!data.main)
+		/*未设置main menu,将其设置为主menu*/
 		return bt_shell_set_menu(menu);
 
 	if (!data.submenus)
 		data.submenus = queue_new();
 
+	/*将子菜单加入链表*/
 	queue_push_tail(data.submenus, (void *) menu);
 
 	return true;
@@ -1445,13 +1458,16 @@ static bool input_read(struct io *io, void *user_data)
 		}
 	}
 
+	/*读取一行数据*/
 	nread = getline(&line, &len, data.f);
 	if (nread > 0) {
 		int err;
 
 		if (line[nread - 1] == '\n')
+			/*遇到换行，设置行结束*/
 			line[nread - 1] = '\0';
 
+		/*将读取到的命令加入到data.queue*/
 		err = bt_shell_queue_exec(line);
 		if (err < 0)
 			printf("%s: %s (%d)\n", line, strerror(-err), -err);

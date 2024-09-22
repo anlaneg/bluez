@@ -35,6 +35,7 @@ static void run_valgrind(int debug, int mgmt_dbg)
 	prg_envp[1] = "G_DEBUG=gc-friendly";
 	prg_envp[2] = NULL;
 
+	/*执行valgrind程序*/
 	execve(prg_argv[0], prg_argv, prg_envp);
 }
 
@@ -50,6 +51,7 @@ static void run_bluetoothd(int debug, int mgmt_dbg)
 
 	prg_envp[0] = NULL;
 
+	/*运行bluetoothd-main命令*/
 	execve(prg_argv[0], prg_argv, prg_envp);
 }
 

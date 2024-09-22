@@ -40,6 +40,7 @@ static void queue_unref(struct queue *queue)
 	free(queue);
 }
 
+/*初始化队列*/
 struct queue *queue_new(void)
 {
 	struct queue *queue;
@@ -187,7 +188,7 @@ void *queue_peek_tail(struct queue *queue)
 	return queue->tail->data;
 }
 
-void queue_foreach(struct queue *queue, queue_foreach_func_t function,
+void queue_foreach(struct queue *queue/*要检查的队列*/, queue_foreach_func_t function,
 							void *user_data)
 {
 	struct queue_entry *entry;
@@ -200,6 +201,7 @@ void queue_foreach(struct queue *queue, queue_foreach_func_t function,
 		return;
 
 	queue_ref(queue);
+	/*针对所有元素，执行function*/
 	while (entry && queue->head && queue->ref_count > 1) {
 		struct queue_entry *next;
 
@@ -221,11 +223,14 @@ void *queue_find(struct queue *queue, queue_match_func_t function,
 	struct queue_entry *entry;
 
 	if (!queue)
+		/*队列为空，直接返回*/
 		return NULL;
 
 	if (!function)
+		/*未指供函数，使用默认匹配函数*/
 		function = direct_match;
 
+	/*遍历queue,并逐个调用function,传入参数*/
 	for (entry = queue->head; entry; entry = entry->next)
 		if (function(entry->data, match_data))
 			return entry->data;

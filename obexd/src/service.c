@@ -72,10 +72,12 @@ static struct obex_service_driver *find_driver(uint16_t service)
 {
 	GSList *l;
 
+	/*遍历所有driver*/
 	for (l = drivers; l; l = l->next) {
 		struct obex_service_driver *driver = l->data;
 
 		if (driver->service == service)
+			/*如果serivce匹配，则返回此driver*/
 			return driver;
 	}
 
@@ -85,10 +87,12 @@ static struct obex_service_driver *find_driver(uint16_t service)
 int obex_service_driver_register(struct obex_service_driver *driver)
 {
 	if (!driver) {
+		/*不能为空*/
 		error("Invalid driver");
 		return -EINVAL;
 	}
 
+	/*查找此driver service是否已注册*/
 	if (find_driver(driver->service)) {
 		error("Permission denied: service %s already registered",
 			driver->name);
@@ -99,7 +103,7 @@ int obex_service_driver_register(struct obex_service_driver *driver)
 
 	/* Drivers that support who has priority */
 	if (driver->who)
-		drivers = g_slist_prepend(drivers, driver);
+		drivers = g_slist_prepend(drivers, driver);/*注册驱动*/
 	else
 		drivers = g_slist_append(drivers, driver);
 

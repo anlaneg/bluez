@@ -177,6 +177,7 @@ static int network_init(void)
 	if (server_init(conf_security) < 0)
 		return -1;
 
+	/*注册network-panu profile*/
 	btd_profile_register(&panu_profile);
 	btd_profile_register(&gn_profile);
 	btd_profile_register(&nap_profile);

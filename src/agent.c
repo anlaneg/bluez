@@ -1048,7 +1048,7 @@ static DBusMessage *request_default(DBusConnection *conn, DBusMessage *msg,
 static const GDBusMethodTable methods[] = {
 	{ GDBUS_METHOD("RegisterAgent",
 			GDBUS_ARGS({ "agent", "o"}, { "capability", "s" }),
-			NULL, register_agent) },
+			NULL, register_agent/*注册agent*/) },
 	{ GDBUS_METHOD("UnregisterAgent", GDBUS_ARGS({ "agent", "o" }),
 			NULL, unregister_agent) },
 	{ GDBUS_METHOD("RequestDefaultAgent", GDBUS_ARGS({ "agent", "o" }),
@@ -1063,9 +1063,10 @@ void btd_agent_init(void)
 
 	default_agents = queue_new();
 
+	/*注册interface*/
 	g_dbus_register_interface(btd_get_dbus_connection(),
 				"/org/bluez", "org.bluez.AgentManager1",
-				methods, NULL, NULL, NULL, NULL);
+				methods/*要注册的方法名*/, NULL, NULL, NULL, NULL);
 }
 
 void btd_agent_cleanup(void)

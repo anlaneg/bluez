@@ -1641,6 +1641,7 @@ static sdp_record_t *a2dp_record(uint8_t type)
 static struct a2dp_server *find_server(GSList *list, struct btd_adapter *a)
 {
 
+	/*遍历list上存入的所有server,如果有一个adapter匹配，则返回此server*/
 	for (; list; list = list->next) {
 		struct a2dp_server *server = list->data;
 
@@ -3465,8 +3466,10 @@ static int a2dp_sink_server_probe(struct btd_profile *p,
 
 	server = find_server(servers, adapter);
 	if (server != NULL)
+		/*找到对应的server，返回*/
 		goto done;
 
+	/*针对此adapter创建对应的server*/
 	server = a2dp_server_register(adapter);
 	if (server == NULL)
 		return -EPROTONOSUPPORT;
@@ -3555,8 +3558,11 @@ static struct btd_adapter_driver media_driver = {
 
 static int a2dp_init(void)
 {
+	/*注册media驱动*/
 	btd_register_adapter_driver(&media_driver);
+	/*注册a2dp-source profile*/
 	btd_profile_register(&a2dp_source_profile);
+	/*注册a2dp-sink profile*/
 	btd_profile_register(&a2dp_sink_profile);
 
 	return 0;

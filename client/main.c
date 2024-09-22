@@ -55,7 +55,7 @@ struct adapter {
 	GList *sets;
 };
 
-static struct adapter *default_ctrl;
+static struct adapter *default_ctrl;/*用于设置默认的controller*/
 static GDBusProxy *default_dev;
 static char *default_local_attr;
 static GDBusProxy *default_attr;
@@ -374,6 +374,7 @@ static void battery_removed(GDBusProxy *proxy)
 	battery_proxies = g_list_remove(battery_proxies, proxy);
 }
 
+/*添加device*/
 static void device_added(GDBusProxy *proxy)
 {
 	DBusMessageIter iter;
@@ -384,6 +385,7 @@ static void device_added(GDBusProxy *proxy)
 		return;
 	}
 
+	/*添加进devices*/
 	adapter->devices = g_list_append(adapter->devices, proxy);
 	print_device(proxy, COLORED_NEW);
 	bt_shell_set_env(g_dbus_proxy_get_path(proxy), proxy);
@@ -403,10 +405,12 @@ static void device_added(GDBusProxy *proxy)
 
 static struct adapter *find_ctrl(GList *source, const char *path);
 
+/*新建adapter结构体，并将其加入到ctrl_list中（adapter未填充）*/
 static struct adapter *adapter_new(GDBusProxy *proxy)
 {
 	struct adapter *adapter = g_malloc0(sizeof(struct adapter));
 
+	/*添加adapter至ctrl_list*/
 	ctrl_list = g_list_append(ctrl_list, adapter);
 
 	if (!default_ctrl)
@@ -420,10 +424,13 @@ static void adapter_added(GDBusProxy *proxy)
 	struct adapter *adapter;
 	adapter = find_ctrl(ctrl_list, g_dbus_proxy_get_path(proxy));
 	if (!adapter)
+		/*未查询到adapter,新建*/
 		adapter = adapter_new(proxy);
 
+	/*设置proxy*/
 	adapter->proxy = proxy;
 
+	/*显示此adapter*/
 	print_adapter(proxy, COLORED_NEW);
 	bt_shell_set_env(g_dbus_proxy_get_path(proxy), proxy);
 }
@@ -433,8 +440,10 @@ static void ad_manager_added(GDBusProxy *proxy)
 	struct adapter *adapter;
 	adapter = find_ctrl(ctrl_list, g_dbus_proxy_get_path(proxy));
 	if (!adapter)
+		/*此adapter不存在，新建adapter*/
 		adapter = adapter_new(proxy);
 
+	/*设置ad_proxy*/
 	adapter->ad_proxy = proxy;
 }
 
@@ -444,8 +453,10 @@ static void admon_manager_added(GDBusProxy *proxy)
 
 	adapter = find_ctrl(ctrl_list, g_dbus_proxy_get_path(proxy));
 	if (!adapter)
+		/*此adapter不存在，新建adapter*/
 		adapter = adapter_new(proxy);
 
+	/*设置adv_monitor_proxy*/
 	adapter->adv_monitor_proxy = proxy;
 	adv_monitor_add_manager(dbus_conn, proxy);
 	adv_monitor_register_app(dbus_conn);
@@ -479,11 +490,14 @@ static void proxy_added(GDBusProxy *proxy, void *user_data)
 	interface = g_dbus_proxy_get_interface(proxy);
 
 	if (!strcmp(interface, "org.bluez.Device1")) {
+		/*添加device*/
 		device_added(proxy);
 	} else if (!strcmp(interface, "org.bluez.Adapter1")) {
+		/*添加adapter*/
 		adapter_added(proxy);
 	} else if (!strcmp(interface, "org.bluez.AgentManager1")) {
 		if (!agent_manager) {
+			/*如果agent_manager不存在，则设置agent_manager*/
 			agent_manager = proxy;
 
 			if (auto_register_agent &&
@@ -549,6 +563,7 @@ static void adapter_removed(GDBusProxy *proxy)
 		struct adapter *adapter = ll->data;
 
 		if (adapter->proxy == proxy) {
+			/*匹配此proxy,显示此adapter*/
 			print_adapter(proxy, COLORED_DEL);
 			bt_shell_set_env(g_dbus_proxy_get_path(proxy), NULL);
 
@@ -557,6 +572,7 @@ static void adapter_removed(GDBusProxy *proxy)
 				set_default_device(NULL, NULL);
 			}
 
+			/*移除此adapter*/
 			ctrl_list = g_list_remove_link(ctrl_list, ll);
 			g_list_free(adapter->devices);
 			g_list_free(adapter->sets);
@@ -749,6 +765,7 @@ static struct adapter *find_ctrl_by_address(GList *source, const char *address)
 		dbus_message_iter_get_basic(&iter, &str);
 
 		if (!strcasecmp(str, address))
+			/*字符串匹配，返回adapter*/
 			return adapter;
 	}
 
@@ -863,9 +880,10 @@ static void cmd_list(int argc, char *argv[])
 {
 	GList *list;
 
+	/*遍历ctrl_list,针对每一个元素，显示adapter*/
 	for (list = g_list_first(ctrl_list); list; list = g_list_next(list)) {
 		struct adapter *adapter = list->data;
-		print_adapter(adapter->proxy, NULL);
+		print_adapter(adapter->proxy, NULL);/*显示此adapter*/
 	}
 
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
@@ -881,8 +899,10 @@ static void cmd_show(int argc, char *argv[])
 		if (check_default_ctrl() == FALSE)
 			return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
+		/*未指定，使用默认controller*/
 		adapter = default_ctrl;
 	} else {
+		/*通过address查询并返回adapter*/
 		adapter = find_ctrl_by_address(ctrl_list, argv[1]);
 		if (!adapter) {
 			bt_shell_printf("Controller %s not available\n",
@@ -891,6 +911,7 @@ static void cmd_show(int argc, char *argv[])
 		}
 	}
 
+	/*显示controller详细信息*/
 	if (!g_dbus_proxy_get_property(adapter->proxy, "Address", &iter))
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
@@ -940,19 +961,24 @@ static void cmd_show(int argc, char *argv[])
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 }
 
+/*选择并设置默认adapter*/
 static void cmd_select(int argc, char *argv[])
 {
 	struct adapter *adapter;
 
+	/*通过address获取指定的adapter*/
 	adapter = find_ctrl_by_address(ctrl_list, argv[1]);
 	if (!adapter) {
+		/*此controller不存在*/
 		bt_shell_printf("Controller %s not available\n", argv[1]);
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 	}
 
 	if (default_ctrl && default_ctrl->proxy == adapter->proxy)
+		/*无需更新，仍为此adapter*/
 		return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 
+	/*设置默认controller*/
 	default_ctrl = adapter;
 	print_adapter(adapter->proxy, NULL);
 
@@ -969,8 +995,10 @@ static void cmd_devices(int argc, char *argv[])
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
 	if (check_default_ctrl() == FALSE)
+		/*未设置默认controller*/
 		return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 
+	/*遍历所有device*/
 	for (ll = g_list_first(default_ctrl->devices);
 			ll; ll = g_list_next(ll)) {
 		GDBusProxy *proxy = ll->data;
@@ -986,6 +1014,7 @@ static void cmd_devices(int argc, char *argv[])
 			if (!status)
 				continue;
 		}
+		/*显示此device信息*/
 		print_device(proxy, NULL);
 	}
 
@@ -1039,6 +1068,7 @@ static void cmd_reset_alias(int argc, char *argv[])
 	g_free(name);
 }
 
+/*设置contoller电源情况*/
 static void cmd_power(int argc, char *argv[])
 {
 	dbus_bool_t powered;
@@ -1048,13 +1078,15 @@ static void cmd_power(int argc, char *argv[])
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
 	if (check_default_ctrl() == FALSE)
+		/*未设置默认controller*/
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
 	str = g_strdup_printf("power %s", powered == TRUE ? "on" : "off");
 
+	/*通过dbus设置*/
 	if (g_dbus_proxy_set_property_basic(default_ctrl->proxy, "Powered",
 					DBUS_TYPE_BOOLEAN, &powered,
-					generic_callback, str, g_free) == TRUE)
+					generic_callback/*消息结果处理*/, str, g_free) == TRUE)
 		return;
 
 	g_free(str);
@@ -1757,6 +1789,7 @@ static void cmd_pair(int argc, char *argv[])
 	if (!proxy)
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
+	/*通过dbus代码调用pair*/
 	if (g_dbus_proxy_method_call(proxy, "Pair", NULL, pair_reply,
 							NULL, NULL) == FALSE) {
 		bt_shell_printf("Failed to pair\n");
@@ -3073,11 +3106,15 @@ static const struct bt_shell_menu gatt_menu = {
 static const struct bt_shell_menu main_menu = {
 	.name = "main",
 	.entries = {
+	/*列出所有controllers*/
 	{ "list",         NULL,       cmd_list, "List available controllers" },
+	/*显示controller详细信息*/
 	{ "show",         "[ctrl]",   cmd_show, "Controller information",
 							ctrl_generator },
+	/*选择并设置默认的controller*/
 	{ "select",       "<ctrl>",   cmd_select, "Select default controller",
 							ctrl_generator },
+	/*列出所有devices*/
 	{ "devices",      "[Paired/Bonded/Trusted/Connected]", cmd_devices,
 					"List available devices, with an "
 					"optional property as the filter" },
@@ -3085,6 +3122,7 @@ static const struct bt_shell_menu main_menu = {
 					"Set controller alias" },
 	{ "reset-alias",  NULL,       cmd_reset_alias,
 					"Reset controller alias" },
+	/**/
 	{ "power",        "<on/off>", cmd_power, "Set controller power",
 							NULL },
 	{ "pairable",     "<on/off>", cmd_pairable,
@@ -3161,17 +3199,22 @@ static void client_ready(GDBusClient *client, void *user_data)
 	setup_standard_input();
 }
 
+/*bluetoothctl对应的函数入口*/
 int main(int argc, char *argv[])
 {
 	GDBusClient *client;
 	int status;
 
+	/*参数解析*/
 	bt_shell_init(argc, argv, &opt);
+	/*注册主菜单*/
 	bt_shell_set_menu(&main_menu);
+	/*添加子菜单*/
 	bt_shell_add_submenu(&advertise_menu);
 	bt_shell_add_submenu(&advertise_monitor_menu);
 	bt_shell_add_submenu(&scan_menu);
 	bt_shell_add_submenu(&gatt_menu);
+	/*显示：Waiting to connect to bluetoothd...*/
 	bt_shell_set_prompt(PROMPT_OFF);
 
 	if (agent_option)
@@ -3179,6 +3222,7 @@ int main(int argc, char *argv[])
 	else
 		auto_register_agent = g_strdup("");
 
+	/*连接到dbus,所有命令通过dbus发送*/
 	dbus_conn = g_dbus_setup_bus(DBUS_BUS_SYSTEM, NULL, NULL);
 	g_dbus_attach_object_manager(dbus_conn);
 
@@ -3197,8 +3241,8 @@ int main(int argc, char *argv[])
 	g_dbus_client_set_disconnect_watch(client, disconnect_handler, NULL);
 	g_dbus_client_set_signal_watch(client, message_handler, NULL);
 
-	g_dbus_client_set_proxy_handlers(client, proxy_added, proxy_removed,
-							property_changed, NULL);
+	g_dbus_client_set_proxy_handlers(client, proxy_added/*添加设备/adapter等*/, proxy_removed/*移除设备/adapter等*/,
+							property_changed/*属性变更*/, NULL);
 
 	g_dbus_client_set_ready_watch(client, client_ready, NULL);
 

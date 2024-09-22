@@ -145,7 +145,7 @@ struct GDBusSecurityTable {
 
 #define GDBUS_ARGS(args...) (const GDBusArgInfo[]) { args, { } }
 
-#define GDBUS_METHOD(_name, _in_args, _out_args, _function) \
+#define GDBUS_METHOD(_name/*方法名*/, _in_args, _out_args, _function/*执行函数*/) \
 	.name = _name, \
 	.in_args = _in_args, \
 	.out_args = _out_args, \

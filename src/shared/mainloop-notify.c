@@ -52,6 +52,7 @@ static bool watchdog_callback(void *user_data)
 	return true;
 }
 
+/*初始化notify socket*/
 void mainloop_notify_init(void)
 {
 	const char *sock;
@@ -59,6 +60,7 @@ void mainloop_notify_init(void)
 	const char *watchdog_usec;
 	int msec;
 
+	/*取notify socket对应的unix path*/
 	sock = getenv("NOTIFY_SOCKET");
 	if (!sock)
 		return;
@@ -78,6 +80,7 @@ void mainloop_notify_init(void)
 	if (addr.sun_path[0] == '@')
 		addr.sun_path[0] = '\0';
 
+	/*连接到notify_fd*/
 	if (connect(notify_fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
 		close(notify_fd);
 		notify_fd = -1;
@@ -113,6 +116,7 @@ int mainloop_sd_notify(const char *state)
 	if (notify_fd <= 0)
 		return -ENOTCONN;
 
+	/*向notify_fd发送状态*/
 	err = send(notify_fd, state, strlen(state), MSG_NOSIGNAL);
 	if (err < 0)
 		return -errno;
@@ -185,6 +189,7 @@ int mainloop_run_with_signal(mainloop_signal_func func, void *user_data)
 		return -errno;
 	}
 
+	/*执行mainloop*/
 	ret = mainloop_run();
 
 	io_destroy(io);

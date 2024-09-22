@@ -59,7 +59,7 @@ struct GDBusProxy {
 	GDBusClient *client;
 	char *obj_path;
 	char *interface;
-	GHashTable *prop_list;
+	GHashTable *prop_list;/*属性表*/
 	guint watch;
 	GDBusPropertyFunction prop_func;
 	void *prop_data;
@@ -704,6 +704,7 @@ gboolean g_dbus_proxy_get_property(GDBusProxy *proxy, const char *name,
 	if (proxy == NULL || name == NULL)
 		return FALSE;
 
+	/*利用name查询属性表*/
 	prop = g_hash_table_lookup(proxy->prop_list, name);
 	if (prop == NULL)
 		return FALSE;
@@ -711,6 +712,7 @@ gboolean g_dbus_proxy_get_property(GDBusProxy *proxy, const char *name,
 	if (prop->msg == NULL)
 		return FALSE;
 
+	/*初始化此msg对应的iter*/
 	if (dbus_message_iter_init(prop->msg, iter) == FALSE)
 		return FALSE;
 
@@ -828,7 +830,7 @@ static void set_property_reply(DBusPendingCall *call, void *user_data)
 }
 
 gboolean g_dbus_proxy_set_property_basic(GDBusProxy *proxy,
-				const char *name, int type, const void *value,
+				const char *name, int type/*类型标记*/, const void *value/*类型对应的值*/,
 				GDBusResultFunction function, void *user_data,
 				GDBusDestroyFunction destroy)
 {
@@ -841,6 +843,7 @@ gboolean g_dbus_proxy_set_property_basic(GDBusProxy *proxy,
 	if (proxy == NULL || name == NULL || value == NULL)
 		return FALSE;
 
+	/*必须为基本类型*/
 	if (dbus_type_is_basic(type) == FALSE)
 		return FALSE;
 
@@ -852,10 +855,11 @@ gboolean g_dbus_proxy_set_property_basic(GDBusProxy *proxy,
 	if (data == NULL)
 		return FALSE;
 
-	data->function = function;
+	data->function = function;/*reply处理结果*/
 	data->user_data = user_data;
 	data->destroy = destroy;
 
+	/*构造消息为properties接口的set方法*/
 	msg = dbus_message_new_method_call(client->service_name,
 			proxy->obj_path, DBUS_INTERFACE_PROPERTIES, "Set");
 	if (msg == NULL) {
@@ -866,10 +870,13 @@ gboolean g_dbus_proxy_set_property_basic(GDBusProxy *proxy,
 	dbus_message_iter_init_append(msg, &iter);
 	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING,
 							&proxy->interface);
+	/*设置set对应的key名称*/
 	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &name);
 
+	/*设置set对应的value值*/
 	append_variant(&iter, type, value);
 
+	/*发送请求，并等待响应*/
 	if (g_dbus_send_message_with_reply(client->dbus_conn, msg,
 							&call, -1) == FALSE) {
 		dbus_message_unref(msg);
@@ -1285,6 +1292,7 @@ static void service_connect(DBusConnection *conn, void *user_data)
 
 	get_managed_objects(client);
 
+	/*解发connect function*/
 	if (client->connect_func)
 		client->connect_func(conn, client->connect_data);
 

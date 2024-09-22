@@ -227,6 +227,7 @@ static gboolean root_folder_setup(char *root, char *root_setup)
 	return is_dir(root);
 }
 
+/*负责obex server*/
 int main(int argc, char *argv[])
 {
 	GOptionContext *context;
@@ -287,6 +288,7 @@ int main(int argc, char *argv[])
 	if (option_capability == NULL)
 		option_capability = g_strdup(DEFAULT_CAP_FILE);
 
+	/*初始化插件*/
 	plugin_init(option_plugin, option_noplugin);
 
 	if (obex_server_init() < 0) {

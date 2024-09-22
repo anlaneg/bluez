@@ -198,9 +198,10 @@ proceed:
 
 int bt_string2uuid(uuid_t *uuid, const char *string)
 {
-	uint32_t data0, data4;
-	uint16_t data1, data2, data3, data5;
+	uint32_t data0, data4;//8字节
+	uint16_t data1, data2, data3, data5;//8字节
 
+	/*解析uuid*/
 	if (is_uuid128(string) &&
 			sscanf(string, "%08x-%04hx-%04hx-%04hx-%08x%04hx",
 				&data0, &data1, &data2, &data3, &data4, &data5) == 6) {

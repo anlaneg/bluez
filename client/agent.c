@@ -324,6 +324,7 @@ void agent_register(DBusConnection *conn, GDBusProxy *manager,
 		return;
 	}
 
+	/*设置agent_capability*/
 	agent_capability = capability;
 
 	if (g_dbus_register_interface(conn, AGENT_PATH,

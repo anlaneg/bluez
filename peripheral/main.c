@@ -53,7 +53,7 @@ static const struct {
 
 static const struct {
 	const char *fstype;
-	const char *target;
+	const char *target;/*挂载目标节点*/
 	const char *options;
 	unsigned long flags;
 } mount_table[] = {
@@ -85,6 +85,7 @@ static void prepare_filesystem(void)
 		printf("Mounting %s to %s\n", mount_table[i].fstype,
 						mount_table[i].target);
 
+		/*持载这些文件系统*/
 		if (mount(mount_table[i].fstype,
 				mount_table[i].target,
 				mount_table[i].fstype,
@@ -114,6 +115,7 @@ static void run_shell(void)
 	}
 
 	if (pid == 0) {
+		/*执行shell*/
 		char *prg_argv[] = { "/bin/sh", NULL };
 		char *prg_envp[] = { NULL };
 

@@ -911,6 +911,7 @@ done:
 		btd_add_conn_fail_cb(conn_fail_cb);
 	}
 
+	/*注册policy驱动*/
 	btd_register_adapter_driver(&policy_driver);
 
 	return 0;

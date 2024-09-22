@@ -111,9 +111,9 @@ struct btd_advmon_opts {
 struct btd_opts {
 	char		*name;
 	uint32_t	class;
-	gboolean	pairable;
-	uint32_t	pairto;
-	uint32_t	discovto;
+	gboolean	pairable;/*是否总配对（AlwaysPairable）*/
+	uint32_t	pairto;/*配对超时时间（PairableTimeout）*/
+	uint32_t	discovto;/*discover的超时时间*/
 	uint32_t	tmpto;
 	uint8_t		privacy;
 	bool		device_privacy;

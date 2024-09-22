@@ -41,6 +41,7 @@ int create_filename(char *str, size_t size, const char *fmt, ...)
 
 		/* Check if running as service */
 		if (statedir) {
+			/*环境变量给出了state_directory*/
 			prefix = statedir;
 
 			/* Check if there multiple paths given */
@@ -49,11 +50,13 @@ int create_filename(char *str, size_t size, const char *fmt, ...)
 			else
 				prefix_len = strlen(prefix);
 		} else {
+			/*否则使用默认directory*/
 			prefix = STORAGEDIR;
 			prefix_len = strlen(prefix);
 		}
 	}
 
+	/*生成后缀*/
 	va_start(ap, fmt);
 	err = vsnprintf(suffix, sizeof(suffix), fmt, ap);
 	va_end(ap);
@@ -61,6 +64,7 @@ int create_filename(char *str, size_t size, const char *fmt, ...)
 	if (err < 0)
 		return err;
 
+	/*返回名称*/
 	return snprintf(str, size, "%*s%s", prefix_len, prefix, suffix);
 }
 

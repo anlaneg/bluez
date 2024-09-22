@@ -3150,6 +3150,7 @@ static DBusMessage *cancel_pairing(DBusConnection *conn, DBusMessage *msg,
 	return dbus_message_new_method_return(msg);
 }
 
+/*定义针对设备的方法*/
 static const GDBusMethodTable device_methods[] = {
 	{ GDBUS_ASYNC_METHOD("Disconnect", NULL, NULL, dev_disconnect) },
 	{ GDBUS_ASYNC_METHOD("Connect", NULL, NULL, dev_connect) },
@@ -4893,7 +4894,7 @@ void device_probe_profiles(struct btd_device *device, GSList *uuids)
 
 	DBG("Probing profiles for device %s", addr);
 
-	btd_profile_foreach(dev_probe, &d);
+	btd_profile_foreach(dev_probe, &d);/*设备probe profile*/
 
 add_uuids:
 	device_add_uuids(device, uuids);

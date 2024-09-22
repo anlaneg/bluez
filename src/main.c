@@ -232,29 +232,35 @@ GKeyFile *btd_get_main_conf(void)
 	return main_conf;
 }
 
-static GKeyFile *load_config(const char *name)
+/*加载配置文件*/
+static GKeyFile *load_config(const char *name/*配置文件名称*/)
 {
 	GError *err = NULL;
 	GKeyFile *keyfile;
 	int len;
 
 	if (name)
+		/*参数指定配置文件时*/
 		snprintf(main_conf_file_path, PATH_MAX, "%s", name);
 	else {
+		/*参数未指定配置文件，先尝试环境变量*/
 		const char *configdir = getenv("CONFIGURATION_DIRECTORY");
 
 		/* Check if running as service */
 		if (configdir) {
 			/* Check if there multiple paths given */
 			if (strstr(configdir, ":"))
+				/*环境变量有多个目录时，先尝试第一个目录*/
 				len = strstr(configdir, ":") - configdir;
 			else
 				len = strlen(configdir);
 		} else {
+			/*使用默认配置文件目录*/
 			configdir = CONFIGDIR;
 			len = strlen(configdir);
 		}
 
+		/*使用默认的配置文件路径*/
 		snprintf(main_conf_file_path, PATH_MAX, "%*s/main.conf", len,
 						 configdir);
 	}
@@ -385,18 +391,20 @@ static void check_config(GKeyFile *config)
 
 		for (group = valid_groups; group && group->name ; group++) {
 			if (g_str_equal(keys[i], group->name)) {
-				match = true;
+				match = true;/*有效group*/
 				break;
 			}
 		}
 
 		if (!match)
+			/*无效group*/
 			warn("Unknown group %s in %s", keys[i],
 						main_conf_file_path);
 	}
 
 	g_strfreev(keys);
 
+	/*检查group下对应的key*/
 	for (group = valid_groups; group && group->name; group++)
 		check_options(config, group->name, group->options);
 }
@@ -644,8 +652,9 @@ static bool match_experimental(const void *data, const void *match_data)
 	const char *uuid = match_data;
 
 	if (!strcmp(value, "*"))
-		return true;
+		return true;/*通过'*'匹配*/
 
+	/*完全匹配*/
 	return !strcasecmp(value, uuid);
 }
 
@@ -742,6 +751,7 @@ static void parse_config(GKeyFile *config)
 
 	DBG("parsing %s", main_conf_file_path);
 
+	/*取discoverableTimeout配置*/
 	val = g_key_file_get_integer(config, "General",
 						"DiscoverableTimeout", &err);
 	if (err) {
@@ -772,6 +782,7 @@ static void parse_config(GKeyFile *config)
 		btd_opts.pairto = val;
 	}
 
+	/*隐私配置*/
 	str = g_key_file_get_string(config, "General", "Privacy", &err);
 	if (err) {
 		DBG("%s", err->message);
@@ -1115,13 +1126,14 @@ static void parse_config(GKeyFile *config)
 	parse_le_config(config);
 }
 
+/*初始化btd_opts结构体*/
 static void init_defaults(void)
 {
 	uint8_t major, minor;
 
 	/* Default HCId settings */
 	memset(&btd_opts, 0, sizeof(btd_opts));
-	btd_opts.name = g_strdup_printf("BlueZ %s", VERSION);
+	btd_opts.name = g_strdup_printf("BlueZ %s", VERSION);/*设置name*/
 	btd_opts.class = 0x000000;
 	btd_opts.pairto = DEFAULT_PAIRABLE_TIMEOUT;
 	btd_opts.discovto = DEFAULT_DISCOVERABLE_TIMEOUT;
@@ -1138,6 +1150,7 @@ static void init_defaults(void)
 	btd_opts.defaults.br.scan_type = 0xFFFF;
 	btd_opts.defaults.le.enable_advmon_interleave_scan = 0xFF;
 
+	/*取当前版本的主，从版本*/
 	if (sscanf(VERSION, "%hhu.%hhu", &major, &minor) != 2)
 		return;
 
@@ -1209,6 +1222,7 @@ static void signal_callback(int signum, void *user_data)
 static char *option_debug = NULL;
 static char *option_plugin = NULL;
 static char *option_noplugin = NULL;
+/*通过选项指定的配置文件*/
 static char *option_configfile = NULL;
 static gboolean option_compat = FALSE;
 static gboolean option_detach = TRUE;
@@ -1248,11 +1262,13 @@ static void disconnected_dbus(DBusConnection *conn, void *data)
 	mainloop_quit();
 }
 
+/*连接到dbus*/
 static int connect_dbus(void)
 {
 	DBusConnection *conn;
 	DBusError err;
 
+	/*初始化dbus err*/
 	dbus_error_init(&err);
 
 	conn = g_dbus_setup_bus(DBUS_BUS_SYSTEM, BLUEZ_NAME, &err);
@@ -1304,7 +1320,7 @@ static gboolean parse_kernel_experimental(const char *key, const char *value,
 
 static GOptionEntry options[] = {
 	{ "debug", 'd', G_OPTION_FLAG_OPTIONAL_ARG,
-				G_OPTION_ARG_CALLBACK, parse_debug,
+				G_OPTION_ARG_CALLBACK, parse_debug/*解析并填充此选项对应的变量*/,
 				"Specify debug options to enable", "DEBUG" },
 	{ "plugin", 'p', 0, G_OPTION_ARG_STRING, &option_plugin,
 				"Specify plugins to load", "NAME,..," },
@@ -1335,11 +1351,14 @@ int main(int argc, char *argv[])
 	uint32_t sdp_flags = 0;
 	int gdbus_flags = 0;
 
+	/*初始化btd_opts结构体*/
 	init_defaults();
 
+	/*生成一个context变量*/
 	context = g_option_context_new(NULL);
-	g_option_context_add_main_entries(context, options, NULL);
+	g_option_context_add_main_entries(context, options, NULL);/*添加options*/
 
+	/*执行命令行解析，参数options中指明回调会被调用*/
 	if (g_option_context_parse(context, &argc, &argv, &err) == FALSE) {
 		if (err != NULL) {
 			g_printerr("%s\n", err->message);
@@ -1349,9 +1368,11 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+	/*context变量使命完成，销毁*/
 	g_option_context_free(context);
 
 	if (option_version == TRUE) {
+		/*如果只需要显示版本，则显示后进程退出*/
 		printf("%s\n", VERSION);
 		exit(0);
 	}
@@ -1360,21 +1381,28 @@ int main(int argc, char *argv[])
 
 	btd_backtrace_init();
 
+	/*初始化mainloop*/
 	mainloop_init();
 
+	/*初始化log*/
 	__btd_log_init(option_debug, option_detach);
 
 	g_log_set_handler("GLib", G_LOG_LEVEL_MASK | G_LOG_FLAG_FATAL |
 							G_LOG_FLAG_RECURSION,
 							log_handler, NULL);
 
+	/*知会service正在启动*/
 	mainloop_sd_notify("STATUS=Starting up");
 
+	/*加载配置，形成main_conf*/
 	main_conf = load_config(option_configfile);
 
+	/*解析main_conf*/
 	parse_config(main_conf);
 
+	/*连接到dbus*/
 	if (connect_dbus() < 0) {
+		/*无法连接到dbus,报错退出*/
 		error("Unable to get on D-Bus");
 		exit(1);
 	}
@@ -1384,14 +1412,15 @@ int main(int argc, char *argv[])
 
 	g_dbus_set_flags(gdbus_flags);
 
+	/*初始化adapter*/
 	if (adapter_init() < 0) {
 		error("Adapter handling initialization failed");
 		exit(1);
 	}
 
 	btd_device_init();
-	btd_agent_init();
-	btd_profile_init();
+	btd_agent_init();/*dbus agent接口注册*/
+	btd_profile_init();/*dbus profile接口注册*/
 
 	if (btd_opts.mode != BT_MODE_LE) {
 		if (option_compat == TRUE)
@@ -1422,12 +1451,13 @@ int main(int argc, char *argv[])
 
 	DBG("Entering main loop");
 
-	mainloop_sd_notify("STATUS=Running");
-	mainloop_sd_notify("READY=1");
+	mainloop_sd_notify("STATUS=Running");/*指明进程正在运行*/
+	mainloop_sd_notify("READY=1");/*指明进程ready*/
 
+	/*执行主循环，此函数退出后，执行进程退出处理*/
 	mainloop_run_with_signal(signal_callback, NULL);
 
-	mainloop_sd_notify("STATUS=Quitting");
+	mainloop_sd_notify("STATUS=Quitting");/*指明进程退出*/
 
 	plugin_cleanup();
 

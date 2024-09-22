@@ -32,17 +32,18 @@
 
 struct mgmt {
 	int ref_count;
-	int fd;
+	int fd;/*对应的为PF_BLUETOOTH socket*/
 	bool close_on_unref;
-	struct io *io;
+	struct io *io;/*处理fd*/
 	bool writer_active;
 	struct queue *request_queue;
 	struct queue *reply_queue;
 	struct queue *pending_list;
+	/*注册的event通知处理函数*/
 	struct queue *notify_list;
 	unsigned int next_request_id;
 	unsigned int next_notify_id;
-	bool need_notify_cleanup;
+	bool need_notify_cleanup;/*指明notify一旦被触发是否需要cleanup*/
 	bool in_notify;
 	void *buf;
 	uint16_t len;
@@ -59,11 +60,12 @@ struct mgmt_request {
 	uint16_t index;
 	void *buf;
 	uint16_t len;
+	/*消息处理函数，例如请求添加失败，超时，请求响应*/
 	mgmt_request_func_t callback;
-	mgmt_destroy_func_t destroy;
+	mgmt_destroy_func_t destroy;/*request销毁时调用*/
 	void *user_data;
 	int timeout;
-	unsigned int timeout_id;
+	unsigned int timeout_id;/*此request对应的timeout event*/
 };
 
 struct mgmt_notify {
@@ -71,6 +73,7 @@ struct mgmt_notify {
 	uint16_t event;
 	uint16_t index;
 	bool removed;
+	/*收到关注事件要执行的callback*/
 	mgmt_notify_func_t callback;
 	mgmt_destroy_func_t destroy;
 	void *user_data;
@@ -160,6 +163,7 @@ static void write_watch_destroy(void *user_data)
 	mgmt->writer_active = false;
 }
 
+/*request超时触发*/
 static bool request_timeout(void *data)
 {
 	struct mgmt_request *request = data;
@@ -169,8 +173,10 @@ static bool request_timeout(void *data)
 
 	request->timeout_id = 0;
 
+	/*将此request移除*/
 	queue_remove_if(request->mgmt->pending_list, NULL, request);
 
+	/*触发timeout事件*/
 	if (request->callback)
 		request->callback(MGMT_STATUS_TIMEOUT, 0, NULL,
 						request->user_data);
@@ -200,17 +206,20 @@ static bool send_request(struct mgmt *mgmt, struct mgmt_request *request)
 	iov.iov_base = request->buf;
 	iov.iov_len = request->len;
 
+	/*向fd写入request*/
 	ret = io_send(mgmt->io, &iov, 1);
 	if (ret < 0) {
 		DBG(mgmt, "write failed: %s", strerror(-ret));
 
+		/*发送出错，如有callback，则调用*/
 		if (request->callback)
-			request->callback(MGMT_STATUS_FAILED, 0, NULL,
+			request->callback(MGMT_STATUS_FAILED/*添加失败*/, 0, NULL,
 							request->user_data);
 		destroy_request(request);
 		return false;
 	}
 
+	/*如指明了timeout,则添加*/
 	if (request->timeout)
 		request->timeout_id = timeout_add_seconds(request->timeout,
 							request_timeout,
@@ -219,23 +228,27 @@ static bool send_request(struct mgmt *mgmt, struct mgmt_request *request)
 
 	DBG(mgmt, "[0x%04x] command 0x%04x", request->index, request->opcode);
 
+	/*请求中，加入到pending_list*/
 	queue_push_tail(mgmt->pending_list, request);
 
 	return true;
 }
 
+/*此回调被触发时，io可以write数据*/
 static bool can_write_data(struct io *io, void *user_data)
 {
 	struct mgmt *mgmt = user_data;
 	struct mgmt_request *request;
 	bool can_write;
 
+	/*优先发送reply_queue*/
 	request = queue_pop_head(mgmt->reply_queue);
 	if (!request) {
 		/* only reply commands can jump the queue */
 		if (!queue_isempty(mgmt->pending_list))
 			return false;
 
+		/*reply_queue上无数据，自request_queue上取一个request*/
 		request = queue_pop_head(mgmt->request_queue);
 		if (!request)
 			return false;
@@ -246,6 +259,7 @@ static bool can_write_data(struct io *io, void *user_data)
 		can_write = !queue_isempty(mgmt->reply_queue);
 	}
 
+	/*发送请求*/
 	if (!send_request(mgmt, request))
 		return true;
 
@@ -260,11 +274,14 @@ static void wakeup_writer(struct mgmt *mgmt)
 			return;
 	}
 
+	/*已激活，直接返回*/
 	if (mgmt->writer_active)
 		return;
 
+	/*激活*/
 	mgmt->writer_active = true;
 
+	/*设置此io对应的write handler*/
 	io_set_write_handler(mgmt->io, can_write_data, mgmt,
 						write_watch_destroy);
 }
@@ -302,6 +319,7 @@ static void request_complete(struct mgmt *mgmt, uint8_t status,
 	}
 
 	if (request) {
+		/*触发request完成回调，指明状态*/
 		if (request->callback)
 			request->callback(status, length, param,
 							request->user_data);
@@ -328,17 +346,20 @@ static void notify_handler(void *data, void *user_data)
 		return;
 
 	if (notify->event != match->event)
+		/*事件必须匹配*/
 		return;
 
 	if (notify->index != match->index && notify->index != MGMT_INDEX_NONE)
+		/*index必须匹配*/
 		return;
 
+	/*执行notify提前注册好的callback*/
 	if (notify->callback)
 		notify->callback(match->index, match->length, match->param,
 							notify->user_data);
 }
 
-static void process_notify(struct mgmt *mgmt, uint16_t event, uint16_t index,
+static void process_notify(struct mgmt *mgmt, uint16_t event/*event唯一编号*/, uint16_t index/*此event关联的index*/,
 					uint16_t length, const void *param)
 {
 	struct event_index match = { .event = event, .index = index,
@@ -346,10 +367,14 @@ static void process_notify(struct mgmt *mgmt, uint16_t event, uint16_t index,
 
 	mgmt->in_notify = true;
 
-	queue_foreach(mgmt->notify_list, notify_handler, &match);
+	/*遍历mgmt->notify_list,执行notify_handler回调
+	 * 此回调将对match进行检查，对满足要求的，执行element上注册的回调
+	 * */
+	queue_foreach(mgmt->notify_list, notify_handler, &match/*匹配项*/);
 
 	mgmt->in_notify = false;
 
+	/*如果通知后需要移除，则移除*/
 	if (mgmt->need_notify_cleanup) {
 		queue_remove_all(mgmt->notify_list, match_notify_removed,
 							NULL, destroy_notify);
@@ -357,6 +382,7 @@ static void process_notify(struct mgmt *mgmt, uint16_t event, uint16_t index,
 	}
 }
 
+/*处理mgmt对应的io(read)*/
 static bool can_read_data(struct io *io, void *user_data)
 {
 	struct mgmt *mgmt = user_data;
@@ -366,6 +392,7 @@ static bool can_read_data(struct io *io, void *user_data)
 	ssize_t bytes_read;
 	uint16_t opcode, event, index, length;
 
+	/*自fd中读取数据*/
 	bytes_read = read(mgmt->fd, mgmt->buf, mgmt->len);
 	if (bytes_read < 0)
 		return false;
@@ -391,10 +418,12 @@ static bool can_read_data(struct io *io, void *user_data)
 		DBG(mgmt, "[0x%04x] command 0x%04x complete: 0x%02x",
 						index, opcode, cc->status);
 
+		/*读取到响应*/
 		request_complete(mgmt, cc->status, opcode, index, length - 3,
 						mgmt->buf + MGMT_HDR_SIZE + 3);
 		break;
 	case MGMT_EV_CMD_STATUS:
+		/*读取到响应状态*/
 		cs = mgmt->buf + MGMT_HDR_SIZE;
 		opcode = btohs(cs->opcode);
 
@@ -406,6 +435,7 @@ static bool can_read_data(struct io *io, void *user_data)
 	default:
 		DBG(mgmt, "[0x%04x] event 0x%04x", index, event);
 
+		/*处理收到的event,执行相应的notify回调*/
 		process_notify(mgmt, event, index, length,
 						mgmt->buf + MGMT_HDR_SIZE);
 		break;
@@ -450,7 +480,7 @@ struct mgmt *mgmt_new(int fd)
 		return NULL;
 
 	mgmt = new0(struct mgmt, 1);
-	mgmt->fd = fd;
+	mgmt->fd = fd;/*记录mgmt对应的fd*/
 	mgmt->close_on_unref = false;
 
 	mgmt->len = 512;
@@ -460,6 +490,7 @@ struct mgmt *mgmt_new(int fd)
 		return NULL;
 	}
 
+	/*创建此fd对应的io*/
 	mgmt->io = io_new(fd);
 	if (!mgmt->io) {
 		free(mgmt->buf);
@@ -472,6 +503,7 @@ struct mgmt *mgmt_new(int fd)
 	mgmt->pending_list = queue_new();
 	mgmt->notify_list = queue_new();
 
+	/*监听此fd上收到的消息*/
 	if (!io_set_read_handler(mgmt->io, can_read_data, mgmt, NULL)) {
 		queue_destroy(mgmt->notify_list, NULL);
 		queue_destroy(mgmt->pending_list, NULL);
@@ -499,21 +531,26 @@ struct mgmt *mgmt_new_default(void)
 	} addr;
 	int fd;
 
+	/*创建bluetooth对应的socket*/
 	fd = socket(PF_BLUETOOTH, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK,
 								BTPROTO_HCI);
 	if (fd < 0)
 		return NULL;
 
+	/*设置地址，并要求绑定，见hci_sock_bind函数实现*/
 	memset(&addr, 0, sizeof(addr));
-	addr.hci.hci_family = AF_BLUETOOTH;
+	addr.hci.hci_family = AF_BLUETOOTH;/*指明协议族，否则会被忽略*/
+	/*指明hci_dev为None,由于下文要指明control channel,此类型channle要求此值必须为HCI_DEV_NONE*/
 	addr.hci.hci_dev = HCI_DEV_NONE;
-	addr.hci.hci_channel = HCI_CHANNEL_CONTROL;
+	addr.hci.hci_channel = HCI_CHANNEL_CONTROL;/*指明channel为control channel*/
 
+	/*触发kernel hci_sock_bind函数调用,使此socket为mgmt*/
 	if (bind(fd, &addr.common, sizeof(addr.hci)) < 0) {
 		close(fd);
 		return NULL;
 	}
 
+	/*创建mgmt*/
 	mgmt = mgmt_new(fd);
 	if (!mgmt) {
 		close(fd);
@@ -572,6 +609,7 @@ void mgmt_unref(struct mgmt *mgmt)
 	}
 }
 
+/*设置debug相关的回调*/
 bool mgmt_set_debug(struct mgmt *mgmt, mgmt_debug_func_t callback,
 				void *user_data, mgmt_destroy_func_t destroy)
 {
@@ -600,7 +638,7 @@ bool mgmt_set_close_on_unref(struct mgmt *mgmt, bool do_close)
 
 static struct mgmt_request *create_request(struct mgmt *mgmt, uint16_t opcode,
 				uint16_t index, uint16_t length,
-				const void *param, mgmt_request_func_t callback,
+				const void *param, mgmt_request_func_t callback/*消息处理函数，例如请求添加失败，超时*/,
 				void *user_data, mgmt_destroy_func_t destroy,
 				int timeout)
 {
@@ -608,12 +646,15 @@ static struct mgmt_request *create_request(struct mgmt *mgmt, uint16_t opcode,
 	struct mgmt_hdr *hdr;
 
 	if (!opcode)
+		/*opcode不能为0*/
 		return NULL;
 
 	if (length > 0 && !param)
+		/*无参数情况下，长度不能大于零*/
 		return NULL;
 
 	if (length > mgmt->mtu) {
+		/*长度不得超过mtu*/
 		printf("length %u > %u mgmt->mtu", length, mgmt->mtu);
 		return NULL;
 	}
@@ -630,7 +671,7 @@ static struct mgmt_request *create_request(struct mgmt *mgmt, uint16_t opcode,
 		memcpy(request->buf + MGMT_HDR_SIZE, param, length);
 
 	hdr = request->buf;
-	hdr->opcode = htobs(opcode);
+	hdr->opcode = htobs(opcode);/*设置请求对应的opcode*/
 	hdr->index = htobs(index);
 	hdr->len = htobs(length);
 
@@ -645,7 +686,7 @@ static struct mgmt_request *create_request(struct mgmt *mgmt, uint16_t opcode,
 	request->callback = callback;
 	request->destroy = destroy;
 	request->user_data = user_data;
-	request->timeout = timeout;
+	request->timeout = timeout;/*设置超时时间*/
 
 	return request;
 }
@@ -777,6 +818,7 @@ unsigned int mgmt_send_tlv(struct mgmt *mgmt, uint16_t opcode, uint16_t index,
 	return ret;
 }
 
+/*创建request,并将request添加至mgmt->request_queue*/
 unsigned int mgmt_send_timeout(struct mgmt *mgmt, uint16_t opcode,
 				uint16_t index, uint16_t length,
 				const void *param, mgmt_request_func_t callback,
@@ -788,34 +830,40 @@ unsigned int mgmt_send_timeout(struct mgmt *mgmt, uint16_t opcode,
 	if (!mgmt)
 		return 0;
 
+	/*构造请求*/
 	request = create_request(mgmt, opcode, index, length, param,
 					callback, user_data, destroy, timeout);
 	if (!request)
 		return 0;
 
+	/*初始化mgmt next_reqeust_id*/
 	if (mgmt->next_request_id < 1)
 		mgmt->next_request_id = 1;
 
+	/*为request关联id*/
 	request->id = mgmt->next_request_id++;
 
+	/*挂接到队列*/
 	if (!queue_push_tail(mgmt->request_queue, request)) {
 		free(request->buf);
 		free(request);
 		return 0;
 	}
 
+	/*尝试触发writer*/
 	wakeup_writer(mgmt);
 
 	return request->id;
 }
 
+/*自mgmt socket写入数据*/
 unsigned int mgmt_send(struct mgmt *mgmt, uint16_t opcode, uint16_t index,
 				uint16_t length, const void *param,
 				mgmt_request_func_t callback,
 				void *user_data, mgmt_destroy_func_t destroy)
 {
 	return mgmt_send_timeout(mgmt, opcode, index, length, param, callback,
-					user_data, destroy, 0);
+					user_data, destroy, 0/*无需要考虑超时*/);
 }
 
 unsigned int mgmt_send_nowait(struct mgmt *mgmt, uint16_t opcode, uint16_t index,
@@ -943,7 +991,8 @@ bool mgmt_cancel_all(struct mgmt *mgmt)
 	return true;
 }
 
-unsigned int mgmt_register(struct mgmt *mgmt, uint16_t event, uint16_t index,
+/*注册event notify处理回调*/
+unsigned int mgmt_register(struct mgmt *mgmt, uint16_t event/*关注的事件编号*/, uint16_t index/*关注的index*/,
 				mgmt_notify_func_t callback,
 				void *user_data, mgmt_destroy_func_t destroy)
 {
@@ -956,7 +1005,7 @@ unsigned int mgmt_register(struct mgmt *mgmt, uint16_t event, uint16_t index,
 	notify->event = event;
 	notify->index = index;
 
-	notify->callback = callback;
+	notify->callback = callback;/*要执行的回调*/
 	notify->destroy = destroy;
 	notify->user_data = user_data;
 
@@ -965,6 +1014,7 @@ unsigned int mgmt_register(struct mgmt *mgmt, uint16_t event, uint16_t index,
 
 	notify->id = mgmt->next_notify_id++;
 
+	/*将事件注册信息添加进notify_list*/
 	if (!queue_push_tail(mgmt->notify_list, notify)) {
 		free(notify);
 		return 0;
@@ -973,6 +1023,7 @@ unsigned int mgmt_register(struct mgmt *mgmt, uint16_t event, uint16_t index,
 	return notify->id;
 }
 
+/*解注册event notify处理回调*/
 bool mgmt_unregister(struct mgmt *mgmt, unsigned int id)
 {
 	struct mgmt_notify *notify;
@@ -980,6 +1031,7 @@ bool mgmt_unregister(struct mgmt *mgmt, unsigned int id)
 	if (!mgmt || !id)
 		return false;
 
+	/*遍历notify_list,匹配id,对匹配的notify进行移除*/
 	notify = queue_remove_if(mgmt->notify_list, match_notify_id,
 							UINT_TO_PTR(id));
 	if (!notify)

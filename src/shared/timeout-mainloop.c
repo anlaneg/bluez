@@ -43,6 +43,7 @@ static void timeout_destroy(void *user_data)
 	free(data);
 }
 
+/*增加timeout事件*/
 unsigned int timeout_add(unsigned int timeout, timeout_func_t func,
 			void *user_data, timeout_destroy_func_t destroy)
 {
@@ -75,5 +76,6 @@ void timeout_remove(unsigned int id)
 unsigned int timeout_add_seconds(unsigned int timeout, timeout_func_t func,
 			void *user_data, timeout_destroy_func_t destroy)
 {
+	/*按秒设置超时时间*/
 	return timeout_add(timeout * 1000, func, user_data, destroy);
 }

@@ -123,6 +123,7 @@ gboolean plugin_init(const char *enable, const char *disable)
 
 	DBG("Loading builtin plugins");
 
+	/*初始化插件*/
 	for (i = 0; __bluetooth_builtin[i]; i++) {
 		if (!enable_plugin(__bluetooth_builtin[i]->name, cli_enabled,
 								cli_disabled))
@@ -151,6 +152,7 @@ gboolean plugin_init(const char *enable, const char *disable)
 
 		filename = g_build_filename(PLUGINDIR, file, NULL);
 
+		/*打开so*/
 		handle = dlopen(filename, RTLD_NOW);
 		if (handle == NULL) {
 			error("Can't load plugin %s: %s", filename,
@@ -161,6 +163,7 @@ gboolean plugin_init(const char *enable, const char *disable)
 
 		g_free(filename);
 
+		/*取描述*/
 		desc = dlsym(handle, "bluetooth_plugin_desc");
 		if (desc == NULL) {
 			error("Can't load plugin description: %s", dlerror());

@@ -118,6 +118,7 @@ static struct btd_adapter_driver wii_driver = {
 
 static int wii_init(void)
 {
+	/*注册wiimote驱动*/
 	return btd_register_adapter_driver(&wii_driver);
 }
 

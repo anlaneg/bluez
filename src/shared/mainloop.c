@@ -59,6 +59,7 @@ void mainloop_init(void)
 {
 	unsigned int i;
 
+	/*创建epoll fd*/
 	epoll_fd = epoll_create1(EPOLL_CLOEXEC);
 
 	for (i = 0; i < MAX_MAINLOOP_ENTRIES; i++)
@@ -96,10 +97,12 @@ int mainloop_run(void)
 		struct epoll_event events[MAX_EPOLL_EVENTS];
 		int n, nfds;
 
+		/*获得fd事件*/
 		nfds = epoll_wait(epoll_fd, events, MAX_EPOLL_EVENTS, -1);
 		if (nfds < 0)
 			continue;
 
+		/*通过callback处理这些事件*/
 		for (n = 0; n < nfds; n++) {
 			struct mainloop_data *data = events[n].data.ptr;
 
@@ -108,6 +111,7 @@ int mainloop_run(void)
 		}
 	}
 
+	/*自epoll中移除mainloop_list中所有fd*/
 	for (i = 0; i < MAX_MAINLOOP_ENTRIES; i++) {
 		struct mainloop_data *data = mainloop_list[i];
 
@@ -131,6 +135,7 @@ int mainloop_run(void)
 	return exit_status;
 }
 
+/*向mainloop中添加fd*/
 int mainloop_add_fd(int fd, uint32_t events, mainloop_event_func callback,
 				void *user_data, mainloop_destroy_func destroy)
 {
@@ -156,17 +161,20 @@ int mainloop_add_fd(int fd, uint32_t events, mainloop_event_func callback,
 	ev.events = events;
 	ev.data.ptr = data;
 
+	/*添加data->fd事件关注*/
 	err = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, data->fd, &ev);
 	if (err < 0) {
 		free(data);
 		return err;
 	}
 
+	/*设置此fd对应的私有数据*/
 	mainloop_list[fd] = data;
 
 	return 0;
 }
 
+/*fd的关注事件发生了变化，更新它*/
 int mainloop_modify_fd(int fd, uint32_t events)
 {
 	struct mainloop_data *data;
@@ -184,6 +192,7 @@ int mainloop_modify_fd(int fd, uint32_t events)
 	ev.events = events;
 	ev.data.ptr = data;
 
+	/*修改data->fd事件关注*/
 	err = epoll_ctl(epoll_fd, EPOLL_CTL_MOD, data->fd, &ev);
 	if (err < 0)
 		return err;
@@ -258,6 +267,7 @@ static inline int timeout_set(int fd, unsigned int msec)
 	itimer.it_value.tv_sec = sec;
 	itimer.it_value.tv_nsec = (msec - (sec * 1000)) * 1000 * 1000;
 
+	/*设置触发时间*/
 	return timerfd_settime(fd, 0, &itimer, NULL);
 }
 
@@ -274,10 +284,11 @@ int mainloop_add_timeout(unsigned int msec, mainloop_timeout_func callback,
 		return -ENOMEM;
 
 	memset(data, 0, sizeof(*data));
-	data->callback = callback;
+	data->callback = callback;/*timeout对应的回调*/
 	data->destroy = destroy;
 	data->user_data = user_data;
 
+	/*创建timerfd*/
 	data->fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
 	if (data->fd < 0) {
 		free(data);
@@ -292,6 +303,7 @@ int mainloop_add_timeout(unsigned int msec, mainloop_timeout_func callback,
 		}
 	}
 
+	/*添加timeout超时*/
 	if (mainloop_add_fd(data->fd, EPOLLIN | EPOLLONESHOT,
 				timeout_callback, data, timeout_destroy) < 0) {
 		close(data->fd);

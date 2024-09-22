@@ -123,6 +123,7 @@ struct mgmt_cod {
 	uint8_t val[3];
 } __packed;
 
+/*powerd对应的opcode*/
 #define MGMT_OP_SET_POWERED		0x0005
 
 #define MGMT_OP_SET_DISCOVERABLE	0x0006

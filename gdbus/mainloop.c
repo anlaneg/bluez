@@ -262,6 +262,7 @@ static gboolean setup_bus(DBusConnection *conn, const char *name,
 			return FALSE;
 	}
 
+	/*设置此conn对应的main loop回调函数*/
 	setup_dbus_with_main_loop(conn);
 
 	status = dbus_connection_get_dispatch_status(conn);
@@ -270,21 +271,26 @@ static gboolean setup_bus(DBusConnection *conn, const char *name,
 	return TRUE;
 }
 
-DBusConnection *g_dbus_setup_bus(DBusBusType type, const char *name,
+/*连接到bus注册此client*/
+DBusConnection *g_dbus_setup_bus(DBusBusType type, const char *name/*自身名称*/,
 							DBusError *error)
 {
 	DBusConnection *conn;
 
+	/*取指定type的dbus connection*/
 	conn = dbus_bus_get(type, error);
 
 	if (error != NULL) {
+		/*获取conn失败*/
 		if (dbus_error_is_set(error) == TRUE)
 			return NULL;
 	}
 
 	if (conn == NULL)
+		/*建立连接失败*/
 		return NULL;
 
+	/*启动bus*/
 	if (setup_bus(conn, name, error) == FALSE) {
 		dbus_connection_unref(conn);
 		return NULL;
@@ -330,6 +336,7 @@ gboolean g_dbus_request_name(DBusConnection *connection, const char *name,
 			return FALSE;
 	}
 
+	/*请求的名称已被占用*/
 	if (result != DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER) {
 		if (error != NULL)
 			dbus_set_error(error, name, "Name already in use");

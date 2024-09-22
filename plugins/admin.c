@@ -627,6 +627,7 @@ static int admin_init(void)
 
 	dbus_conn = btd_get_dbus_connection();
 
+	/*注册admin_policy驱动*/
 	return btd_register_adapter_driver(&admin_policy_driver);
 }
 

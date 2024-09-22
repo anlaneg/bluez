@@ -724,9 +724,11 @@ struct btd_profile_custom_property {
 
 static GSList *custom_props = NULL;
 
+/*记录系统中所有profiles*/
 static GSList *profiles = NULL;
 static GSList *ext_profiles = NULL;
 
+/*利用函数func遍历profiles,ext_profiles*/
 void btd_profile_foreach(void (*func)(struct btd_profile *p, void *data),
 								void *data)
 {
@@ -773,6 +775,7 @@ static struct btd_profile *btd_profile_find_uuid(const char *uuid)
 	return NULL;
 }
 
+/*注册profiles*/
 int btd_profile_register(struct btd_profile *profile)
 {
 	profiles = g_slist_append(profiles, profile);

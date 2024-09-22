@@ -201,6 +201,7 @@ static void disconnect_handler(DBusConnection *connection, void *user_data)
 
 void admin_add_submenu(void)
 {
+	/*添加admin子菜单*/
 	bt_shell_add_submenu(&admin_menu);
 
 	dbus_conn = bt_shell_get_env("DBUS_CONNECTION");

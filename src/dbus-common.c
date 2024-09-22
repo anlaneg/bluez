@@ -47,6 +47,7 @@ void set_dbus_connection(DBusConnection *conn)
 
 DBusConnection *btd_get_dbus_connection(void)
 {
+	/*取当前进程到dbus的连接*/
 	return connection;
 }
 

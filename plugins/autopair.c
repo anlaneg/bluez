@@ -209,6 +209,7 @@ static int autopair_init(void)
 
 	srand(seed);
 
+	/*注册autopair驱动*/
 	return btd_register_adapter_driver(&autopair_driver);
 }
 
