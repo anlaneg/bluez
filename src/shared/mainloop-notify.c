@@ -15,6 +15,7 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <errno.h>
+#include <limits.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -113,8 +114,15 @@ int mainloop_sd_notify(const char *state)
 {
 	int err;
 
-	if (notify_fd <= 0)
-		return -ENOTCONN;
+	if (notify_fd <= 0) {
+		if (strcmp(state, "STATUS=Starting up"))
+			return -ENOTCONN;
+
+		/* Auto init only when starting up */
+		mainloop_notify_init();
+		if (notify_fd <= 0)
+			return -ENOTCONN;
+	}
 
 	/*向notify_fd发送状态*/
 	err = send(notify_fd, state, strlen(state), MSG_NOSIGNAL);
@@ -134,7 +142,7 @@ static bool signal_read(struct io *io, void *user_data)
 	fd = io_get_fd(io);
 
 	result = read(fd, &si, sizeof(si));
-	if (result != sizeof(si))
+	if (result != sizeof(si) || si.ssi_signo > INT_MAX)
 		return false;
 
 	if (data && data->func)

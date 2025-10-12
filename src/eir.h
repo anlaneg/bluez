@@ -11,7 +11,8 @@
 
 #include <glib.h>
 
-#include "lib/sdp.h"
+#include "bluetooth/sdp.h"
+#include "bluetooth/uuid.h"
 
 #define EIR_FLAGS                   0x01  /* flags */
 #define EIR_UUID16_SOME             0x02  /* 16-bit UUID, more available */
@@ -38,6 +39,7 @@
 #define EIR_SVC_DATA128             0x21  /* LE: Service data, 128-bit UUID */
 #define EIR_TRANSPORT_DISCOVERY     0x26  /* Transport Discovery Service */
 #define EIR_CSIP_RSI                0x2e  /* Resolvable Set Identifier */
+#define EIR_BC_NAME                 0x30  /* Broadcast Name */
 #define EIR_MANUFACTURER_DATA       0xFF  /* Manufacturer Specific Data */
 
 /* Flags Descriptions */
@@ -99,3 +101,4 @@ int eir_create_oob(const bdaddr_t *addr, const char *name, uint32_t cod,
 			uint16_t did_vendor, uint16_t did_product,
 			uint16_t did_version, uint16_t did_source,
 			sdp_list_t *uuids, uint8_t *data);
+struct eir_sd *eir_get_service_data(struct eir_data *eir, const char *uuid);

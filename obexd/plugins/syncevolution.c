@@ -21,7 +21,7 @@
 #include <glib.h>
 #include <dbus/dbus.h>
 
-#include "lib/bluetooth.h"
+#include "bluetooth/bluetooth.h"
 
 #include "gdbus/gdbus.h"
 
@@ -427,7 +427,7 @@ static ssize_t synce_write(void *object, const void *buf, size_t count)
 	return -EAGAIN;
 }
 
-static struct obex_mime_type_driver synce_driver = {
+static const struct obex_mime_type_driver synce_driver = {
 	.target = SYNCML_TARGET,
 	.target_size = SYNCML_TARGET_SIZE,
 	.open = synce_open,
@@ -436,7 +436,7 @@ static struct obex_mime_type_driver synce_driver = {
 	.write = synce_write,
 };
 
-static struct obex_service_driver synce = {
+static const struct obex_service_driver synce = {
 	.name = "OBEX server for SyncML, using SyncEvolution",
 	.service = OBEX_SYNCEVOLUTION,
 	.channel = SYNCEVOLUTION_CHANNEL,

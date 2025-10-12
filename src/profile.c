@@ -21,10 +21,10 @@
 #include <glib.h>
 #include <dbus/dbus.h>
 
-#include "lib/bluetooth.h"
-#include "lib/sdp.h"
-#include "lib/sdp_lib.h"
-#include "lib/uuid.h"
+#include "bluetooth/bluetooth.h"
+#include "bluetooth/sdp.h"
+#include "bluetooth/sdp_lib.h"
+#include "bluetooth/uuid.h"
 
 #include "gdbus/gdbus.h"
 
@@ -563,7 +563,7 @@
 			<text value=\"%s\"/>				\
 		</attribute>						\
 		<attribute id=\"0x0317\">				\
-			<uint32 value=\"0x0000007f\"/>			\
+			<uint32 value=\"0x0000027f\"/>			\
 		</attribute>						\
 		<attribute id=\"0x0200\">				\
 			<uint16 value=\"%u\" name=\"psm\"/>		\
@@ -778,6 +778,18 @@ static struct btd_profile *btd_profile_find_uuid(const char *uuid)
 /*注册profiles*/
 int btd_profile_register(struct btd_profile *profile)
 {
+	if (profile->experimental && !(g_dbus_get_flags() &
+					G_DBUS_FLAG_ENABLE_EXPERIMENTAL)) {
+		DBG("D-Bus experimental not enabled");
+		return -ENOTSUP;
+	}
+
+	if (profile->testing && !(g_dbus_get_flags() &
+					G_DBUS_FLAG_ENABLE_TESTING)) {
+		DBG("D-Bus testing not enabled");
+		return -ENOTSUP;
+	}
+
 	profiles = g_slist_append(profiles, profile);
 	return 0;
 }
@@ -1253,7 +1265,7 @@ static void ext_confirm(GIOChannel *io, gpointer user_data)
 	DBG("incoming connect from %s", addr);
 
 	if (!btd_adapter_is_uuid_allowed(adapter_find(&src), uuid)) {
-		info("UUID %s is not allowed. Igoring the connection", uuid);
+		info("UUID %s is not allowed. Ignoring the connection", uuid);
 		return;
 	}
 
@@ -1295,7 +1307,7 @@ static void ext_direct_connect(GIOChannel *io, GError *err, gpointer user_data)
 	}
 
 	if (!btd_adapter_is_uuid_allowed(adapter_find(&src), uuid)) {
-		info("UUID %s is not allowed. Igoring the connection", uuid);
+		info("UUID %s is not allowed. Ignoring the connection", uuid);
 		return;
 	}
 
@@ -2066,7 +2078,7 @@ static struct default_settings {
 		.authorize	= true,
 		.auto_connect	= true,
 		.get_record	= get_hfp_hf_record,
-		.version	= 0x0107,
+		.version	= 0x0108,
 	}, {
 		.uuid		= HSP_HS_UUID,
 		.name		= "Headset unit",
@@ -2086,7 +2098,7 @@ static struct default_settings {
 		.authorize	= true,
 		.auto_connect	= true,
 		.get_record	= get_hfp_ag_record,
-		.version	= 0x0107,
+		.version	= 0x0108,
 		/* HFP 1.7.2: By default features bitfield is 0b001001 */
 		.features	= 0x09,
 	}, {
@@ -2117,7 +2129,7 @@ static struct default_settings {
 		.mode		= BT_IO_MODE_ERTM,
 		.authorize	= true,
 		.get_record	= get_ftp_record,
-		.version	= 0x0102,
+		.version	= 0x0103,
 	}, {
 		.uuid		= OBEX_SYNC_UUID,
 		.name		= "Synchronization",
@@ -2158,7 +2170,7 @@ static struct default_settings {
 		.mode		= BT_IO_MODE_ERTM,
 		.authorize	= true,
 		.get_record	= get_mns_record,
-		.version	= 0x0102
+		.version	= 0x0104
 	},
 };
 
@@ -2310,6 +2322,8 @@ static int parse_ext_opt(struct ext_profile *ext, const char *key,
 		dbus_message_iter_get_basic(value, &str);
 		free(ext->service);
 		ext->service = bt_name2string(str);
+		if (ext->service == NULL)
+			return -EINVAL;
 	}
 
 	return 0;

@@ -25,8 +25,8 @@
 
 #include <glib.h>
 
-#include "lib/bluetooth.h"
-#include "lib/hci.h"
+#include "bluetooth/bluetooth.h"
+#include "bluetooth/hci.h"
 
 #ifdef HAVE_VALGRIND_MEMCHECK_H
 #include <valgrind/memcheck.h>
@@ -563,6 +563,38 @@ void tester_pre_setup_failed(void)
 	g_idle_add(done_callback, test);
 }
 
+void tester_pre_setup_abort(void)
+{
+	struct test_case *test;
+
+	if (!test_current)
+		return;
+
+	test = test_current->data;
+
+	if (test->stage != TEST_STAGE_PRE_SETUP)
+		return;
+
+	if (test->timeout_id > 0) {
+		timeout_remove(test->timeout_id);
+		test->timeout_id = 0;
+	}
+
+	print_progress(test->name, COLOR_YELLOW, "not run");
+
+	g_idle_add(done_callback, test);
+}
+
+bool tester_pre_setup_skip_by_default(void)
+{
+	if (!option_prefix && !option_string) {
+		tester_pre_setup_abort();
+		return true;
+	}
+
+	return false;
+}
+
 void tester_setup_complete(void)
 {
 	struct test_case *test;
@@ -621,6 +653,11 @@ static void test_result(enum test_result result)
 		timeout_remove(test->timeout_id);
 		test->timeout_id = 0;
 	}
+
+	tester_shutdown_io();
+
+	if (test->result == TEST_RESULT_FAILED)
+		result = TEST_RESULT_FAILED;
 
 	test->result = result;
 	switch (result) {
@@ -914,8 +951,12 @@ static bool test_io_send(struct io *io, void *user_data)
 
 	g_assert_cmpint(len, ==, iov->iov_len);
 
-	if (!test->iovcnt && test->io_complete_func)
+	if (!test->iovcnt && test->io_complete_func) {
 		test->io_complete_func(test->test_data);
+	} else if (test->iovcnt && !test->iov->iov_base) {
+		test_get_iov(test);
+		return test_io_send(io, user_data);
+	}
 
 	return false;
 }
@@ -938,6 +979,9 @@ static bool test_io_recv(struct io *io, void *user_data)
 
 	if (!iov)
 		return true;
+
+	if (test->iovcnt && !iov->iov_base)
+		iov = test_get_iov(test);
 
 	g_assert_cmpint(len, ==, iov->iov_len);
 
@@ -1003,6 +1047,12 @@ struct io *tester_setup_io(const struct iovec *iov, int iovcnt)
 	test->iovcnt = iovcnt;
 
 	return ios[0];
+}
+
+void tester_shutdown_io(void)
+{
+	io_shutdown(ios[0]);
+	io_shutdown(ios[1]);
 }
 
 void tester_io_send(void)

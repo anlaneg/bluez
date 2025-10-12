@@ -19,10 +19,11 @@
 #include <string.h>
 #include <inttypes.h>
 
-#include "lib/bluetooth.h"
-#include "lib/uuid.h"
+#include "bluetooth/bluetooth.h"
+#include "bluetooth/uuid.h"
 
 #include "src/shared/util.h"
+#include "src/shared/queue.h"
 #include "bt.h"
 #include "packet.h"
 #include "display.h"
@@ -99,6 +100,7 @@ struct chan_data {
 	uint8_t  ext_ctrl;
 	uint8_t  seq_num;
 	uint16_t sdu;
+	struct packet_latency tx_l;
 };
 
 static struct chan_data chan_list[MAX_CHAN];
@@ -716,7 +718,7 @@ static void print_config_result(uint16_t result)
 	print_field("Result: %s (0x%4.4x)", str, le16_to_cpu(result));
 }
 
-static struct {
+static const struct {
 	uint8_t type;
 	uint8_t len;
 	const char *str;
@@ -1538,6 +1540,23 @@ static const struct sig_opcode_data le_sig_opcode_table[] = {
 	{ },
 };
 
+static void l2cap_queue_frame(struct l2cap_frame *frame)
+{
+	struct packet_conn_data *conn;
+	struct l2cap_frame *tx;
+
+	conn = packet_get_conn_data(frame->handle);
+	if (!conn)
+		return;
+
+	if (!conn->chan_q)
+		conn->chan_q = queue_new();
+
+	tx = new0(struct l2cap_frame, 1);
+	memcpy(tx, frame, sizeof(*frame));
+	queue_push_tail(conn->chan_q, tx);
+}
+
 void l2cap_frame_init(struct l2cap_frame *frame, uint16_t index, bool in,
 				uint16_t handle, uint8_t ident,
 				uint16_t cid, uint16_t psm,
@@ -1554,6 +1573,9 @@ void l2cap_frame_init(struct l2cap_frame *frame, uint16_t index, bool in,
 	frame->psm     = psm ? psm : get_psm(frame);
 	frame->mode    = get_mode(frame);
 	frame->seq_num = psm ? 1 : get_seq_num(frame);
+
+	if (!in)
+		l2cap_queue_frame(frame);
 }
 
 static void bredr_sig_packet(uint16_t index, bool in, uint16_t handle,
@@ -2261,7 +2283,7 @@ static void smp_pairing_confirm(const struct l2cap_frame *frame)
 {
 	const struct bt_l2cap_smp_pairing_confirm *pdu = frame->data;
 
-	print_hex_field("Confim value", pdu->value, 16);
+	print_hex_field("Confirm value", pdu->value, 16);
 }
 
 static void smp_pairing_random(const struct l2cap_frame *frame)
@@ -2772,4 +2794,30 @@ void l2cap_packet(uint16_t index, bool in, uint16_t handle, uint8_t flags,
 		packet_hexdump(data, size);
 		return;
 	}
+}
+
+void l2cap_dequeue_frame(struct timeval *delta, struct packet_conn_data *conn)
+{
+	struct l2cap_frame *frame;
+	struct chan_data *chan;
+
+	frame = queue_pop_head(conn->chan_q);
+	if (!frame)
+		return;
+
+	chan = get_chan(frame);
+	if (!chan)
+		return;
+
+	packet_latency_add(&chan->tx_l, delta);
+
+	print_field("Channel: %d [PSM %d mode %s (0x%02x)] {chan %d}",
+			frame->cid, frame->psm, mode2str(frame->mode),
+			frame->mode, frame->chan);
+
+	print_field("Channel Latency: %lld msec (%lld-%lld msec ~%lld msec)",
+			TV_MSEC(*delta), TV_MSEC(chan->tx_l.min),
+			TV_MSEC(chan->tx_l.max), TV_MSEC(chan->tx_l.med));
+
+	free(frame);
 }

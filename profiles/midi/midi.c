@@ -15,9 +15,9 @@
 #include <errno.h>
 #include <alsa/asoundlib.h>
 
-#include "lib/bluetooth.h"
-#include "lib/sdp.h"
-#include "lib/uuid.h"
+#include "bluetooth/bluetooth.h"
+#include "bluetooth/sdp.h"
+#include "bluetooth/uuid.h"
 
 #include "src/plugin.h"
 #include "src/adapter.h"
@@ -53,19 +53,20 @@ struct midi {
 	struct midi_write_parser midi_out;
 };
 
+static void foreach_cb(const struct midi_write_parser *parser, void *user_data)
+{
+	struct midi *midi = user_data;
+
+	bt_gatt_client_write_without_response(midi->client,
+						midi->midi_io_handle, false,
+						midi_write_data(parser),
+						midi_write_data_size(parser));
+}
+
 static bool midi_write_cb(struct io *io, void *user_data)
 {
 	struct midi *midi = user_data;
 	int err;
-
-	void foreach_cb(const struct midi_write_parser *parser, void *user_data) {
-		struct midi *midi = user_data;
-		bt_gatt_client_write_without_response(midi->client,
-		                                      midi->midi_io_handle,
-		                                      false,
-		                                      midi_write_data(parser),
-		                                      midi_write_data_size(parser));
-	};
 
 	do {
 		snd_seq_event_t *event = NULL;
@@ -81,10 +82,10 @@ static bool midi_write_cb(struct io *io, void *user_data)
 
 	if (midi_write_has_data(&midi->midi_out))
 		bt_gatt_client_write_without_response(midi->client,
-		                                      midi->midi_io_handle,
-		                                      false,
-		                                      midi_write_data(&midi->midi_out),
-		                                      midi_write_data_size(&midi->midi_out));
+					midi->midi_io_handle,
+					false,
+					midi_write_data(&midi->midi_out),
+					midi_write_data_size(&midi->midi_out));
 
 	midi_write_reset(&midi->midi_out);
 
@@ -300,25 +301,29 @@ static int midi_accept(struct btd_service *service)
 	/* ALSA Sequencer Client and Port Setup */
 	err = snd_seq_open(&midi->seq_handle, "default", SND_SEQ_OPEN_DUPLEX, 0);
 	if (err < 0) {
-		error("Could not open ALSA Sequencer: %s (%d)", snd_strerror(err), err);
+		error("Could not open ALSA Sequencer: %s (%d)",
+			snd_strerror(err), err);
 		return err;
 	}
 
 	err = snd_seq_nonblock(midi->seq_handle, SND_SEQ_NONBLOCK);
 	if (err < 0) {
-		error("Could not set nonblock mode: %s (%d)", snd_strerror(err), err);
+		error("Could not set nonblock mode: %s (%d)",
+			snd_strerror(err), err);
 		goto _err_handle;
 	}
 
 	err = snd_seq_set_client_name(midi->seq_handle, device_name);
 	if (err < 0) {
-		error("Could not configure ALSA client: %s (%d)", snd_strerror(err), err);
+		error("Could not configure ALSA client: %s (%d)",
+			snd_strerror(err), err);
 		goto _err_handle;
 	}
 
 	err = snd_seq_client_id(midi->seq_handle);
 	if (err < 0) {
-		error("Could retreive ALSA client: %s (%d)", snd_strerror(err), err);
+		error("Could not retrieve ALSA client: %s (%d)",
+			snd_strerror(err), err);
 		goto _err_handle;
 	}
 	midi->seq_client_id = err;
@@ -331,7 +336,8 @@ static int midi_accept(struct btd_service *service)
 	                                 SND_SEQ_PORT_TYPE_MIDI_GENERIC |
 	                                 SND_SEQ_PORT_TYPE_HARDWARE);
 	if (err < 0) {
-		error("Could not create ALSA port: %s (%d)", snd_strerror(err), err);
+		error("Could not create ALSA port: %s (%d)", snd_strerror(err),
+			err);
 		goto _err_handle;
 	}
 	midi->seq_port_id = err;

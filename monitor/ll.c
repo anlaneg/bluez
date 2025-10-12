@@ -144,7 +144,7 @@ static void advertising_packet(const void *data, uint8_t size)
 		}
 
 		packet_print_addr("Advertiser address", data + 2, tx_add);
-		packet_print_addr("Inititator address", data + 8, rx_add);
+		packet_print_addr("Initiator address", data + 8, rx_add);
 		break;
 
 	case 0x03:	/* SCAN_REQ */
@@ -165,7 +165,7 @@ static void advertising_packet(const void *data, uint8_t size)
 			return;
 		}
 
-		packet_print_addr("Inititator address", data + 2, tx_add);
+		packet_print_addr("Initiator address", data + 2, tx_add);
 		packet_print_addr("Advertiser address", data + 8, rx_add);
 
 		access_addr = ptr[14] | ptr[15] << 8 |
@@ -256,7 +256,7 @@ static void data_packet(const void *data, uint8_t size, bool padded)
 	switch (llid) {
 	case 0x01:
 		if (length > 0)
-			str = "Continuation fragement of L2CAP message";
+			str = "Continuation fragment of L2CAP message";
 		else
 			str = "Empty message";
 		break;
@@ -456,6 +456,64 @@ static void peripheral_feature_req(const void *data, uint8_t size)
 	const struct bt_ll_peripheral_feature_req *pdu = data;
 
 	packet_print_features_ll(pdu->features);
+}
+
+static void conn_param_req(const void *data, uint8_t size)
+{
+	const struct bt_ll_conn_param_req *pdu = data;
+
+	print_field("Interval min: %.2f msec (0x%4.4x)",
+				pdu->interval_min * 1.25, pdu->interval_min);
+	print_field("Interval max: %.2f msec (0x%4.4x)",
+				pdu->interval_max * 1.25, pdu->interval_max);
+	print_field("Latency: %d (0x%4.4x)", pdu->latency, pdu->latency);
+	print_field("Timeout: %d msec (0x%4.4x)", pdu->timeout * 10,
+								pdu->timeout);
+	print_field("Preferred periodicity: %.2f (0x%2.2x)",
+				pdu->pref_period * 1.25, pdu->pref_period);
+	print_field("Reference connection event count: %d (0x%2.2x)",
+			pdu->pref_conn_evt_count, pdu->pref_conn_evt_count);
+	print_field("Offset 0: %.2f msec (0x%2.2x)", pdu->offset_0 * 1.25,
+								pdu->offset_0);
+	print_field("Offset 1: %.2f msec (0x%2.2x)", pdu->offset_1 * 1.25,
+								pdu->offset_1);
+	print_field("Offset 2: %.2f msec (0x%2.2x)", pdu->offset_2 * 1.25,
+								pdu->offset_2);
+	print_field("Offset 3: %.2f msec (0x%2.2x)", pdu->offset_3 * 1.25,
+								pdu->offset_3);
+	print_field("Offset 4: %.2f msec (0x%2.2x)", pdu->offset_4 * 1.25,
+								pdu->offset_4);
+	print_field("Offset 5: %.2f msec (0x%2.2x)", pdu->offset_5 * 1.25,
+								pdu->offset_5);
+}
+
+static void conn_param_rsp(const void *data, uint8_t size)
+{
+	const struct bt_ll_conn_param_rsp *pdu = data;
+
+	print_field("Interval min: %.2f msec (0x%4.4x)",
+				pdu->interval_min * 1.25, pdu->interval_min);
+	print_field("Interval max: %.2f msec (0x%4.4x)",
+				pdu->interval_max * 1.25, pdu->interval_max);
+	print_field("Latency: %d (0x%4.4x)", pdu->latency, pdu->latency);
+	print_field("Timeout: %d msec (0x%4.4x)", pdu->timeout * 10,
+								pdu->timeout);
+	print_field("Preferred periodicity: %.2f (0x%2.2x)",
+				pdu->pref_period * 1.25, pdu->pref_period);
+	print_field("Reference connection event count: %d (0x%2.2x)",
+			pdu->pref_conn_evt_count, pdu->pref_conn_evt_count);
+	print_field("Offset 0: %.2f msec (0x%2.2x)", pdu->offset_0 * 1.25,
+								pdu->offset_0);
+	print_field("Offset 1: %.2f msec (0x%2.2x)", pdu->offset_1 * 1.25,
+								pdu->offset_1);
+	print_field("Offset 2: %.2f msec (0x%2.2x)", pdu->offset_2 * 1.25,
+								pdu->offset_2);
+	print_field("Offset 3: %.2f msec (0x%2.2x)", pdu->offset_3 * 1.25,
+								pdu->offset_3);
+	print_field("Offset 4: %.2f msec (0x%2.2x)", pdu->offset_4 * 1.25,
+								pdu->offset_4);
+	print_field("Offset 5: %.2f msec (0x%2.2x)", pdu->offset_5 * 1.25,
+								pdu->offset_5);
 }
 
 static void reject_ind_ext(const void *data, uint8_t size)
@@ -707,8 +765,8 @@ static const struct llcp_data llcp_table[] = {
 	{ 0x0c, "LL_VERSION_IND",           version_ind,        5, true },
 	{ 0x0d, "LL_REJECT_IND",            reject_ind,         1, true },
 	{ 0x0e, "LL_PERIPHERAL_FEATURE_REQ", peripheral_feature_req, 8, true },
-	{ 0x0f, "LL_CONNECTION_PARAM_REQ",  NULL,              23, true },
-	{ 0x10, "LL_CONNECTION_PARAM_RSP",  NULL,              23, true },
+	{ 0x0f, "LL_CONNECTION_PARAM_REQ",  conn_param_req,    23, true },
+	{ 0x10, "LL_CONNECTION_PARAM_RSP",  conn_param_rsp,    23, true },
 	{ 0x11, "LL_REJECT_IND_EXT",        reject_ind_ext,     2, true },
 	{ 0x12, "LL_PING_REQ",              null_pdu,           0, true },
 	{ 0x13, "LL_PING_RSP",              null_pdu,           0, true },

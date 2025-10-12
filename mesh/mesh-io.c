@@ -12,10 +12,13 @@
 #include <config.h>
 #endif
 
+#include <time.h>
+
 #include <ell/ell.h>
 
-#include "lib/bluetooth.h"
-#include "lib/mgmt.h"
+#include "bluetooth/bluetooth.h"
+#include "bluetooth/mgmt.h"
+#include "src/shared/ad.h"
 #include "src/shared/mgmt.h"
 
 #include "mesh/mesh-defs.h"
@@ -40,7 +43,7 @@ static const struct mesh_io_table table[] = {
 	{MESH_IO_TYPE_UNIT_TEST, &mesh_io_unit},
 };
 
-static const uint8_t unprv_filter[] = { MESH_AD_TYPE_BEACON, 0 };
+static const uint8_t unprv_filter[] = { BT_AD_MESH_BEACON, 0 };
 
 static struct mesh_io *default_io;
 static struct l_timeout *loop_adv_to;
@@ -72,12 +75,20 @@ static void ctl_alert(int index, bool up, bool pwr, bool mesh, void *user_data)
 	enum mesh_io_type type = L_PTR_TO_UINT(user_data);
 	const struct mesh_io_api *api = NULL;
 
-	l_warn("up:%d pwr: %d mesh: %d", up, pwr, mesh);
+	l_warn("index %u up:%d pwr: %d mesh: %d", index, up, pwr, mesh);
 
 	/* If specific IO controller requested, honor it */
-	if (default_io->favored_index != MGMT_INDEX_NONE &&
-					default_io->favored_index != index)
-		return;
+	if (default_io->favored_index != MGMT_INDEX_NONE) {
+		if (default_io->favored_index != index)
+			return;
+
+		if (!up | pwr) {
+			l_warn("HCI%u failed to start generic IO %s",
+				index, pwr ? ": already powered on" : "");
+			if (default_io->ready)
+				default_io->ready(default_io->user_data, false);
+		}
+	}
 
 	if (!up && default_io->index == index) {
 		/* Our controller has disappeared */
@@ -104,7 +115,6 @@ static void ctl_alert(int index, bool up, bool pwr, bool mesh, void *user_data)
 		default_io->index = index;
 		default_io->api = api;
 		api->init(default_io, &index, default_io->user_data);
-
 		l_queue_foreach(default_io->rx_regs, refresh_rx, default_io);
 	}
 }

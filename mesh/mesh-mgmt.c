@@ -12,10 +12,12 @@
 #include <config.h>
 #endif
 
+#include <time.h>
+
 #include <ell/ell.h>
 
-#include "lib/bluetooth.h"
-#include "lib/mgmt.h"
+#include "bluetooth/bluetooth.h"
+#include "bluetooth/mgmt.h"
 #include "src/shared/mgmt.h"
 
 #include "mesh/mesh-mgmt.h"
@@ -270,4 +272,9 @@ unsigned int mesh_mgmt_register(uint16_t event, uint16_t index,
 bool mesh_mgmt_unregister(unsigned int id)
 {
 	return mgmt_unregister(mgmt_mesh, id);
+}
+
+void mesh_mgmt_clear(void)
+{
+	l_queue_clear(ctl_list, l_free);
 }

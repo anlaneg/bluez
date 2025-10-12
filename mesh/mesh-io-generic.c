@@ -15,13 +15,15 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/time.h>
+#include <time.h>
 #include <ell/ell.h>
 
 #include "monitor/bt.h"
+#include "src/shared/ad.h"
 #include "src/shared/hci.h"
 #include "src/shared/mgmt.h"
-#include "lib/bluetooth.h"
-#include "lib/mgmt.h"
+#include "bluetooth/bluetooth.h"
+#include "bluetooth/mgmt.h"
 
 #include "mesh/mesh-defs.h"
 #include "mesh/mesh-mgmt.h"
@@ -51,7 +53,7 @@ struct tx_pkt {
 	struct mesh_io_send_info	info;
 	bool				delete;
 	uint8_t				len;
-	uint8_t				pkt[30];
+	uint8_t				pkt[MESH_AD_MAX_LEN];
 };
 
 struct tx_pattern {
@@ -351,8 +353,8 @@ static bool find_active(const void *a, const void *b)
 	/* Mesh specific AD types do *not* require active scanning,
 	 * so do not turn on Active Scanning on their account.
 	 */
-	if (rx_reg->filter[0] < MESH_AD_TYPE_PROVISION ||
-			rx_reg->filter[0] > MESH_AD_TYPE_BEACON)
+	if (rx_reg->filter[0] < BT_AD_MESH_PROV ||
+			rx_reg->filter[0] > BT_AD_MESH_BEACON)
 		return true;
 
 	return false;
@@ -379,6 +381,9 @@ static void hci_init(void *user_data)
 
 	if (io->pvt->hci)
 		bt_hci_unref(io->pvt->hci);
+
+	/* Clear controller HCI list to suppress mgmt interface warnings */
+	mesh_mgmt_clear();
 
 	io->pvt->hci = bt_hci_new_user_channel(io->index);
 	if (!io->pvt->hci) {
@@ -705,7 +710,7 @@ static bool send_tx(struct mesh_io *io, struct mesh_io_send_info *info,
 	else {
 		/*
 		 * If transmitter is idle, send packets at least twice to
-		 * guard against in-line cancelation of HCI command chain.
+		 * guard against in-line cancellation of HCI command chain.
 		 */
 		if (info->type == MESH_IO_TIMING_TYPE_GENERAL &&
 					!pvt->tx &&
@@ -778,7 +783,7 @@ static bool recv_register(struct mesh_io *io, const uint8_t *filter,
 	bool already_scanning;
 	bool active = false;
 
-	already_scanning = !l_queue_isempty(io->rx_regs);
+	already_scanning = l_queue_length(io->rx_regs) > 1;
 
 	/* Look for any AD types requiring Active Scanning */
 	if (l_queue_find(io->rx_regs, find_active, NULL))

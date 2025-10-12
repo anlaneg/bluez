@@ -22,15 +22,15 @@
 #include <inttypes.h>
 #include <stdbool.h>
 #include <errno.h>
-#include <linux/limits.h>
+#include <limits.h>
 #include <sys/stat.h>
 
 #include <glib.h>
 
-#include "lib/bluetooth.h"
-#include "lib/uuid.h"
-#include "lib/hci.h"
-#include "lib/hci_lib.h"
+#include "bluetooth/bluetooth.h"
+#include "bluetooth/uuid.h"
+#include "bluetooth/hci.h"
+#include "bluetooth/hci_lib.h"
 
 #include "src/shared/util.h"
 #include "src/shared/queue.h"
@@ -46,10 +46,12 @@
 #include "keys.h"
 
 struct att_read {
+	struct att_conn_data *conn;
 	struct gatt_db_attribute *attr;
 	bool in;
 	uint16_t chan;
 	void (*func)(const struct l2cap_frame *frame);
+	struct iovec *iov;
 };
 
 struct att_conn_data {
@@ -58,7 +60,15 @@ struct att_conn_data {
 	struct gatt_db *rdb;
 	struct timespec rdb_mtim;
 	struct queue *reads;
+	uint16_t mtu;
 };
+
+struct gatt_cache {
+	bdaddr_t id;
+	struct gatt_db *db;
+};
+
+static struct queue *cache_list;
 
 static void print_uuid(const char *label, const void *data, uint16_t size)
 {
@@ -210,6 +220,15 @@ done:
 	print_field("Handle: 0x%4.4x", handle);
 }
 
+static void att_read_free(struct att_read *read)
+{
+	if (!read)
+		return;
+
+	util_iov_free(read->iov, 1);
+	free(read);
+}
+
 static void print_data_list(const char *label, uint8_t length,
 					const struct l2cap_frame *frame)
 {
@@ -231,7 +250,7 @@ static void print_data_list(const char *label, uint8_t length,
 
 		print_hex_field("Value", frame->data, length - 2);
 
-		if (read) {
+		if (read && read->func) {
 			struct l2cap_frame f;
 
 			l2cap_frame_clone_size(&f, frame, length - 2);
@@ -244,7 +263,7 @@ static void print_data_list(const char *label, uint8_t length,
 	}
 
 	packet_hexdump(frame->data, frame->size);
-	free(read);
+	att_read_free(read);
 }
 
 static void print_attribute_info(uint16_t type, const void *data, uint16_t len)
@@ -365,11 +384,12 @@ static void att_error_response(const struct l2cap_frame *frame)
 	print_field("Handle: 0x%4.4x", le16_to_cpu(pdu->handle));
 	print_field("Error: %s (0x%2.2x)", str, pdu->error);
 
-	/* Read/Read By Type may create a read object which needs to be dequeued
-	 * and freed in case the operation fails.
+	/* Read/Read By Type/Read By Group Type may create a read object which
+	 * needs to be dequeued and freed in case the operation fails.
 	 */
-	if (pdu->request == 0x08 || pdu->request == 0x0a)
-		free(att_get_read(frame));
+	if (pdu->request == 0x08 || pdu->request == 0x0a ||
+					pdu->request == 0x10)
+		att_read_free(att_get_read(frame));
 }
 
 static const struct bitfield_data chrc_prop_table[] = {
@@ -384,10 +404,247 @@ static const struct bitfield_data chrc_prop_table[] = {
 	{ }
 };
 
+static bool match_cache_id(const void *data, const void *match_data)
+{
+	const struct gatt_cache *cache = data;
+	const bdaddr_t *id = match_data;
+
+	return !bacmp(&cache->id, id);
+}
+
+static void gatt_cache_add(struct packet_conn_data *conn, struct gatt_db *db)
+{
+	struct gatt_cache *cache;
+	bdaddr_t id;
+	uint8_t id_type;
+
+	if (!keys_resolve_identity(conn->dst, id.b, &id_type))
+		bacpy(&id, (bdaddr_t *)conn->dst);
+
+	if (queue_find(cache_list, match_cache_id, &id))
+		return;
+
+	if (!cache_list)
+		cache_list = queue_new();
+
+	cache = new0(struct gatt_cache, 1);
+	bacpy(&cache->id, &id);
+	cache->db = gatt_db_ref(db);
+	queue_push_tail(cache_list, cache);
+}
+
+static void att_conn_data_free(struct packet_conn_data *conn, void *data)
+{
+	struct att_conn_data *att_data = data;
+
+	if (!gatt_db_isempty(att_data->rdb))
+		gatt_cache_add(conn, att_data->rdb);
+
+	gatt_db_unref(att_data->rdb);
+	gatt_db_unref(att_data->ldb);
+	queue_destroy(att_data->reads, free);
+	free(att_data);
+}
+
+static struct att_conn_data *att_get_conn_data(struct packet_conn_data *conn)
+{
+	struct att_conn_data *data;
+
+	if (!conn)
+		return NULL;
+
+	data = conn->data;
+
+	if (data)
+		return data;
+
+	data = new0(struct att_conn_data, 1);
+	data->rdb = gatt_db_new();
+	data->ldb = gatt_db_new();
+	conn->data = data;
+	conn->destroy = att_conn_data_free;
+
+	return data;
+}
+
+static void gatt_load_db(struct gatt_db *db, const char *filename,
+						struct timespec *mtim)
+{
+	struct stat st;
+
+	if (lstat(filename, &st))
+		return;
+
+	if (!gatt_db_isempty(db)) {
+		/* Check if file has been modified since last time */
+		if (st.st_mtim.tv_sec == mtim->tv_sec &&
+				    st.st_mtim.tv_nsec == mtim->tv_nsec)
+			return;
+		/* Clear db before reloading */
+		gatt_db_clear(db);
+	}
+
+	*mtim = st.st_mtim;
+
+	btd_settings_gatt_db_load(db, filename);
+}
+
+static void load_gatt_db(struct packet_conn_data *conn)
+{
+	struct att_conn_data *data = att_get_conn_data(conn);
+	char filename[PATH_MAX];
+	char local[18];
+	char peer[18];
+	bdaddr_t id;
+	uint8_t id_type;
+
+	ba2str((bdaddr_t *)conn->src, local);
+
+	if (keys_resolve_identity(conn->dst, id.b, &id_type)) {
+		ba2str(&id, peer);
+	} else {
+		bacpy(&id, (bdaddr_t *)conn->dst);
+		ba2str((bdaddr_t *)conn->dst, peer);
+	}
+
+	create_filename(filename, PATH_MAX, "/%s/attributes", local);
+	gatt_load_db(data->ldb, filename, &data->ldb_mtim);
+
+	create_filename(filename, PATH_MAX, "/%s/cache/%s", local, peer);
+	gatt_load_db(data->rdb, filename, &data->rdb_mtim);
+
+	/* If rdb cannot be loaded from file try local cache */
+	if (gatt_db_isempty(data->rdb)) {
+		struct gatt_cache *cache;
+
+		cache = queue_find(cache_list, match_cache_id, &id);
+		if (cache)
+			data->rdb = gatt_db_ref(cache->db);
+	}
+}
+
+static struct gatt_db *get_db(const struct l2cap_frame *frame, bool rsp)
+{
+	struct packet_conn_data *conn;
+	struct att_conn_data *data;
+	struct gatt_db *db;
+
+	conn = packet_get_conn_data(frame->handle);
+	if (!conn)
+		return NULL;
+
+	/* Try loading local and remote gatt_db if not loaded yet */
+	load_gatt_db(conn);
+
+	data = conn->data;
+	if (!data)
+		return NULL;
+
+	if (frame->in) {
+		if (rsp)
+			db = data->rdb;
+		else
+			db = data->ldb;
+	} else {
+		if (rsp)
+			db = data->ldb;
+		else
+			db = data->rdb;
+	}
+
+	return db;
+}
+
+static struct gatt_db_attribute *insert_chrc(const struct l2cap_frame *frame,
+						uint16_t handle,
+						uint16_t value_handle,
+						bt_uuid_t *uuid, uint8_t prop,
+						bool rsp)
+{
+	struct gatt_db *db;
+
+	db = get_db(frame, rsp);
+	if (!db)
+		return NULL;
+
+	return gatt_db_insert_characteristic(db, handle, value_handle, uuid, 0,
+						prop, NULL, NULL, NULL);
+}
+
+static int bt_uuid_from_data(bt_uuid_t *uuid, const void *data, uint16_t size)
+{
+	uint128_t u128;
+
+	if (!uuid)
+		return -EINVAL;
+
+	switch (size) {
+	case 2:
+		return bt_uuid16_create(uuid, get_le16(data));
+	case 4:
+		return bt_uuid32_create(uuid, get_le32(data));
+	case 16:
+		memcpy(u128.data, data, sizeof(u128.data));
+		return bt_uuid128_create(uuid, u128);
+	}
+
+	return -EINVAL;
+}
+
+static bool svc_read(const struct l2cap_frame *frame, uint16_t *start,
+			uint16_t *end, bt_uuid_t *uuid)
+{
+	if (!l2cap_frame_get_le16((void *)frame, start))
+		return false;
+
+	if (!l2cap_frame_get_le16((void *)frame, end))
+		return false;
+
+	return !bt_uuid_from_data(uuid, frame->data, frame->size);
+}
+
+static struct gatt_db_attribute *insert_svc(const struct l2cap_frame *frame,
+						uint16_t handle,
+						bt_uuid_t *uuid, bool primary,
+						bool rsp, uint16_t num_handles)
+{
+	struct gatt_db *db;
+
+	db = get_db(frame, rsp);
+	if (!db)
+		return NULL;
+
+	return gatt_db_insert_service(db, handle, uuid, primary, num_handles);
+}
+
+static void pri_svc_read(const struct l2cap_frame *frame)
+{
+	uint16_t start, end;
+	bt_uuid_t uuid;
+
+	if (!svc_read(frame, &start, &end, &uuid))
+		return;
+
+	insert_svc(frame, start, &uuid, true, true, end - start + 1);
+}
+
+static void sec_svc_read(const struct l2cap_frame *frame)
+{
+	uint16_t start, end;
+	bt_uuid_t uuid;
+
+	if (!svc_read(frame, &start, &end, &uuid))
+		return;
+
+	insert_svc(frame, start, &uuid, true, false, end - start + 1);
+}
+
 static void print_chrc(const struct l2cap_frame *frame)
 {
 	uint8_t prop;
 	uint8_t mask;
+	uint16_t handle;
+	bt_uuid_t uuid;
 
 	if (!l2cap_frame_get_u8((void *)frame, &prop)) {
 		print_text(COLOR_ERROR, "Property: invalid size");
@@ -401,10 +658,16 @@ static void print_chrc(const struct l2cap_frame *frame)
 		print_text(COLOR_WHITE_BG, "    Unknown fields (0x%2.2x)",
 								mask);
 
-	if (!l2cap_frame_print_le16((void *)frame, "    Value Handle"))
+	if (!l2cap_frame_get_le16((void *)frame, &handle)) {
+		print_text(COLOR_ERROR, "    Value Handle: invalid size");
 		return;
+	}
 
+	print_field("    Value Handle: 0x%4.4x", handle);
 	print_uuid("    Value UUID", frame->data, frame->size);
+	bt_uuid_from_data(&uuid, frame->data, frame->size);
+
+	insert_chrc(frame, handle - 1, handle, &uuid, prop, true);
 }
 
 static void chrc_read(const struct l2cap_frame *frame)
@@ -476,8 +739,16 @@ static bool print_ase_codec(const struct l2cap_frame *frame)
 	return true;
 }
 
+static void print_ltv(const char *str, void *user_data)
+{
+	const char *label = user_data;
+
+	print_field("%s: %s", label, str);
+}
+
 static bool print_ase_lv(const struct l2cap_frame *frame, const char *label,
-			struct packet_ltv_decoder *decoder, size_t decoder_len)
+			const struct util_ltv_debugger *decoder,
+			size_t decoder_len)
 {
 	struct bt_hci_lv_data *lv;
 
@@ -492,13 +763,15 @@ static bool print_ase_lv(const struct l2cap_frame *frame, const char *label,
 		return false;
 	}
 
-	packet_print_ltv(label, lv->data, lv->len, decoder, decoder_len);
+	util_debug_ltv(lv->data, lv->len, decoder, decoder_len, print_ltv,
+			(void *) label);
 
 	return true;
 }
 
 static bool print_ase_cc(const struct l2cap_frame *frame, const char *label,
-			struct packet_ltv_decoder *decoder, size_t decoder_len)
+			const struct util_ltv_debugger *decoder,
+			size_t decoder_len)
 {
 	return print_ase_lv(frame, label, decoder, decoder_len);
 }
@@ -545,7 +818,8 @@ done:
 		print_hex_field("    Data", frame->data, frame->size);
 }
 
-static void ase_decode_preferred_context(const uint8_t *data, uint8_t len)
+static void ase_debug_preferred_context(const uint8_t *data, uint8_t len,
+				util_debug_func_t func, void *user_data)
 {
 	struct l2cap_frame frame;
 
@@ -554,7 +828,8 @@ static void ase_decode_preferred_context(const uint8_t *data, uint8_t len)
 	print_context(&frame, "      Preferred Context");
 }
 
-static void ase_decode_context(const uint8_t *data, uint8_t len)
+static void ase_debug_context(const uint8_t *data, uint8_t len,
+				util_debug_func_t func, void *user_data)
 {
 	struct l2cap_frame frame;
 
@@ -563,7 +838,8 @@ static void ase_decode_context(const uint8_t *data, uint8_t len)
 	print_context(&frame, "      Context");
 }
 
-static void ase_decode_program_info(const uint8_t *data, uint8_t len)
+static void ase_debug_program_info(const uint8_t *data, uint8_t len,
+				util_debug_func_t func, void *user_data)
 {
 	struct l2cap_frame frame;
 	const char *str;
@@ -583,7 +859,8 @@ done:
 		print_hex_field("    Data", frame.data, frame.size);
 }
 
-static void ase_decode_language(const uint8_t *data, uint8_t len)
+static void ase_debug_language(const uint8_t *data, uint8_t len,
+				util_debug_func_t func, void *user_data)
 {
 	struct l2cap_frame frame;
 	uint32_t value;
@@ -602,16 +879,17 @@ done:
 		print_hex_field("    Data", frame.data, frame.size);
 }
 
-struct packet_ltv_decoder ase_metadata_table[] = {
-	LTV_DEC(0x01, ase_decode_preferred_context),
-	LTV_DEC(0x02, ase_decode_context),
-	LTV_DEC(0x03, ase_decode_program_info),
-	LTV_DEC(0x04, ase_decode_language)
+static const struct util_ltv_debugger ase_metadata_table[] = {
+	UTIL_LTV_DEBUG(0x01, ase_debug_preferred_context),
+	UTIL_LTV_DEBUG(0x02, ase_debug_context),
+	UTIL_LTV_DEBUG(0x03, ase_debug_program_info),
+	UTIL_LTV_DEBUG(0x04, ase_debug_language)
 };
 
 static bool print_ase_metadata(const struct l2cap_frame *frame)
 {
-	return print_ase_lv(frame, "    Metadata", NULL, 0);
+	return print_ase_lv(frame, "    Metadata", ase_metadata_table,
+					ARRAY_SIZE(ase_metadata_table));
 }
 
 static const struct bitfield_data pac_freq_table[] = {
@@ -634,7 +912,8 @@ static const struct bitfield_data pac_freq_table[] = {
 	{ }
 };
 
-static void pac_decode_freq(const uint8_t *data, uint8_t len)
+static void pac_decode_freq(const uint8_t *data, uint8_t len,
+				util_debug_func_t func, void *user_data)
 {
 	struct l2cap_frame frame;
 	uint16_t value;
@@ -671,7 +950,8 @@ static const struct bitfield_data pac_duration_table[] = {
 	{ }
 };
 
-static void pac_decode_duration(const uint8_t *data, uint8_t len)
+static void pac_decode_duration(const uint8_t *data, uint8_t len,
+				util_debug_func_t func, void *user_data)
 {
 	struct l2cap_frame frame;
 	uint8_t value;
@@ -708,7 +988,8 @@ static const struct bitfield_data pac_channel_table[] = {
 	{ }
 };
 
-static void pac_decode_channels(const uint8_t *data, uint8_t len)
+static void pac_decode_channels(const uint8_t *data, uint8_t len,
+				util_debug_func_t func, void *user_data)
 {
 	struct l2cap_frame frame;
 	uint8_t value;
@@ -733,7 +1014,8 @@ done:
 		print_hex_field("    Data", frame.data, frame.size);
 }
 
-static void pac_decode_frame_length(const uint8_t *data, uint8_t len)
+static void pac_decode_frame_length(const uint8_t *data, uint8_t len,
+				util_debug_func_t func, void *user_data)
 {
 	struct l2cap_frame frame;
 	uint16_t min, max;
@@ -758,7 +1040,8 @@ done:
 		print_hex_field("    Data", frame.data, frame.size);
 }
 
-static void pac_decode_sdu(const uint8_t *data, uint8_t len)
+static void pac_decode_sdu(const uint8_t *data, uint8_t len,
+				util_debug_func_t func, void *user_data)
 {
 	struct l2cap_frame frame;
 	uint8_t value;
@@ -777,12 +1060,12 @@ done:
 		print_hex_field("    Data", frame.data, frame.size);
 }
 
-struct packet_ltv_decoder pac_cap_table[] = {
-	LTV_DEC(0x01, pac_decode_freq),
-	LTV_DEC(0x02, pac_decode_duration),
-	LTV_DEC(0x03, pac_decode_channels),
-	LTV_DEC(0x04, pac_decode_frame_length),
-	LTV_DEC(0x05, pac_decode_sdu)
+static const struct util_ltv_debugger pac_cap_table[] = {
+	UTIL_LTV_DEBUG(0x01, pac_decode_freq),
+	UTIL_LTV_DEBUG(0x02, pac_decode_duration),
+	UTIL_LTV_DEBUG(0x03, pac_decode_channels),
+	UTIL_LTV_DEBUG(0x04, pac_decode_frame_length),
+	UTIL_LTV_DEBUG(0x05, pac_decode_sdu)
 };
 
 static void print_pac(const struct l2cap_frame *frame)
@@ -850,9 +1133,9 @@ static bool print_prefer_framing(const struct l2cap_frame *frame)
 }
 
 static const struct bitfield_data prefer_phy_table[] = {
-	{  0, "LE 1M PHY preffered (0x01)"		},
-	{  1, "LE 2M PHY preffered (0x02)"		},
-	{  2, "LE Codec PHY preffered (0x04)"		},
+	{  0, "LE 1M PHY preferred (0x01)"		},
+	{  1, "LE 2M PHY preferred (0x02)"		},
+	{  2, "LE Codec PHY preferred (0x04)"		},
 	{ }
 };
 
@@ -918,7 +1201,8 @@ static bool print_ase_pd(const struct l2cap_frame *frame, const char *label)
 	return true;
 }
 
-static void ase_decode_freq(const uint8_t *data, uint8_t len)
+static void ase_debug_freq(const uint8_t *data, uint8_t len,
+				util_debug_func_t func, void *user_data)
 {
 	struct l2cap_frame frame;
 	uint8_t value;
@@ -980,7 +1264,8 @@ done:
 		print_hex_field("    Data", frame.data, frame.size);
 }
 
-static void ase_decode_duration(const uint8_t *data, uint8_t len)
+static void ase_debug_duration(const uint8_t *data, uint8_t len,
+				util_debug_func_t func, void *user_data)
 {
 	struct l2cap_frame frame;
 	uint8_t value;
@@ -1067,7 +1352,8 @@ done:
 		print_hex_field("  Data", frame->data, frame->size);
 }
 
-static void ase_decode_location(const uint8_t *data, uint8_t len)
+static void ase_debug_location(const uint8_t *data, uint8_t len,
+				util_debug_func_t func, void *user_data)
 {
 	struct l2cap_frame frame;
 
@@ -1076,7 +1362,8 @@ static void ase_decode_location(const uint8_t *data, uint8_t len)
 	print_location(&frame);
 }
 
-static void ase_decode_frame_length(const uint8_t *data, uint8_t len)
+static void ase_debug_frame_length(const uint8_t *data, uint8_t len,
+				util_debug_func_t func, void *user_data)
 {
 	struct l2cap_frame frame;
 	uint16_t value;
@@ -1095,7 +1382,8 @@ done:
 		print_hex_field("    Data", frame.data, frame.size);
 }
 
-static void ase_decode_blocks(const uint8_t *data, uint8_t len)
+static void ase_debug_blocks(const uint8_t *data, uint8_t len,
+				util_debug_func_t func, void *user_data)
 {
 	struct l2cap_frame frame;
 	uint8_t value;
@@ -1114,12 +1402,12 @@ done:
 		print_hex_field("    Data", frame.data, frame.size);
 }
 
-struct packet_ltv_decoder ase_cc_table[] = {
-	LTV_DEC(0x01, ase_decode_freq),
-	LTV_DEC(0x02, ase_decode_duration),
-	LTV_DEC(0x03, ase_decode_location),
-	LTV_DEC(0x04, ase_decode_frame_length),
-	LTV_DEC(0x05, ase_decode_blocks)
+static const struct util_ltv_debugger ase_cc_table[] = {
+	UTIL_LTV_DEBUG(0x01, ase_debug_freq),
+	UTIL_LTV_DEBUG(0x02, ase_debug_duration),
+	UTIL_LTV_DEBUG(0x03, ase_debug_location),
+	UTIL_LTV_DEBUG(0x04, ase_debug_frame_length),
+	UTIL_LTV_DEBUG(0x05, ase_debug_blocks)
 };
 
 static void print_ase_config(const struct l2cap_frame *frame)
@@ -1488,7 +1776,7 @@ static bool ase_release_cmd(const struct l2cap_frame *frame)
 	.func = _func, \
 }
 
-struct ase_cmd {
+static const struct ase_cmd {
 	const char *desc;
 	bool (*func)(const struct l2cap_frame *frame);
 } ase_cmd_table[] = {
@@ -1510,7 +1798,7 @@ struct ase_cmd {
 	ASE_CMD(0x08, "Release", ase_release_cmd),
 };
 
-static struct ase_cmd *ase_get_cmd(uint8_t op)
+static const struct ase_cmd *ase_get_cmd(uint8_t op)
 {
 	if (op > ARRAY_SIZE(ase_cmd_table))
 		return NULL;
@@ -1521,7 +1809,7 @@ static struct ase_cmd *ase_get_cmd(uint8_t op)
 static void print_ase_cmd(const struct l2cap_frame *frame)
 {
 	uint8_t op, num, i;
-	struct ase_cmd *cmd;
+	const struct ase_cmd *cmd;
 
 	if (!l2cap_frame_get_u8((void *)frame, &op)) {
 		print_text(COLOR_ERROR, "opcode: invalid size");
@@ -1689,7 +1977,7 @@ static bool print_ase_cp_rsp_reason(const struct l2cap_frame *frame)
 static void print_ase_cp_rsp(const struct l2cap_frame *frame)
 {
 	uint8_t op, num, i;
-	struct ase_cmd *cmd;
+	const struct ase_cmd *cmd;
 
 	if (!l2cap_frame_get_u8((void *)frame, &op)) {
 		print_text(COLOR_ERROR, "    opcode: invalid size");
@@ -1939,7 +2227,7 @@ static bool vcs_absolute_cmd(const struct l2cap_frame *frame)
 	.func = _func, \
 }
 
-struct vcs_cmd {
+static const struct vcs_cmd {
 	const char *desc;
 	bool (*func)(const struct l2cap_frame *frame);
 } vcs_cmd_table[] = {
@@ -1959,7 +2247,7 @@ struct vcs_cmd {
 	VCS_CMD(0x06, "Mute", vcs_config_cmd),
 };
 
-static struct vcs_cmd *vcs_get_cmd(uint8_t op)
+static const struct vcs_cmd *vcs_get_cmd(uint8_t op)
 {
 	if (op > ARRAY_SIZE(vcs_cmd_table))
 		return NULL;
@@ -1970,7 +2258,7 @@ static struct vcs_cmd *vcs_get_cmd(uint8_t op)
 static void print_vcs_cmd(const struct l2cap_frame *frame)
 {
 	uint8_t op;
-	struct vcs_cmd *cmd;
+	const struct vcs_cmd *cmd;
 
 	if (!l2cap_frame_get_u8((void *)frame, &op)) {
 		print_text(COLOR_ERROR, "opcode: invalid size");
@@ -2005,7 +2293,7 @@ static void print_vcs_flag(const struct l2cap_frame *frame)
 		print_text(COLOR_ERROR, "Volume Flag: invalid size");
 		goto done;
 	}
-	print_field("    Volume Falg: %u", vol_flag);
+	print_field("    Volume Flag: %u", vol_flag);
 
 done:
 	if (frame->size)
@@ -2054,6 +2342,8 @@ static void print_mp_name(const struct l2cap_frame *frame)
 	name = name2utf8((uint8_t *)frame->data, frame->size);
 
 	print_field("  Media Player Name: %s", name);
+
+	g_free(name);
 }
 
 static void mp_name_read(const struct l2cap_frame *frame)
@@ -2083,6 +2373,8 @@ static void print_track_title(const struct l2cap_frame *frame)
 	name = name2utf8((uint8_t *)frame->data, frame->size);
 
 	print_field("  Track Title: %s", name);
+
+	g_free(name);
 }
 
 static void track_title_read(const struct l2cap_frame *frame)
@@ -2207,6 +2499,668 @@ static void seeking_speed_read(const struct l2cap_frame *frame)
 static void seeking_speed_notify(const struct l2cap_frame *frame)
 {
 	print_seeking_speed(frame);
+}
+
+static void print_bearer_name(const struct l2cap_frame *frame)
+{
+	char *name;
+
+	name = name2utf8((uint8_t *)frame->data, frame->size);
+
+	print_field("  Bearer Name: %s", name);
+
+	g_free(name);
+}
+
+static void bearer_name_read(const struct l2cap_frame *frame)
+{
+	print_bearer_name(frame);
+}
+
+static void bearer_name_notify(const struct l2cap_frame *frame)
+{
+	print_bearer_name(frame);
+}
+
+static void bearer_uci_read(const struct l2cap_frame *frame)
+{
+	char *name;
+
+	name = name2utf8((uint8_t *)frame->data, frame->size);
+
+	print_field("  Bearer Uci Name: %s", name);
+
+	g_free(name);
+}
+
+static void print_technology_name(const struct l2cap_frame *frame)
+{
+	int8_t tech_id;
+	const char *str;
+
+	if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&tech_id)) {
+		print_text(COLOR_ERROR, "  Technology id:: invalid size");
+		goto done;
+	}
+
+	switch (tech_id) {
+	case 0x01:
+		str = "3G";
+		break;
+	case 0x02:
+		str = "4G";
+		break;
+	case 0x03:
+		str = "LTE";
+		break;
+	case 0x04:
+		str = "WiFi";
+		break;
+	case 0x05:
+		str = "5G";
+		break;
+	case 0x06:
+		str = "GSM";
+		break;
+	case 0x07:
+		str = "CDMA";
+		break;
+	case 0x08:
+		str = "2G";
+		break;
+	case 0x09:
+		str = "WCDMA";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Technology: %s  (0x%2.2x)", str, tech_id);
+
+done:
+	if (frame->size)
+		print_hex_field("  Data", frame->data, frame->size);
+}
+
+static void bearer_technology_read(const struct l2cap_frame *frame)
+{
+	print_technology_name(frame);
+}
+
+static void bearer_technology_notify(const struct l2cap_frame *frame)
+{
+	print_technology_name(frame);
+}
+
+static void print_uri_scheme_list(const struct l2cap_frame *frame)
+{
+	char *name;
+
+	name = name2utf8((uint8_t *)frame->data, frame->size);
+
+	print_field("  Uri scheme Name: %s", name);
+
+	g_free(name);
+}
+
+static void bearer_uri_schemes_list_read(const struct l2cap_frame *frame)
+{
+	print_uri_scheme_list(frame);
+}
+
+static void print_signal_strength(const struct l2cap_frame *frame)
+{
+	uint8_t signal_strength;
+
+	if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&signal_strength)) {
+		print_text(COLOR_ERROR, " signal_strength:: invalid size");
+		goto done;
+	}
+
+	print_field("  signal_strength: %x", signal_strength);
+
+	if (signal_strength == 0)
+		print_field("  No Service");
+	else if (signal_strength == 0x64)
+		print_field("  Maximum signal strength");
+	else if ((signal_strength > 0) && (signal_strength < 0x64))
+		print_field("  Implementation specific");
+	else if (signal_strength == 0xFF)
+		print_field("  Signal strength is unavailable");
+	else
+		print_field("  RFU");
+
+done:
+	if (frame->size)
+		print_hex_field("  Data", frame->data, frame->size);
+}
+
+static void bearer_signal_strength_read(const struct l2cap_frame *frame)
+{
+	print_signal_strength(frame);
+}
+
+static void bearer_signal_strength_notify(const struct l2cap_frame *frame)
+{
+	print_signal_strength(frame);
+}
+
+static void
+print_signal_strength_rep_intrvl(const struct l2cap_frame *frame)
+{
+	int8_t reporting_intrvl;
+
+	if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&reporting_intrvl)) {
+		print_text(COLOR_ERROR, "Reporting_interval:: invalid size");
+		goto done;
+	}
+
+	print_field("  Reporting_interval: 0x%x", reporting_intrvl);
+
+done:
+	if (frame->size)
+		print_hex_field("  Data", frame->data, frame->size);
+}
+
+static void
+bearer_signal_strength_rep_intrvl_read(const struct l2cap_frame *frame)
+{
+	print_signal_strength_rep_intrvl(frame);
+}
+
+static void
+bearer_signal_strength_rep_intrvl_write(const struct l2cap_frame *frame)
+{
+	print_signal_strength_rep_intrvl(frame);
+}
+
+static void print_call_list(const struct l2cap_frame *frame)
+{
+	uint8_t list_item_length;
+	uint8_t call_index;
+	uint8_t call_state;
+	uint8_t call_flag;
+	char *call_uri;
+
+	if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&list_item_length)) {
+		print_text(COLOR_ERROR, "    list_item_length:: invalid size");
+		goto done;
+	}
+
+	print_field("  list_item_length: 0x%x", list_item_length);
+
+	if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&call_index)) {
+		print_text(COLOR_ERROR, "  call_index:: invalid size");
+		goto done;
+	}
+
+	print_field("  call_index: 0x%x", call_index);
+
+	if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&call_state)) {
+		print_text(COLOR_ERROR, "  call_state:: invalid size");
+		goto done;
+	}
+
+	print_field("  call_state: 0x%x", call_state);
+
+	if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&call_flag)) {
+		print_text(COLOR_ERROR, "  call_flag:: invalid size");
+		goto done;
+	}
+
+	print_field("  call_flag: 0x%x", call_flag);
+
+	call_uri = name2utf8((uint8_t *)frame->data, frame->size);
+
+	print_field("  call_uri: %s", call_uri);
+
+	g_free(call_uri);
+
+done:
+	if (frame->size)
+		print_hex_field("  call_list Data", frame->data, frame->size);
+}
+
+static void bearer_current_call_list_read(const struct l2cap_frame *frame)
+{
+	print_call_list(frame);
+}
+
+static void bearer_current_call_list_notify(const struct l2cap_frame *frame)
+{
+	print_call_list(frame);
+}
+
+static void print_ccid(const struct l2cap_frame *frame)
+{
+	int8_t ccid;
+
+	if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&ccid)) {
+		print_text(COLOR_ERROR, "  ccid:: invalid size");
+		goto done;
+	}
+
+	print_field("  ccid: %x", ccid);
+
+done:
+	if (frame->size)
+		print_hex_field("  Data", frame->data, frame->size);
+}
+
+static void call_content_control_id_read(const struct l2cap_frame *frame)
+{
+	print_ccid(frame);
+}
+
+static void print_status_flag(const struct l2cap_frame *frame)
+{
+	int16_t flag;
+
+	if (!l2cap_frame_get_le16((void *)frame, (uint16_t *)&flag)) {
+		print_text(COLOR_ERROR, "  status flag:: invalid size");
+		goto done;
+	}
+
+	print_field("  status flag:");
+
+	if (flag & 0x1)
+		print_field("  Inband Ringtone Enabled:");
+	else
+		print_field("  Inband Ringtone Disabled:");
+
+	if (flag & 0x2)
+		print_field("  Server in silent Mode");
+	else
+		print_field("  Server Not in silent Mode");
+
+done:
+	if (frame->size)
+		print_hex_field("  Data", frame->data, frame->size);
+}
+
+static void status_flag_read(const struct l2cap_frame *frame)
+{
+	print_status_flag(frame);
+}
+
+static void status_flag_notify(const struct l2cap_frame *frame)
+{
+	print_status_flag(frame);
+}
+
+static void print_target_uri(const struct l2cap_frame *frame)
+{
+	char *name;
+	uint8_t call_idx;
+
+	if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&call_idx)) {
+		print_text(COLOR_ERROR, "  call_idx:: invalid size");
+		goto done;
+	}
+
+	print_field("  call_idx: %x", call_idx);
+
+	name = name2utf8((uint8_t *)frame->data, frame->size);
+
+	print_field("  Uri: %s", name);
+
+	g_free(name);
+
+done:
+	if (frame->size)
+		print_hex_field("  Data", frame->data, frame->size);
+}
+
+static void incom_target_bearer_uri_read(const struct l2cap_frame *frame)
+{
+	print_target_uri(frame);
+}
+
+static void incom_target_bearer_uri_notify(const struct l2cap_frame *frame)
+{
+	print_target_uri(frame);
+}
+
+static void print_call_state(const struct l2cap_frame *frame)
+{
+	uint8_t call_Index;
+	uint8_t call_state;
+	uint8_t call_flag;
+
+	if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&call_Index)) {
+		print_text(COLOR_ERROR, "  call_Index:: invalid index");
+		goto done;
+	}
+
+	print_field("  call_Index: 0x%2.2x", call_Index);
+
+	if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&call_state)) {
+		print_text(COLOR_ERROR, "  call_state:: invalid state");
+		goto done;
+	}
+
+	print_field("  call_state: 0x%2.2x", call_state);
+
+	if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&call_flag)) {
+		print_text(COLOR_ERROR, "  call_flag:: invalid flag");
+		goto done;
+	}
+
+	print_field("  call_flag: 0x%2.2x", call_flag);
+
+done:
+	if (frame->size)
+		print_hex_field("   call_state Data", frame->data, frame->size);
+}
+
+static void call_state_read(const struct l2cap_frame *frame)
+{
+	print_call_state(frame);
+}
+
+static void call_state_notify(const struct l2cap_frame *frame)
+{
+	print_call_state(frame);
+}
+
+static void print_call_cp(const struct l2cap_frame *frame)
+{
+	uint8_t opcode;
+	uint8_t parameter;
+	const char *str;
+	char *name;
+
+	if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&opcode)) {
+		print_text(COLOR_ERROR, "  opcode:: invalid size");
+		goto done;
+	}
+
+	print_field("  opcode: 0x%2.2x", opcode);
+
+	switch (opcode) {
+	case 0x00:
+		str = "Accept";
+		if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&parameter)) {
+			print_text(COLOR_ERROR, "  parameter:: invalid size");
+			goto done;
+		}
+		print_field("  Operation: %s  (0x%2.2x)", str, parameter);
+		break;
+	case 0x01:
+		str = "Terminate";
+		if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&parameter)) {
+			print_text(COLOR_ERROR, "  parameter:: invalid size");
+			goto done;
+		}
+		print_field("  Operation: %s  (0x%2.2x)", str, parameter);
+		break;
+	case 0x02:
+		str = "Local Hold";
+		if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&parameter)) {
+			print_text(COLOR_ERROR, "  parameter:: invalid size");
+			goto done;
+		}
+		print_field("  Operation: %s  (0x%2.2x)", str, parameter);
+		break;
+	case 0x03:
+		str = "Local Retrieve";
+		if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&parameter)) {
+			print_text(COLOR_ERROR, "  parameter:: invalid size");
+			goto done;
+		}
+		print_field("  Operation: %s  (0x%2.2x)", str, parameter);
+		break;
+	case 0x04:
+		str = "Originate";
+		name = name2utf8((uint8_t *)frame->data, frame->size);
+		print_field("  Operation: %s  Uri: %s", str, name);
+		g_free(name);
+		break;
+	case 0x05:
+		str = "Join";
+		if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&parameter)) {
+			print_text(COLOR_ERROR, "  parameter:: invalid size");
+			goto done;
+		}
+		print_field("  Operation: %s  (0x%2.2x)", str, parameter);
+		break;
+	default:
+		str = "RFU";
+		print_field("  Operation: %s", str);
+		break;
+	}
+
+done:
+	if (frame->size)
+		print_hex_field("call_cp Data", frame->data, frame->size);
+}
+
+static void print_call_cp_notification(const struct l2cap_frame *frame)
+{
+	uint8_t opcode;
+	uint8_t result_code;
+	const char *str;
+
+	if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&opcode)) {
+		print_text(COLOR_ERROR, "  result_code:: invalid opcode");
+		goto done;
+	}
+
+	print_field("  opcode: 0x%2.2x", opcode);
+
+	if (!l2cap_frame_get_u8((void *)frame, (uint8_t *)&result_code)) {
+		print_text(COLOR_ERROR, "  result_code:: invalid result_code");
+		goto done;
+	}
+
+	print_field("  result_code: 0x%2.2x", result_code);
+
+	switch (result_code) {
+	case 0x00:
+		str = "SUCCESS";
+		break;
+	case 0x01:
+		str = "OPCODE NOT SUPPORTED";
+		break;
+	case 0x02:
+		str = "OPERATION NOT POSSIBLE";
+		break;
+	case 0x03:
+		str = "INVALID CALL INDEX";
+		break;
+	case 0x04:
+		str = "STATE MISMATCH";
+		break;
+	case 0x05:
+		str = "LACK OF RESOURCES";
+		break;
+	case 0x06:
+		str = "INVALID OUTGOING URI";
+		break;
+	default:
+		str = "RFU";
+		break;
+	}
+
+	print_field("  Status: %s", str);
+
+done:
+	if (frame->size)
+		print_hex_field("  call_cp Data", frame->data, frame->size);
+}
+
+static void call_cp_write(const struct l2cap_frame *frame)
+{
+	print_call_cp(frame);
+}
+
+static void call_cp_notify(const struct l2cap_frame *frame)
+{
+	print_call_cp_notification(frame);
+}
+
+static void print_call_cp_opt(const struct l2cap_frame *frame)
+{
+	uint16_t operation;
+
+	if (!l2cap_frame_get_le16((void *)frame, (uint16_t *)&operation)) {
+		print_text(COLOR_ERROR, "  status operation:: invalid size");
+		goto done;
+	}
+
+	print_field("  operation: 0x%2x", operation);
+
+	if (operation & 0x1) {
+		print_field("  Local Hold and Local Retrieve "
+								"Call Control Point Opcodes supported");
+	} else {
+		print_field("  Local Hold and Local Retrieve "
+								"Call Control Point Opcodes not supported");
+	}
+
+	if (operation & 0x2)
+		print_field("  Join Call Control Point Opcode supported");
+	else
+		print_field("  Join Call Control Point Opcode not supported");
+
+done:
+	if (frame->size)
+		print_hex_field("  Data", frame->data, frame->size);
+}
+
+static void call_cp_opt_opcodes_read(const struct l2cap_frame *frame)
+{
+	print_call_cp_opt(frame);
+}
+
+static void print_term_reason(const struct l2cap_frame *frame)
+{
+	uint8_t call_id, reason;
+
+	if (!l2cap_frame_get_u8((void *)frame, &call_id)) {
+		print_text(COLOR_ERROR, "Call Index: invalid size");
+		goto done;
+	}
+	print_field("  call Index: %u", call_id);
+
+	if (!l2cap_frame_get_u8((void *)frame, &reason)) {
+		print_text(COLOR_ERROR, "Reason: invalid size");
+		goto done;
+	}
+
+	print_field("  Reason:");
+
+	switch (reason) {
+	case 0x00:
+		print_field("  Improper URI");
+		break;
+	case 0x01:
+		print_field("  Call Failed");
+		break;
+	case 0x02:
+		print_field("  Remote party ended the call");
+		break;
+	case 0x03:
+		print_field("  Server  ended the call");
+		break;
+	case 0x04:
+		print_field("  Line was Busy");
+		break;
+	case 0x05:
+		print_field("  Network Congestion");
+		break;
+	case 0x06:
+		print_field("  Client terminated the call");
+		break;
+	case 0x07:
+		print_field("  No service");
+		break;
+	case 0x08:
+		print_field("  No answer");
+		break;
+	case 0x09:
+		print_field("  Unspecified");
+		break;
+	default:
+		print_field("  RFU");
+		break;
+	}
+
+done:
+	if (frame->size)
+		print_hex_field("  Data", frame->data, frame->size);
+}
+
+static void call_termination_reason_notify(const struct l2cap_frame *frame)
+{
+	print_term_reason(frame);
+}
+
+static void print_incom_call(const struct l2cap_frame *frame)
+{
+	char *name;
+	uint8_t call_id;
+
+	if (!l2cap_frame_get_u8((void *)frame, &call_id)) {
+		print_text(COLOR_ERROR, "Call Index: invalid size");
+		goto done;
+	}
+
+	print_field("  Call Index: %u", call_id);
+
+	name = name2utf8((uint8_t *)frame->data, frame->size);
+
+	print_field("  call_string: %s", name);
+
+	g_free(name);
+
+done:
+	if (frame->size)
+		print_hex_field(" Data", frame->data, frame->size);
+}
+
+static void incoming_call_read(const struct l2cap_frame *frame)
+{
+	print_incom_call(frame);
+}
+
+static void incoming_call_notify(const struct l2cap_frame *frame)
+{
+	print_incom_call(frame);
+}
+
+static void print_call_friendly_name(const struct l2cap_frame *frame)
+{
+	char *name;
+	uint8_t call_id;
+
+	if (!l2cap_frame_get_u8((void *)frame, &call_id)) {
+		print_text(COLOR_ERROR, "Call Index: invalid size");
+		goto done;
+	}
+
+	print_field("  Call Index: %u", call_id);
+
+	name = name2utf8((uint8_t *)frame->data, frame->size);
+
+	print_field("  Friendly Name: %s", name);
+
+	g_free(name);
+
+done:
+	if (frame->size)
+		print_hex_field(" Data", frame->data, frame->size);
+}
+
+static void call_friendly_name_read(const struct l2cap_frame *frame)
+{
+	print_call_friendly_name(frame);
+}
+
+static void call_friendly_name_notify(const struct l2cap_frame *frame)
+{
+	print_call_friendly_name(frame);
 }
 
 static const char *play_order_str(uint8_t order)
@@ -2359,7 +3313,7 @@ static void media_state_notify(const struct l2cap_frame *frame)
 	print_media_state(frame);
 }
 
-struct media_cp_opcode {
+static const struct media_cp_opcode {
 	uint8_t opcode;
 	const char *opcode_str;
 } media_cp_opcode_table[] = {
@@ -2517,7 +3471,7 @@ static void content_control_id_read(const struct l2cap_frame *frame)
 
 static const struct pa_sync_state_decoder {
 	uint8_t code;
-	char *value;
+	const char *value;
 } pa_sync_state_decoders[] = {
 	{ 0x00, "Not synchronized to PA" },
 	{ 0x01, "SyncInfo Request" },
@@ -2528,7 +3482,7 @@ static const struct pa_sync_state_decoder {
 
 static const struct cp_pa_sync_state_decoder {
 	uint8_t code;
-	char *value;
+	const char *value;
 } cp_pa_sync_state_decoders[] = {
 	{ 0x00, "Do not synchronize to PA" },
 	{ 0x01, "Synchronize to PA - PAST available" },
@@ -2537,7 +3491,7 @@ static const struct cp_pa_sync_state_decoder {
 
 static const struct big_enc_decoder {
 	uint8_t code;
-	char *value;
+	const char *value;
 } big_enc_decoders[] = {
 	{ 0x00, "Not encrypted" },
 	{ 0x01, "Broadcast_Code required" },
@@ -2546,8 +3500,9 @@ static const struct big_enc_decoder {
 };
 
 static bool print_subgroup_lv(const struct l2cap_frame *frame,
-		const char *label, struct packet_ltv_decoder *decoder,
-		size_t decoder_len)
+				const char *label,
+				const struct util_ltv_debugger *debugger,
+				size_t debugger_len)
 {
 	struct bt_hci_lv_data *lv;
 
@@ -2562,7 +3517,8 @@ static bool print_subgroup_lv(const struct l2cap_frame *frame,
 		return false;
 	}
 
-	packet_print_ltv(label, lv->data, lv->len, decoder, decoder_len);
+	util_debug_ltv(lv->data, lv->len, debugger, debugger_len,
+			       print_ltv, (void *)label);
 
 	return true;
 }
@@ -2911,7 +3867,7 @@ static void bcast_audio_scan_cp_remove_src_cmd(const struct l2cap_frame *frame)
 	print_field("    Source_ID: %u", id);
 }
 
-struct bcast_audio_scan_cp_cmd {
+static const struct bcast_audio_scan_cp_cmd {
 	const char *desc;
 	void (*func)(const struct l2cap_frame *frame);
 } bcast_audio_scan_cp_cmd_table[] = {
@@ -2933,7 +3889,8 @@ struct bcast_audio_scan_cp_cmd {
 					bcast_audio_scan_cp_remove_src_cmd),
 };
 
-static struct bcast_audio_scan_cp_cmd *bcast_audio_scan_cp_get_cmd(uint8_t op)
+static const struct bcast_audio_scan_cp_cmd *
+bcast_audio_scan_cp_get_cmd(uint8_t op)
 {
 	if (op > ARRAY_SIZE(bcast_audio_scan_cp_cmd_table))
 		return NULL;
@@ -2944,7 +3901,7 @@ static struct bcast_audio_scan_cp_cmd *bcast_audio_scan_cp_get_cmd(uint8_t op)
 static void print_bcast_audio_scan_cp_cmd(const struct l2cap_frame *frame)
 {
 	uint8_t op;
-	struct bcast_audio_scan_cp_cmd *cmd;
+	const struct bcast_audio_scan_cp_cmd *cmd;
 
 	if (!l2cap_frame_get_u8((void *)frame, &op)) {
 		print_text(COLOR_ERROR, "Opcode: invalid size");
@@ -2971,6 +3928,140 @@ static void bcast_audio_scan_cp_write(const struct l2cap_frame *frame)
 	print_bcast_audio_scan_cp_cmd(frame);
 }
 
+static const struct bitfield_data gmap_role_table[] = {
+	{  0, "Unicast Game Gateway (UGG) (0x0001)"	},
+	{  1, "Unicast Game Terminal (UGT) (0x0002)"	},
+	{  2, "Broadcast Game Sender (BGS) (0x0004)"	},
+	{  3, "Broadcast Game Receiver (BGR) (0x0008)"	},
+	{ }
+};
+
+static void gmap_role_read(const struct l2cap_frame *frame)
+{
+	uint8_t role;
+	uint8_t mask;
+
+	if (!l2cap_frame_get_u8((void *)frame, &role)) {
+		print_text(COLOR_ERROR, "    invalid size");
+		return;
+	}
+
+	print_field("    Role: 0x%2.2x", role);
+
+	mask = print_bitfield(6, role, gmap_role_table);
+	if (mask)
+		print_text(COLOR_WHITE_BG, "    Unknown fields (0x%2.2x)",
+								mask);
+}
+
+static const struct bitfield_data ugg_features_table[] = {
+	{  0, "UGG Multiplex (0x0001)"	},
+	{  1, "UGG 96 kbps Source (0x0002)"	},
+	{  2, "UGG Multilink (0x0004)"	},
+	{ }
+};
+
+static void ugg_features_read(const struct l2cap_frame *frame)
+{
+	uint8_t value;
+	uint8_t mask;
+
+	if (!l2cap_frame_get_u8((void *)frame, &value)) {
+		print_text(COLOR_ERROR, "    invalid size");
+		return;
+	}
+
+	print_field("    Value: 0x%2.2x", value);
+
+	mask = print_bitfield(6, value, ugg_features_table);
+	if (mask)
+		print_text(COLOR_WHITE_BG, "    Unknown fields (0x%2.2x)",
+								mask);
+}
+
+static const struct bitfield_data ugt_features_table[] = {
+	{  0, "UGT Source (0x0001)"		},
+	{  1, "UGT 80 kbps Source (0x0002)"	},
+	{  2, "UGT Sink (0x0004)"		},
+	{  3, "UGT 64 kbps Sink (0x0008)"	},
+	{  4, "UGT Multiplex (0x0010)"		},
+	{  5, "UGT Multisink (0x0020)"		},
+	{  6, "UGT Multisource (0x0040)"	},
+	{ }
+};
+
+static void ugt_features_read(const struct l2cap_frame *frame)
+{
+	uint8_t value;
+	uint8_t mask;
+
+	if (!l2cap_frame_get_u8((void *)frame, &value)) {
+		print_text(COLOR_ERROR, "    invalid size");
+		return;
+	}
+
+	print_field("    Value: 0x%2.2x", value);
+
+	mask = print_bitfield(6, value, ugt_features_table);
+	if (mask)
+		print_text(COLOR_WHITE_BG, "    Unknown fields (0x%2.2x)",
+								mask);
+}
+
+static const struct bitfield_data bgs_features_table[] = {
+	{  0, "BGS 96 kbps (0x0001)"		},
+	{ }
+};
+
+static void bgs_features_read(const struct l2cap_frame *frame)
+{
+	uint8_t value;
+	uint8_t mask;
+
+	if (!l2cap_frame_get_u8((void *)frame, &value)) {
+		print_text(COLOR_ERROR, "    invalid size");
+		return;
+	}
+
+	print_field("    Value: 0x%2.2x", value);
+
+	mask = print_bitfield(6, value, bgs_features_table);
+	if (mask)
+		print_text(COLOR_WHITE_BG, "    Unknown fields (0x%2.2x)",
+								mask);
+}
+
+static const struct bitfield_data bgr_features_table[] = {
+	{  0, "BGR Multisink (0x0001)"		},
+	{  1, "BGR Multiplex (0x0002)"		},
+	{ }
+};
+
+static void bgr_features_read(const struct l2cap_frame *frame)
+{
+	uint8_t value;
+	uint8_t mask;
+
+	if (!l2cap_frame_get_u8((void *)frame, &value)) {
+		print_text(COLOR_ERROR, "    invalid size");
+		return;
+	}
+
+	print_field("    Value: 0x%2.2x", value);
+
+	mask = print_bitfield(6, value, bgr_features_table);
+	if (mask)
+		print_text(COLOR_WHITE_BG, "    Unknown fields (0x%2.2x)",
+								mask);
+}
+
+#define GMAS \
+	GATT_HANDLER(0x2c00, gmap_role_read, NULL, NULL), \
+	GATT_HANDLER(0x2c01, ugg_features_read, NULL, NULL), \
+	GATT_HANDLER(0x2c02, ugt_features_read, NULL, NULL), \
+	GATT_HANDLER(0x2c02, bgs_features_read, NULL, NULL), \
+	GATT_HANDLER(0x2c03, bgr_features_read, NULL, NULL)
+
 #define GATT_HANDLER(_uuid, _read, _write, _notify) \
 { \
 	.uuid = { \
@@ -2982,12 +4073,14 @@ static void bcast_audio_scan_cp_write(const struct l2cap_frame *frame)
 	.notify = _notify \
 }
 
-struct gatt_handler {
+static const struct gatt_handler {
 	bt_uuid_t uuid;
 	void (*read)(const struct l2cap_frame *frame);
 	void (*write)(const struct l2cap_frame *frame);
 	void (*notify)(const struct l2cap_frame *frame);
 } gatt_handlers[] = {
+	GATT_HANDLER(0x2800, pri_svc_read, NULL, NULL),
+	GATT_HANDLER(0x2801, sec_svc_read, NULL, NULL),
 	GATT_HANDLER(0x2803, chrc_read, NULL, NULL),
 	GATT_HANDLER(0x2902, ccc_read, ccc_write, NULL),
 	GATT_HANDLER(0x2bc4, ase_read, NULL, ase_notify),
@@ -3029,14 +4122,40 @@ struct gatt_handler {
 	GATT_HANDLER(0x2bc7, NULL, bcast_audio_scan_cp_write, NULL),
 	GATT_HANDLER(0x2bc8, bcast_recv_state_read, NULL,
 					bcast_recv_state_notify),
+	GATT_HANDLER(0x2bb3, bearer_name_read, NULL, bearer_name_notify),
+	GATT_HANDLER(0x2bb4, bearer_uci_read, NULL, NULL),
+	GATT_HANDLER(0x2bb5, bearer_technology_read, NULL,
+					bearer_technology_notify),
+	GATT_HANDLER(0x2bb6, bearer_uri_schemes_list_read, NULL, NULL),
+	GATT_HANDLER(0x2bb7, bearer_signal_strength_read, NULL,
+					bearer_signal_strength_notify),
+	GATT_HANDLER(0x2bb8, bearer_signal_strength_rep_intrvl_read,
+			bearer_signal_strength_rep_intrvl_write, NULL),
+	GATT_HANDLER(0x2bb9, bearer_current_call_list_read, NULL,
+					bearer_current_call_list_notify),
+	GATT_HANDLER(0x2bba, call_content_control_id_read, NULL, NULL),
+	GATT_HANDLER(0x2bbb, status_flag_read, NULL, status_flag_notify),
+	GATT_HANDLER(0x2bbc, incom_target_bearer_uri_read, NULL,
+					incom_target_bearer_uri_notify),
+	GATT_HANDLER(0x2bbd, call_state_read, NULL, call_state_notify),
+	GATT_HANDLER(0x2bbe, NULL, call_cp_write, call_cp_notify),
+	GATT_HANDLER(0x2bbf, call_cp_opt_opcodes_read, NULL, NULL),
+	GATT_HANDLER(0x2bc0, NULL, NULL, call_termination_reason_notify),
+	GATT_HANDLER(0x2bc1, incoming_call_read, NULL, incoming_call_notify),
+	GATT_HANDLER(0x2bc2, call_friendly_name_read, NULL,
+					call_friendly_name_notify),
+	GMAS
 };
 
-static struct gatt_handler *get_handler_uuid(const bt_uuid_t *uuid)
+static const struct gatt_handler *get_handler_uuid(const bt_uuid_t *uuid)
 {
 	size_t i;
 
+	if (!uuid)
+		return NULL;
+
 	for (i = 0; i < ARRAY_SIZE(gatt_handlers); i++) {
-		struct gatt_handler *handler = &gatt_handlers[i];
+		const struct gatt_handler *handler = &gatt_handlers[i];
 
 		if (!bt_uuid_cmp(&handler->uuid, uuid))
 			return handler;
@@ -3045,7 +4164,7 @@ static struct gatt_handler *get_handler_uuid(const bt_uuid_t *uuid)
 	return NULL;
 }
 
-static struct gatt_handler *get_handler(struct gatt_db_attribute *attr)
+static const struct gatt_handler *get_handler(struct gatt_db_attribute *attr)
 {
 	return get_handler_uuid(gatt_db_attribute_get_type(attr));
 }
@@ -3059,9 +4178,23 @@ static void att_exchange_mtu_req(const struct l2cap_frame *frame)
 
 static void att_exchange_mtu_rsp(const struct l2cap_frame *frame)
 {
-	const struct bt_l2cap_att_exchange_mtu_rsp *pdu = frame->data;
+	struct packet_conn_data *conn;
+	struct att_conn_data *data;
+	uint16_t mtu;
 
-	print_field("Server RX MTU: %d", le16_to_cpu(pdu->mtu));
+	if (!l2cap_frame_get_le16((void *)frame, &mtu)) {
+		print_text(COLOR_ERROR, "  invalid size");
+		return;
+	}
+
+	print_field("Server RX MTU: %d", mtu);
+
+	conn = packet_get_conn_data(frame->handle);
+	data = att_get_conn_data(conn);
+	if (!data)
+		return;
+
+	data->mtu = mtu;
 }
 
 static void att_find_info_req(const struct l2cap_frame *frame)
@@ -3081,45 +4214,96 @@ static const char *att_format_str(uint8_t format)
 	}
 }
 
-static uint16_t print_info_data_16(const void *data, uint16_t len)
+static struct gatt_db_attribute *insert_desc(const struct l2cap_frame *frame,
+						uint16_t handle,
+						bt_uuid_t *uuid, bool rsp)
 {
-	while (len >= 4) {
-		print_field("Handle: 0x%4.4x", get_le16(data));
-		print_uuid("UUID", data + 2, 2);
-		data += 4;
-		len -= 4;
-	}
+	struct gatt_db *db;
 
-	return len;
+	db = get_db(frame, rsp);
+	if (!db)
+		return NULL;
+
+	return gatt_db_insert_descriptor(db, handle, uuid, 0, NULL, NULL, NULL);
 }
 
-static uint16_t print_info_data_128(const void *data, uint16_t len)
+static void att_find_info_rsp_16(const struct l2cap_frame *frame)
 {
-	while (len >= 18) {
-		print_field("Handle: 0x%4.4x", get_le16(data));
-		print_uuid("UUID", data + 2, 16);
-		data += 18;
-		len -= 18;
-	}
+	while (frame->size >= 4) {
+		uint16_t handle;
+		uint16_t u16;
+		bt_uuid_t uuid;
 
-	return len;
+		if (!l2cap_frame_get_le16((void *)frame, &handle)) {
+			print_text(COLOR_ERROR, "    Handle: invalid size");
+			return;
+		}
+
+		if (!l2cap_frame_get_le16((void *)frame, &u16)) {
+			print_text(COLOR_ERROR, "    UUID: invalid size");
+			return;
+		}
+
+		print_field("Handle: 0x%4.4x", handle);
+		print_uuid("UUID", &u16, 2);
+
+		bt_uuid16_create(&uuid, u16);
+
+		insert_desc(frame, handle, &uuid, true);
+	}
+}
+
+static void att_find_info_rsp_128(const struct l2cap_frame *frame)
+{
+	while (frame->size >= 18) {
+		uint16_t handle;
+		bt_uuid_t uuid;
+
+		if (!l2cap_frame_get_le16((void *)frame, &handle)) {
+			print_text(COLOR_ERROR, "    Handle: invalid size");
+			return;
+		}
+
+		if (frame->size < 16) {
+			print_text(COLOR_ERROR, "    UUID: invalid size");
+			return;
+		}
+
+		print_field("Handle: 0x%4.4x", handle);
+		print_uuid("UUID", frame->data, 16);
+
+		bt_uuid_from_data(&uuid, frame->data, 16);
+
+		if (!l2cap_frame_pull((void *)frame, frame, 16))
+			return;
+
+		insert_desc(frame, handle, &uuid, true);
+	}
 }
 
 static void att_find_info_rsp(const struct l2cap_frame *frame)
 {
-	const uint8_t *format = frame->data;
-	uint16_t len;
+	uint8_t format;
 
-	print_field("Format: %s (0x%2.2x)", att_format_str(*format), *format);
+	if (!l2cap_frame_get_u8((void *)frame, &format)) {
+		print_text(COLOR_ERROR, "    Format: invalid size");
+		goto done;
+	}
 
-	if (*format == 0x01)
-		len = print_info_data_16(frame->data + 1, frame->size - 1);
-	else if (*format == 0x02)
-		len = print_info_data_128(frame->data + 1, frame->size - 1);
-	else
-		len = frame->size - 1;
+	print_field("Format: %s (0x%2.2x)", att_format_str(format), format);
 
-	packet_hexdump(frame->data + (frame->size - len), len);
+	switch (format) {
+	case 0x01:
+		att_find_info_rsp_16(frame);
+		break;
+	case 0x02:
+		att_find_info_rsp_128(frame);
+		break;
+	}
+
+done:
+	if (frame->size)
+		packet_hexdump(frame->data, frame->size);
 }
 
 static void att_find_by_type_val_req(const struct l2cap_frame *frame)
@@ -3146,71 +4330,34 @@ static void att_find_by_type_val_rsp(const struct l2cap_frame *frame)
 	packet_hexdump(ptr, len);
 }
 
-static int bt_uuid_from_data(bt_uuid_t *uuid, const void *data, uint16_t size)
+static struct gatt_db_attribute *get_attribute(const struct l2cap_frame *frame,
+						uint16_t handle, bool rsp)
 {
-	uint128_t u128;
+	struct gatt_db *db;
 
-	switch (size) {
-	case 2:
-		return bt_uuid16_create(uuid, get_le16(data));
-	case 4:
-		return bt_uuid32_create(uuid, get_le32(data));
-	case 16:
-		memcpy(u128.data, data, sizeof(u128.data));
-		return bt_uuid128_create(uuid, u128);
-	}
-
-	return -EINVAL;
-}
-
-static void att_conn_data_free(void *data)
-{
-	struct att_conn_data *att_data = data;
-
-	gatt_db_unref(att_data->rdb);
-	gatt_db_unref(att_data->ldb);
-	queue_destroy(att_data->reads, free);
-	free(att_data);
-}
-
-static struct att_conn_data *att_get_conn_data(struct packet_conn_data *conn)
-{
-	struct att_conn_data *data;
-
-	if (!conn)
+	db = get_db(frame, rsp);
+	if (!db)
 		return NULL;
 
-	data = conn->data;
-
-	if (data)
-		return data;
-
-	data = new0(struct att_conn_data, 1);
-	data->rdb = gatt_db_new();
-	data->ldb = gatt_db_new();
-	conn->data = data;
-	conn->destroy = att_conn_data_free;
-
-	return data;
+	return gatt_db_get_attribute(db, handle);
 }
 
-static void att_read_type_req(const struct l2cap_frame *frame)
+static void queue_read(const struct l2cap_frame *frame, bt_uuid_t *uuid,
+					uint16_t handle)
 {
-	bt_uuid_t uuid;
 	struct packet_conn_data *conn;
 	struct att_conn_data *data;
 	struct att_read *read;
-	struct gatt_handler *handler;
+	struct gatt_db_attribute *attr = NULL;
+	const struct gatt_handler *handler;
 
-	print_handle_range("Handle range", frame->data);
-	print_uuid("Attribute type", frame->data + 4, frame->size - 4);
+	if (handle) {
+		attr = get_attribute(frame, handle, false);
+		if (!attr)
+			return;
+	}
 
-	if (bt_uuid_from_data(&uuid, frame->data + 4, frame->size - 4))
-		return;
-
-	handler = get_handler_uuid(&uuid);
-	if (!handler || !handler->read)
-		return;
+	handler = attr ? get_handler(attr) : get_handler_uuid(uuid);
 
 	conn = packet_get_conn_data(frame->handle);
 	data = att_get_conn_data(conn);
@@ -3221,11 +4368,26 @@ static void att_read_type_req(const struct l2cap_frame *frame)
 		data->reads = queue_new();
 
 	read = new0(struct att_read, 1);
+	read->conn = data;
+	read->attr = attr;
 	read->in = frame->in;
 	read->chan = frame->chan;
-	read->func = handler->read;
+	read->func = handler ? handler->read : NULL;
 
 	queue_push_tail(data->reads, read);
+}
+
+static void att_read_type_req(const struct l2cap_frame *frame)
+{
+	bt_uuid_t uuid;
+
+	print_handle_range("Handle range", frame->data);
+	print_uuid("Attribute type", frame->data + 4, frame->size - 4);
+
+	if (bt_uuid_from_data(&uuid, frame->data + 4, frame->size - 4))
+		return;
+
+	queue_read(frame, &uuid, 0x0000);
 }
 
 static void att_read_type_rsp(const struct l2cap_frame *frame)
@@ -3239,83 +4401,6 @@ static void att_read_type_rsp(const struct l2cap_frame *frame)
 
 	print_field("Attribute data length: %d", len);
 	print_data_list("Attribute data list", len, frame);
-}
-
-static void gatt_load_db(struct gatt_db *db, const char *filename,
-						struct timespec *mtim)
-{
-	struct stat st;
-
-	if (lstat(filename, &st))
-		return;
-
-	if (!gatt_db_isempty(db)) {
-		/* Check if file has been modified since last time */
-		if (st.st_mtim.tv_sec == mtim->tv_sec &&
-				    st.st_mtim.tv_nsec == mtim->tv_nsec)
-			return;
-		/* Clear db before reloading */
-		gatt_db_clear(db);
-	}
-
-	*mtim = st.st_mtim;
-
-	btd_settings_gatt_db_load(db, filename);
-}
-
-static void load_gatt_db(struct packet_conn_data *conn)
-{
-	struct att_conn_data *data = att_get_conn_data(conn);
-	char filename[PATH_MAX];
-	char local[18];
-	char peer[18];
-	uint8_t id[6], id_type;
-
-	ba2str((bdaddr_t *)conn->src, local);
-
-	if (keys_resolve_identity(conn->dst, id, &id_type))
-		ba2str((bdaddr_t *)id, peer);
-	else
-		ba2str((bdaddr_t *)conn->dst, peer);
-
-	create_filename(filename, PATH_MAX, "/%s/attributes", local);
-	gatt_load_db(data->ldb, filename, &data->ldb_mtim);
-
-	create_filename(filename, PATH_MAX, "/%s/cache/%s", local, peer);
-	gatt_load_db(data->rdb, filename, &data->rdb_mtim);
-}
-
-static struct gatt_db_attribute *get_attribute(const struct l2cap_frame *frame,
-						uint16_t handle, bool rsp)
-{
-	struct packet_conn_data *conn;
-	struct att_conn_data *data;
-	struct gatt_db *db;
-
-	conn = packet_get_conn_data(frame->handle);
-	if (!conn)
-		return NULL;
-
-	/* Try loading local and remote gatt_db if not loaded yet */
-	load_gatt_db(conn);
-
-	data = conn->data;
-	if (!data)
-		return NULL;
-
-	if (frame->in) {
-		if (rsp)
-			db = data->rdb;
-		else
-			db = data->ldb;
-	} else {
-		if (rsp)
-			db = data->ldb;
-		else
-			db = data->rdb;
-	}
-
-	return gatt_db_get_attribute(db, handle);
 }
 
 static void print_handle(const struct l2cap_frame *frame, uint16_t handle,
@@ -3336,65 +4421,104 @@ static void att_read_req(const struct l2cap_frame *frame)
 {
 	const struct bt_l2cap_att_read_req *pdu = frame->data;
 	uint16_t handle;
-	struct packet_conn_data *conn;
-	struct att_conn_data *data;
-	struct att_read *read;
-	struct gatt_db_attribute *attr;
-	struct gatt_handler *handler;
 
 	l2cap_frame_pull((void *)frame, frame, sizeof(*pdu));
 
 	handle = le16_to_cpu(pdu->handle);
 	print_handle(frame, handle, false);
 
-	attr = get_attribute(frame, handle, false);
-	if (!attr)
-		return;
+	queue_read(frame, NULL, handle);
+}
 
-	handler = get_handler(attr);
-	if (!handler || !handler->read)
-		return;
+static void att_read_append(struct att_read *read,
+				const struct l2cap_frame *frame)
+{
+	if (!read->iov)
+		read->iov = new0(struct iovec, 1);
+	util_iov_append(read->iov, frame->data, frame->size);
+}
 
-	conn = packet_get_conn_data(frame->handle);
-	data = conn->data;
+static void att_read_func(struct att_read *read,
+				const struct l2cap_frame *frame)
+{
+	att_read_append(read, frame);
 
-	if (!data->reads)
-		data->reads = queue_new();
+	print_attribute(read->attr);
+	print_hex_field("Value", read->iov->iov_base, read->iov->iov_len);
 
-	read = new0(struct att_read, 1);
-	read->attr = attr;
-	read->in = frame->in;
-	read->chan = frame->chan;
-	read->func = handler->read;
+	if (read->func) {
+		struct l2cap_frame f = *frame;
 
-	queue_push_tail(data->reads, read);
+		f.data = read->iov->iov_base;
+		f.size = read->iov->iov_len;
+
+		read->func(&f);
+	}
+
+	att_read_free(read);
 }
 
 static void att_read_rsp(const struct l2cap_frame *frame)
 {
 	struct att_read *read;
 
+	print_hex_field("Value", frame->data, frame->size);
+
 	read = att_get_read(frame);
 	if (!read)
 		return;
 
-	print_attribute(read->attr);
-	print_hex_field("Value", frame->data, frame->size);
+	/* Check if the data size is equal to the MTU then read long procedure
+	 * maybe used.
+	 */
+	if (frame->size == read->conn->mtu - 1) {
+		att_read_append(read, frame);
+		print_hex_field("Long Value", read->iov->iov_base,
+					read->iov->iov_len);
+		queue_push_head(read->conn->reads, read);
+		return;
+	}
 
-	read->func(frame);
-
-	free(read);
+	att_read_func(read, frame);
 }
 
 static void att_read_blob_req(const struct l2cap_frame *frame)
 {
-	print_handle(frame, get_le16(frame->data), false);
-	print_field("Offset: 0x%4.4x", get_le16(frame->data + 2));
+	uint16_t handle, offset;
+	struct att_read *read;
+
+	if (!l2cap_frame_get_le16((void *)frame, &handle)) {
+		print_text(COLOR_ERROR, "invalid size");
+		return;
+	}
+
+	if (!l2cap_frame_get_le16((void *)frame, &offset)) {
+		print_text(COLOR_ERROR, "invalid size");
+		return;
+	}
+
+	print_handle(frame, handle, false);
+	print_field("Offset: 0x%4.4x", offset);
+
+	read = att_get_read(frame);
+	if (!read)
+		return;
+
+	/* Check if attribute handle and offset match so the read object shall
+	 * be keeped.
+	 */
+	if (gatt_db_attribute_get_handle(read->attr) == handle &&
+				offset == read->iov->iov_len) {
+		queue_push_head(read->conn->reads, read);
+		return;
+	}
+
+	att_read_func(read, frame);
 }
 
 static void att_read_blob_rsp(const struct l2cap_frame *frame)
 {
-	packet_hexdump(frame->data, frame->size);
+	att_read_rsp(frame);
 }
 
 static void att_read_multiple_req(const struct l2cap_frame *frame)
@@ -3409,47 +4533,67 @@ static void att_read_multiple_req(const struct l2cap_frame *frame)
 
 static void att_read_group_type_req(const struct l2cap_frame *frame)
 {
+	bt_uuid_t uuid;
+
 	print_handle_range("Handle range", frame->data);
 	print_uuid("Attribute group type", frame->data + 4, frame->size - 4);
+
+	if (bt_uuid_from_data(&uuid, frame->data + 4, frame->size - 4))
+		return;
+
+	queue_read(frame, &uuid, 0x0000);
 }
 
 static void print_group_list(const char *label, uint8_t length,
-					const void *data, uint16_t size)
+					const struct l2cap_frame *frame)
 {
+	struct att_read *read;
 	uint8_t count;
 
 	if (length == 0)
 		return;
 
-	count = size / length;
+	read = att_get_read(frame);
+
+	count = frame->size / length;
 
 	print_field("%s: %u entr%s", label, count, count == 1 ? "y" : "ies");
 
-	while (size >= length) {
-		print_handle_range("Handle range", data);
-		print_uuid("UUID", data + 4, length - 4);
+	while (frame->size >= length) {
+		print_handle_range("Handle range", frame->data);
+		print_uuid("UUID", frame->data + 4, length - 4);
 
-		data += length;
-		size -= length;
+		if (read && read->func) {
+			struct l2cap_frame f;
+
+			l2cap_frame_clone_size(&f, frame, length);
+
+			read->func(&f);
+		}
+
+		if (!l2cap_frame_pull((void *)frame, frame, length))
+			break;
 	}
 
-	packet_hexdump(data, size);
+	packet_hexdump(frame->data, frame->size);
+	att_read_free(read);
 }
 
 static void att_read_group_type_rsp(const struct l2cap_frame *frame)
 {
 	const struct bt_l2cap_att_read_group_type_rsp *pdu = frame->data;
 
+	l2cap_frame_pull((void *)frame, frame, sizeof(*pdu));
+
 	print_field("Attribute data length: %d", pdu->length);
-	print_group_list("Attribute group list", pdu->length,
-					frame->data + 1, frame->size - 1);
+	print_group_list("Attribute group list", pdu->length, frame);
 }
 
 static void print_write(const struct l2cap_frame *frame, uint16_t handle,
 							size_t len)
 {
 	struct gatt_db_attribute *attr;
-	struct gatt_handler *handler;
+	const struct gatt_handler *handler;
 
 	print_handle(frame, handle, false);
 
@@ -3525,7 +4669,7 @@ static void print_notify(const struct l2cap_frame *frame, uint16_t handle,
 								size_t len)
 {
 	struct gatt_db_attribute *attr;
-	struct gatt_handler *handler;
+	const struct gatt_handler *handler;
 	struct l2cap_frame clone;
 
 	print_handle(frame, handle, true);
@@ -3553,7 +4697,8 @@ static void print_notify(const struct l2cap_frame *frame, uint16_t handle,
 		frame = &clone;
 	}
 
-	handler->notify(frame);
+	if (handler->notify)
+		handler->notify(frame);
 }
 
 static void att_handle_value_notify(const struct l2cap_frame *frame)

@@ -30,8 +30,8 @@
 #include <stdio.h>
 #include <inttypes.h>
 
-#include "lib/bluetooth.h"
-#include "lib/uuid.h"
+#include "bluetooth/bluetooth.h"
+#include "bluetooth/uuid.h"
 
 #include "src/shared/util.h"
 #include "display.h"
@@ -147,7 +147,7 @@ static void le_monitor_advertisement_cmd(const void *data, uint16_t size)
 		packet_hexdump(irk->irk, size - sizeof(*cmd));
 		break;
 	case MSFT_LE_MONITOR_ADV_ADDR:
-		print_field("Type: Adderss (0x%2.2x)", cmd->type);
+		print_field("Type: Address (0x%2.2x)", cmd->type);
 		addr = (void *)cmd->data;
 		packet_print_addr(NULL, addr->addr, addr->type);
 		break;
@@ -299,7 +299,8 @@ const struct vendor_ocf *msft_vendor_ocf(void)
 	return &vendor_ocf_entry;
 }
 
-static void msft_evt(uint16_t index, const void *data, uint8_t size)
+static void msft_evt(struct timeval *tv, uint16_t index,
+			const void *data, uint8_t size)
 {
 	packet_hexdump(data, size);
 }

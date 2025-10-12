@@ -128,22 +128,27 @@ DBusMessage *btd_error_not_ready_str(DBusMessage *msg, const char *str)
 					"%s", str);
 }
 
+DBusMessage *btd_error_profile_unavailable(DBusMessage *msg)
+{
+	return g_dbus_create_error(msg, ERROR_INTERFACE_BREDR
+					".ProfileUnavailable",
+					"No more profiles to connect to");
+}
+
 DBusMessage *btd_error_failed(DBusMessage *msg, const char *str)
 {
 	return g_dbus_create_error(msg, ERROR_INTERFACE
 					".Failed", "%s", str);
 }
 
-const char *btd_error_bredr_conn_from_errno(int errno_code)
+static const char *btd_error_bredr_str(int err)
 {
-	switch (-errno_code) {
+	switch (-err) {
 	case EALREADY:
 	case EISCONN:
 		return ERR_BREDR_CONN_ALREADY_CONNECTED;
 	case EHOSTDOWN:
 		return ERR_BREDR_CONN_PAGE_TIMEOUT;
-	case ENOPROTOOPT:
-		return ERR_BREDR_CONN_PROFILE_UNAVAILABLE;
 	case EIO:
 		return ERR_BREDR_CONN_CREATE_SOCKET;
 	case EINVAL:
@@ -171,14 +176,16 @@ const char *btd_error_bredr_conn_from_errno(int errno_code)
 		return ERR_BREDR_CONN_ABORT_BY_LOCAL;
 	case EPROTO:
 		return ERR_BREDR_CONN_LMP_PROTO_ERROR;
+	case EBADE:
+		return ERR_BREDR_CONN_KEY_MISSING;
 	default:
 		return ERR_BREDR_CONN_UNKNOWN;
 	}
 }
 
-const char *btd_error_le_conn_from_errno(int errno_code)
+static const char *btd_error_le_str(int err)
 {
-	switch (-errno_code) {
+	switch (-err) {
 	case EINVAL:
 		return ERR_LE_CONN_INVALID_ARGUMENTS;
 	case EHOSTUNREACH:
@@ -209,7 +216,24 @@ const char *btd_error_le_conn_from_errno(int errno_code)
 		return ERR_LE_CONN_ABORT_BY_LOCAL;
 	case EPROTO:
 		return ERR_LE_CONN_LL_PROTO_ERROR;
+	case EBADE:
+		return ERR_LE_CONN_KEY_MISSING;
 	default:
 		return ERR_LE_CONN_UNKNOWN;
 	}
+}
+
+DBusMessage *btd_error_bredr_errno(DBusMessage *msg, int err)
+{
+	switch (err) {
+	case ENOPROTOOPT:
+		return btd_error_profile_unavailable(msg);
+	default:
+		return btd_error_failed(msg, btd_error_bredr_str(err));
+	}
+}
+
+DBusMessage *btd_error_le_errno(DBusMessage *msg, int err)
+{
+	return btd_error_failed(msg, btd_error_le_str(err));
 }

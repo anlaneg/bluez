@@ -13,6 +13,7 @@
 #endif
 
 #include <sys/time.h>
+#include <time.h>
 #include <ell/ell.h>
 
 #include "mesh/mesh-defs.h"
@@ -202,7 +203,7 @@ static bool save_cfg_sub(struct mesh_node *node, uint16_t ele_addr,
 
 	id = (vendor) ? id : MODEL_ID(id);
 
-	if (virt)
+	if (virt && label)
 		memcpy(db_sub.addr.label, label, 16);
 
 	if (opcode == OP_CONFIG_MODEL_SUB_VIRT_DELETE ||
@@ -736,7 +737,7 @@ static uint16_t cfg_net_tx_msg(struct mesh_node *node, const uint8_t *pkt,
 static uint16_t get_composition(struct mesh_node *node, uint8_t page,
 								uint8_t *buf)
 {
-	const uint8_t *comp;
+	const uint8_t *comp = NULL;
 	uint16_t len = 0;
 	size_t i;
 
@@ -751,7 +752,7 @@ static uint16_t get_composition(struct mesh_node *node, uint8_t page,
 			break;
 	}
 
-	if (!len)
+	if (!len || !comp)
 		return 0;
 
 	*buf++ = page;

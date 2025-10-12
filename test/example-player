@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 from __future__ import print_function
@@ -96,7 +96,7 @@ class Player(dbus.service.Object):
         """PropertiesChanged(interface, properties, invalidated)
 
         Send a PropertiesChanged signal. 'properties' is a dictionary
-        containing string parameters as specified in doc/media-api.txt.
+        containing string parameters as specified in doc/media-api.rst.
         """
         pass
 

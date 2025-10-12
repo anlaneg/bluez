@@ -21,8 +21,8 @@
 #include <dbus/dbus.h>
 #include <gdbus/gdbus.h>
 
-#include "lib/bluetooth.h"
-#include "lib/mgmt.h"
+#include "bluetooth/bluetooth.h"
+#include "bluetooth/mgmt.h"
 
 #include "adapter.h"
 #include "btd.h"
@@ -102,7 +102,8 @@ struct rssi_parameters {
 	int8_t low_rssi;		/* Low RSSI threshold */
 	uint16_t low_rssi_timeout;	/* Low RSSI threshold timeout */
 	uint16_t sampling_period;	/* Merge packets in the same timeslot.
-					 * Currenly unimplemented in user space.
+					 * Currently unimplemented in user
+					 * space.
 					 * Used only to pass data to kernel.
 					 */
 };
@@ -406,7 +407,7 @@ static void merged_pattern_replace(
 	/* If the RSSI are the same then nothing needs to be done, except on
 	 * the case where pattern is being removed. In that case, we need to
 	 * re-add the pattern.
-	 * high_rssi_timeout is purposedly left out in the comparison since
+	 * high_rssi_timeout is purposely left out in the comparison since
 	 * the value is ignored upon submission to kernel.
 	 */
 	if (merged_pattern->rssi.high_rssi == rssi->high_rssi &&
@@ -1583,10 +1584,6 @@ static void adv_monitor_device_found_callback(uint16_t index, uint16_t length,
 	const uint8_t *ad_data = NULL;
 	uint16_t ad_data_len;
 	uint32_t flags;
-	bool confirm_name;
-	bool legacy;
-	bool not_connectable;
-	bool name_resolve_failed;
 	char addr[18];
 
 	if (length < sizeof(*ev)) {
@@ -1605,21 +1602,14 @@ static void adv_monitor_device_found_callback(uint16_t index, uint16_t length,
 	if (ad_data_len > 0)
 		ad_data = ev->ad_data;
 
-	flags = btohl(ev->flags);
+	flags = le32_to_cpu(ev->flags);
 
 	ba2str(&ev->addr.bdaddr, addr);
 	DBG("hci%u addr %s, rssi %d flags 0x%04x ad_data_len %u",
 			index, addr, ev->rssi, flags, ad_data_len);
 
-	confirm_name = (flags & MGMT_DEV_FOUND_CONFIRM_NAME);
-	legacy = (flags & MGMT_DEV_FOUND_LEGACY_PAIRING);
-	not_connectable = (flags & MGMT_DEV_FOUND_NOT_CONNECTABLE);
-	name_resolve_failed = (flags & MGMT_DEV_FOUND_NAME_REQUEST_FAILED);
-
-	btd_adapter_update_found_device(adapter, &ev->addr.bdaddr,
-					ev->addr.type, ev->rssi, confirm_name,
-					legacy, not_connectable,
-					name_resolve_failed, ad_data,
+	btd_adapter_device_found(adapter, &ev->addr.bdaddr,
+					ev->addr.type, ev->rssi, flags, ad_data,
 					ad_data_len, true);
 
 	if (handle) {

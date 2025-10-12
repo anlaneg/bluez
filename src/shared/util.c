@@ -4,6 +4,7 @@
  *  BlueZ - Bluetooth protocol stack for Linux
  *
  *  Copyright (C) 2012-2014  Intel Corporation. All rights reserved.
+ *  Copyright 2023-2024 NXP
  *
  *
  */
@@ -27,6 +28,8 @@
 #ifdef HAVE_SYS_RANDOM_H
 #include <sys/random.h>
 #endif
+
+#include <bluetooth/bluetooth.h>
 
 /* define MAX_INPUT for musl */
 #ifndef MAX_INPUT
@@ -133,6 +136,148 @@ void util_hexdump(const char dir, const unsigned char *buf, size_t len,
 		str[67] = '\0';
 		function(str, user_data);
 	}
+}
+
+/* Helper to print debug information of bitfields */
+uint64_t util_debug_bit(const char *label, uint64_t val,
+				const struct util_bit_debugger *table,
+				util_debug_func_t function, void *user_data)
+{
+	uint64_t mask = val;
+	int i;
+
+	for (i = 0; table[i].str; i++) {
+		if (val & (((uint64_t) 1) << table[i].bit)) {
+			util_debug(function, user_data, "%s%s", label,
+							table[i].str);
+			mask &= ~(((uint64_t) 1) << table[i].bit);
+		}
+	}
+
+	return mask;
+}
+
+static const struct util_ltv_debugger*
+ltv_debugger(const struct util_ltv_debugger *debugger, size_t num, uint8_t type)
+{
+	size_t i;
+
+	if (!debugger || !num)
+		return NULL;
+
+	for (i = 0; i < num; i++) {
+		const struct util_ltv_debugger *debug = &debugger[i];
+
+		if (debug->type == type)
+			return debug;
+	}
+
+	return NULL;
+}
+
+/* Helper to itertate over LTV entries */
+bool util_ltv_foreach(const uint8_t *data, uint8_t len, uint8_t *type,
+			util_ltv_func_t func, void *user_data)
+{
+	struct iovec iov;
+	int i;
+
+	if (!func || !data)
+		return false;
+
+	iov.iov_base = (void *) data;
+	iov.iov_len = len;
+
+	for (i = 0; iov.iov_len; i++) {
+		uint8_t l, t, *v;
+
+		if (!util_iov_pull_u8(&iov, &l))
+			return false;
+
+		if (!l) {
+			func(i, l, 0, NULL, user_data);
+			continue;
+		}
+
+		if (!util_iov_pull_u8(&iov, &t))
+			return false;
+
+		l--;
+
+		if (l) {
+			v = util_iov_pull_mem(&iov, l);
+			if (!v)
+				return false;
+		} else
+			v = NULL;
+
+		if (!type || *type == t)
+			func(i, l, t, v, user_data);
+	}
+
+	return true;
+}
+
+/* Helper to add l,t,v data in an iovec struct */
+void util_ltv_push(struct iovec *output, uint8_t l, uint8_t t, void *v)
+{
+	output->iov_base = realloc(output->iov_base, output->iov_len + l + 2);
+	util_iov_push_u8(output, l + 1);
+	util_iov_push_u8(output, t);
+	util_iov_push_mem(output, l, v);
+}
+
+/* Helper to print debug information of LTV entries */
+bool util_debug_ltv(const uint8_t *data, uint8_t len,
+			const struct util_ltv_debugger *debugger, size_t num,
+			util_debug_func_t function, void *user_data)
+{
+	struct iovec iov;
+	int i;
+
+	iov.iov_base = (void *) data;
+	iov.iov_len = len;
+
+	for (i = 0; iov.iov_len; i++) {
+		uint8_t l, t, *v;
+		const struct util_ltv_debugger *debug;
+
+		if (!util_iov_pull_u8(&iov, &l)) {
+			util_debug(function, user_data,
+					"Unable to pull length");
+			return false;
+		}
+
+		if (!l) {
+			util_debug(function, user_data, "#%d: len 0x%02x",
+					i, l);
+			continue;
+		}
+
+		if (!util_iov_pull_u8(&iov, &t)) {
+			util_debug(function, user_data, "Unable to pull type");
+			return false;
+		}
+
+		util_debug(function, user_data, "#%d: len 0x%02x type 0x%02x",
+					i, l, t);
+
+		l--;
+
+		v = util_iov_pull_mem(&iov, l);
+		if (!v) {
+			util_debug(function, user_data, "Unable to pull value");
+			return false;
+		}
+
+		debug = ltv_debugger(debugger, num, t);
+		if (debug)
+			debug->func(v, l, function, user_data);
+		else
+			util_hexdump(' ', (void *)v, l, function, user_data);
+	}
+
+	return true;
 }
 
 /* Helper for getting the dirent type in case readdir returns DT_UNKNOWN */
@@ -268,9 +413,143 @@ void *util_iov_push_mem(struct iovec *iov, size_t len, const void *data)
 	if (!p)
 		return NULL;
 
-	memcpy(p, data, len);
+	if (data)
+		memcpy(p, data, len);
 
 	return p;
+}
+
+void *util_iov_push_le64(struct iovec *iov, uint64_t val)
+{
+	void *p;
+
+	p = util_iov_push(iov, sizeof(val));
+	if (!p)
+		return NULL;
+
+	put_le64(val, p);
+
+	return p;
+}
+
+void *util_iov_push_be64(struct iovec *iov, uint64_t val)
+{
+	void *p;
+
+	p = util_iov_push(iov, sizeof(val));
+	if (!p)
+		return NULL;
+
+	put_be64(val, p);
+
+	return p;
+}
+
+void *util_iov_push_le32(struct iovec *iov, uint32_t val)
+{
+	void *p;
+
+	p = util_iov_push(iov, sizeof(val));
+	if (!p)
+		return NULL;
+
+	put_le32(val, p);
+
+	return p;
+}
+
+void *util_iov_push_be32(struct iovec *iov, uint32_t val)
+{
+	void *p;
+
+	p = util_iov_push(iov, sizeof(val));
+	if (!p)
+		return NULL;
+
+	put_be32(val, p);
+
+	return p;
+}
+
+void *util_iov_push_le24(struct iovec *iov, uint32_t val)
+{
+	void *p;
+
+	p = util_iov_push(iov, sizeof(uint24_t));
+	if (!p)
+		return NULL;
+
+	put_le24(val, p);
+
+	return p;
+}
+
+void *util_iov_push_be24(struct iovec *iov, uint32_t val)
+{
+	void *p;
+
+	p = util_iov_push(iov, sizeof(uint24_t));
+	if (!p)
+		return NULL;
+
+	put_le24(val, p);
+
+	return p;
+}
+
+void *util_iov_push_le16(struct iovec *iov, uint16_t val)
+{
+	void *p;
+
+	p = util_iov_push(iov, sizeof(val));
+	if (!p)
+		return NULL;
+
+	put_le16(val, p);
+
+	return p;
+}
+
+void *util_iov_push_be16(struct iovec *iov, uint16_t val)
+{
+	void *p;
+
+	p = util_iov_push(iov, sizeof(val));
+	if (!p)
+		return NULL;
+
+	put_be16(val, p);
+
+	return p;
+}
+
+void *util_iov_push_u8(struct iovec *iov, uint8_t val)
+{
+	void *p;
+
+	p = util_iov_push(iov, sizeof(val));
+	if (!p)
+		return NULL;
+
+	put_u8(val, p);
+
+	return p;
+}
+
+void *util_iov_append(struct iovec *iov, const void *data, size_t len)
+{
+	iov->iov_base = realloc(iov->iov_base, iov->iov_len + len);
+	return util_iov_push_mem(iov, len, data);
+}
+
+struct iovec *util_iov_new(void *data, size_t len)
+{
+	struct iovec *iov;
+
+	iov = new0(struct iovec, 1);
+	util_iov_append(iov, data, len);
+
+	return iov;
 }
 
 void *util_iov_pull(struct iovec *iov, size_t len)
@@ -293,6 +572,114 @@ void *util_iov_pull_mem(struct iovec *iov, size_t len)
 
 	if (util_iov_pull(iov, len))
 		return data;
+
+	return NULL;
+}
+
+void *util_iov_pull_le64(struct iovec *iov, uint64_t *val)
+{
+	void *data = iov->iov_base;
+
+	if (util_iov_pull(iov, sizeof(*val))) {
+		*val = get_le64(data);
+		return data;
+	}
+
+	return NULL;
+}
+
+void *util_iov_pull_be64(struct iovec *iov, uint64_t *val)
+{
+	void *data = iov->iov_base;
+
+	if (util_iov_pull(iov, sizeof(*val))) {
+		*val = get_be64(data);
+		return data;
+	}
+
+	return NULL;
+}
+
+void *util_iov_pull_le32(struct iovec *iov, uint32_t *val)
+{
+	void *data = iov->iov_base;
+
+	if (util_iov_pull(iov, sizeof(*val))) {
+		*val = get_le32(data);
+		return data;
+	}
+
+	return NULL;
+}
+
+void *util_iov_pull_be32(struct iovec *iov, uint32_t *val)
+{
+	void *data = iov->iov_base;
+
+	if (util_iov_pull(iov, sizeof(*val))) {
+		*val = get_be32(data);
+		return data;
+	}
+
+	return NULL;
+}
+
+void *util_iov_pull_le24(struct iovec *iov, uint32_t *val)
+{
+	void *data = iov->iov_base;
+
+	if (util_iov_pull(iov, sizeof(uint24_t))) {
+		*val = get_le24(data);
+		return data;
+	}
+
+	return NULL;
+}
+
+void *util_iov_pull_be24(struct iovec *iov, uint32_t *val)
+{
+	void *data = iov->iov_base;
+
+	if (util_iov_pull(iov, sizeof(uint24_t))) {
+		*val = get_be24(data);
+		return data;
+	}
+
+	return NULL;
+}
+
+void *util_iov_pull_le16(struct iovec *iov, uint16_t *val)
+{
+	void *data = iov->iov_base;
+
+	if (util_iov_pull(iov, sizeof(*val))) {
+		*val = get_le16(data);
+		return data;
+	}
+
+	return NULL;
+}
+
+void *util_iov_pull_be16(struct iovec *iov, uint16_t *val)
+{
+	void *data = iov->iov_base;
+
+	if (util_iov_pull(iov, sizeof(*val))) {
+		*val = get_be16(data);
+		return data;
+	}
+
+	return NULL;
+}
+
+void *util_iov_pull_u8(struct iovec *iov, uint8_t *val)
+{
+	void *data = iov->iov_base;
+
+	if (util_iov_pull(iov, sizeof(*val))) {
+		*val = get_u8(data);
+		return data;
+	}
 
 	return NULL;
 }
@@ -354,7 +741,7 @@ static const struct {
 	{ 0x111d, "Imaging Referenced Objects"			},
 	{ 0x111e, "Handsfree"					},
 	{ 0x111f, "Handsfree Audio Gateway"			},
-	{ 0x1120, "Direct Printing Refrence Objects Service"	},
+	{ 0x1120, "Direct Printing Reference Objects Service"	},
 	{ 0x1121, "Reflected UI"				},
 	{ 0x1122, "Basic Printing"				},
 	{ 0x1123, "Printing Status"				},
@@ -456,6 +843,7 @@ static const struct {
 	{ 0x1854, "Hearing Aid"					},
 	{ 0x1855, "Telephony and Media Audio"			},
 	{ 0x1856, "Public Broadcast Announcement"		},
+	{ 0x1858, "Gaming Audio"				},
 	/* 0x1857 to 0x27ff undefined */
 	{ 0x2800, "Primary Service"				},
 	{ 0x2801, "Secondary Service"				},
@@ -467,7 +855,7 @@ static const struct {
 	{ 0x2902, "Client Characteristic Configuration"		},
 	{ 0x2903, "Server Characteristic Configuration"		},
 	{ 0x2904, "Characteristic Format"			},
-	{ 0x2905, "Characteristic Aggregate Formate"		},
+	{ 0x2905, "Characteristic Aggregate Format"		},
 	{ 0x2906, "Valid Range"					},
 	{ 0x2907, "External Report Reference"			},
 	{ 0x2908, "Report Reference"				},
@@ -764,6 +1152,11 @@ static const struct {
 	{ 0x2bda, "Hearing Aid Features"			},
 	{ 0x2bdb, "Hearing Aid Preset Control Point"		},
 	{ 0x2bdc, "Active Preset Index"				},
+	{ 0x2c00, "GMAP Role"					},
+	{ 0x2c01, "UGG Features"				},
+	{ 0x2c02, "UGT Features"				},
+	{ 0x2c03, "BGS Features"				},
+	{ 0x2c03, "BGR Features"				},
 	/* vendor defined */
 	{ 0xfeff, "GN Netcom"					},
 	{ 0xfefe, "GN ReSound A/S"				},
@@ -1183,9 +1576,23 @@ static const struct {
 	{ 0xfd60, "Sercomm Corporation"				},
 	{ 0xfd5f, "Oculus VR, LLC"				},
 	/* SDO defined */
-	{ 0xfffc, "AirFuel Alliance"				},
-	{ 0xfffe, "Alliance for Wireless Power (A4WP)"		},
-	{ 0xfffd, "Fast IDentity Online Alliance (FIDO)"	},
+	{ 0xfccc, "Wi-Fi Easy Connect Specification"		},
+	{ 0xffef, "Wi-Fi Direct Specification"			},
+	{ 0xfff0, "Public Key Open Credential (PKOC)"		},
+	{ 0xfff1, "ICCE Digital Key"				},
+	{ 0xfff2, "Aliro"					},
+	{ 0xfff3, "FiRa Consortium"				},
+	{ 0xfff4, "FiRa Consortium"				},
+	{ 0xfff5, "Car Connectivity Consortium, LLC"		},
+	{ 0xfff6, "Matter Profile ID"				},
+	{ 0xfff7, "Zigbee Direct"				},
+	{ 0xfff8, "Mopria Alliance BLE"				},
+	{ 0xfff9, "FIDO2 Secure Client-To-Authenticator Transport" },
+	{ 0xfffa, "ASTM Remote ID"				},
+	{ 0xfffb, "Direct Thread Commissioning"			},
+	{ 0xfffc, "Wireless Power Transfer (WPT)"		},
+	{ 0xfffd, "Universal Second Factor Authenticator"	},
+	{ 0xfffe, "Wireless Power Transfer"			},
 	{ }
 };
 
@@ -1475,4 +1882,98 @@ int strsuffix(const char *str, const char *suffix)
 		return -1;
 
 	return strncmp(str + len - suffix_len, suffix, suffix_len);
+}
+
+char *strstrip(char *str)
+{
+	size_t size;
+	char *end;
+
+	if (!str)
+		return NULL;
+
+	size = strlen(str);
+	if (!size)
+		return str;
+
+	end = str + size - 1;
+	while (end >= str && isspace(*end))
+		end--;
+	*(end + 1) = '\0';
+
+	while (*str && isspace(*str))
+		str++;
+
+	return str;
+}
+
+size_t strnlenutf8(const char *str, size_t len)
+
+{
+	size_t i = 0;
+
+	while (i < len) {
+		unsigned char c = str[i];
+		size_t size = 0;
+
+		/* Check the first byte to determine the number of bytes in the
+		 * UTF-8 character.
+		 */
+		if ((c & 0x80) == 0x00)
+			size = 1;
+		else if ((c & 0xE0) == 0xC0)
+			size = 2;
+		else if ((c & 0xF0) == 0xE0)
+			size = 3;
+		else if ((c & 0xF8) == 0xF0)
+			size = 4;
+		else
+			/* Invalid UTF-8 sequence */
+			goto done;
+
+		/* Check the following bytes to ensure they have the correct
+		 * format.
+		 */
+		for (size_t j = 1; j < size; ++j) {
+			if (i + j >= len || (str[i + j] & 0xC0) != 0x80)
+				/* Invalid UTF-8 sequence */
+				goto done;
+		}
+
+		/* Move to the next character */
+		i += size;
+	}
+
+done:
+	return i;
+}
+
+bool strisutf8(const char *str, size_t len)
+{
+	return strnlenutf8(str, len) == len;
+}
+
+bool argsisutf8(int argc, char *argv[])
+{
+	for (int i = 0; i < argc; i++) {
+		if (!strisutf8(argv[i], strlen(argv[i]))) {
+			printf("Invalid character in string: %s\n", argv[i]);
+			return false;
+		}
+	}
+
+	return true;
+}
+
+char *strtoutf8(char *str, size_t len)
+{
+	size_t i = 0;
+
+	i = strnlenutf8(str, len);
+	if (i == len)
+		return str;
+
+	/* Truncate to the longest valid UTF-8 string */
+	memset(str + i, 0, len - i);
+	return str;
 }

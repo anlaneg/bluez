@@ -18,7 +18,7 @@
 #include <glib.h>
 
 #include "gdbus/gdbus.h"
-#include "lib/bluetooth.h"
+#include "bluetooth/bluetooth.h"
 #include "src/shared/queue.h"
 #include "src/shared/util.h"
 #include "battery.h"
@@ -152,8 +152,7 @@ static gboolean property_source_exists(const GDBusPropertyTable *property,
 static const GDBusPropertyTable battery_properties[] = {
 	{ "Percentage", "y", property_percentage_get, NULL,
 	  property_percentage_exists },
-	{ "Source", "s", property_source_get, NULL, property_source_exists,
-	  G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
+	{ "Source", "s", property_source_get, NULL, property_source_exists },
 	{}
 };
 
@@ -288,16 +287,16 @@ static void provided_battery_added_cb(GDBusProxy *proxy, void *user_data)
 	uint8_t percentage;
 	DBusMessageIter iter;
 
+	if (strcmp(g_dbus_proxy_get_interface(proxy),
+		   BATTERY_PROVIDER_INTERFACE) != 0)
+		return;
+
 	if (g_dbus_proxy_get_property(proxy, "Device", &iter) == FALSE) {
 		warn("Battery object %s does not specify device path", path);
 		return;
 	}
 
 	dbus_message_iter_get_basic(&iter, &export_path);
-
-	if (strcmp(g_dbus_proxy_get_interface(proxy),
-		   BATTERY_PROVIDER_INTERFACE) != 0)
-		return;
 
 	device = btd_adapter_find_device_by_path(provider->manager->adapter,
 						 export_path);
@@ -341,14 +340,14 @@ static void provided_battery_removed_cb(GDBusProxy *proxy, void *user_data)
 	const char *export_path;
 	DBusMessageIter iter;
 
+	if (strcmp(g_dbus_proxy_get_interface(proxy),
+		   BATTERY_PROVIDER_INTERFACE) != 0)
+		return;
+
 	if (g_dbus_proxy_get_property(proxy, "Device", &iter) == FALSE)
 		return;
 
 	dbus_message_iter_get_basic(&iter, &export_path);
-
-	if (strcmp(g_dbus_proxy_get_interface(proxy),
-		   BATTERY_PROVIDER_INTERFACE) != 0)
-		return;
 
 	DBG("provided battery removed %s", g_dbus_proxy_get_path(proxy));
 
@@ -523,10 +522,10 @@ static DBusMessage *unregister_battery_provider(DBusConnection *conn,
 }
 
 static const GDBusMethodTable methods[] = {
-	{ GDBUS_EXPERIMENTAL_METHOD("RegisterBatteryProvider",
+	{ GDBUS_METHOD("RegisterBatteryProvider",
 				    GDBUS_ARGS({ "provider", "o" }), NULL,
 				    register_battery_provider) },
-	{ GDBUS_EXPERIMENTAL_METHOD("UnregisterBatteryProvider",
+	{ GDBUS_METHOD("UnregisterBatteryProvider",
 				    GDBUS_ARGS({ "provider", "o" }), NULL,
 				    unregister_battery_provider) },
 	{}

@@ -22,11 +22,11 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#include "lib/bluetooth.h"
-#include "lib/hci.h"
-#include "lib/hci_lib.h"
-#include "lib/l2cap.h"
-#include "lib/sdp.h"
+#include "bluetooth/bluetooth.h"
+#include "bluetooth/hci.h"
+#include "bluetooth/hci_lib.h"
+#include "bluetooth/l2cap.h"
+#include "bluetooth/sdp.h"
 
 #define AVDTP_PKT_TYPE_SINGLE		0x00
 #define AVDTP_PKT_TYPE_START		0x01
@@ -151,7 +151,7 @@ struct avctp_header {
 
 #define AVCTP_PACKET_SINGLE	0
 
-static const unsigned char media_transport[] = {
+static const unsigned char media_transport_sbc[] = {
 		0x01,	/* Media transport category */
 		0x00,
 		0x07,	/* Media codec category */
@@ -163,6 +163,24 @@ static const unsigned char media_transport[] = {
 		0x02,
 		0x33,
 };
+
+static const unsigned char media_transport_aac[] = {
+		0x01,	/* Media transport category */
+		0x00,
+		0x07,	/* Media codec category */
+		0x08,
+		0x00,	/* Media type audio */
+		0x02,	/* Codec MPEG2,4 AAC */
+		0x80,	/* Codec MPEG-2 AAC LC */
+		0x01,	/* 44100 */
+		0x8C,	/* 48000, 1 and 2 channels */
+		0x84,	/* VBR supported, Max peak rate 320000 */
+		0xE2,
+		0x00
+};
+
+static const unsigned char *media_transport = media_transport_sbc;
+static size_t media_transport_size = sizeof(media_transport_sbc);
 
 static int media_sock = -1;
 
@@ -188,7 +206,8 @@ static void dump_buffer(const unsigned char *buf, int len)
 }
 
 static void process_avdtp(int srv_sk, int sk, unsigned char reject,
-								int fragment)
+								int fragment,
+								int reject_code)
 {
 	unsigned char buf[672];
 	ssize_t len;
@@ -239,7 +258,7 @@ static void process_avdtp(int srv_sk, int sk, unsigned char reject,
 			if (reject == AVDTP_GET_CAPABILITIES) {
 				hdr->message_type = AVDTP_MSG_TYPE_REJECT;
 				buf[2] = 0x29; /* Unsupported configuration */
-				printf("Rejecting get capabilties command\n");
+				printf("Rejecting get capabilities command\n");
 				len = write(sk, buf, 3);
 			} else if (fragment) {
 				struct avdtp_start_header *start = (void *) buf;
@@ -253,30 +272,30 @@ static void process_avdtp(int srv_sk, int sk, unsigned char reject,
 				start->signal_id = AVDTP_GET_CAPABILITIES;
 				start->no_of_packets = 3;
 				memcpy(&buf[3], media_transport,
-						sizeof(media_transport));
+						media_transport_size);
 				len = write(sk, buf,
 						3 + sizeof(media_transport));
 
 				/* Continue packet */
 				hdr->packet_type = AVDTP_PKT_TYPE_CONTINUE;
 				memcpy(&buf[1], media_transport,
-						sizeof(media_transport));
+						media_transport_size);
 				len = write(sk, buf,
-						1 + sizeof(media_transport));
+						1 + media_transport_size);
 
 				/* End packet */
 				hdr->packet_type = AVDTP_PKT_TYPE_END;
 				memcpy(&buf[1], media_transport,
-						sizeof(media_transport));
+						media_transport_size);
 				len = write(sk, buf,
-						1 + sizeof(media_transport));
+						1 + media_transport_size);
 			} else {
 				hdr->message_type = AVDTP_MSG_TYPE_ACCEPT;
 				memcpy(&buf[2], media_transport,
-						sizeof(media_transport));
+						media_transport_size);
 				printf("Accepting get capabilities command\n");
 				len = write(sk, buf,
-						2 + sizeof(media_transport));
+						2 + media_transport_size);
 			}
 			break;
 
@@ -284,7 +303,8 @@ static void process_avdtp(int srv_sk, int sk, unsigned char reject,
 			if (reject == AVDTP_SET_CONFIGURATION) {
 				hdr->message_type = AVDTP_MSG_TYPE_REJECT;
 				buf[2] = buf[4];
-				buf[3] = 0x13; /* SEP In Use */
+				buf[3] = reject_code ? reject_code :
+							0x13; /* SEP In Use */
 				printf("Rejecting set configuration command\n");
 				len = write(sk, buf, 4);
 			} else {
@@ -443,7 +463,8 @@ static int set_minimum_mtu(int sk)
 	return 0;
 }
 
-static void do_listen(const bdaddr_t *src, unsigned char reject, int fragment)
+static void do_listen(const bdaddr_t *src, unsigned char reject, int fragment,
+							int reject_code)
 {
 	struct sockaddr_l2 addr;
 	socklen_t optlen;
@@ -483,7 +504,7 @@ static void do_listen(const bdaddr_t *src, unsigned char reject, int fragment)
 			continue;
 		}
 
-		process_avdtp(sk, nsk, reject, fragment);
+		process_avdtp(sk, nsk, reject, fragment, reject_code);
 
 		if (media_sock >= 0) {
 			close(media_sock);
@@ -575,10 +596,10 @@ static void do_avdtp_send(int sk, const bdaddr_t *src, const bdaddr_t *dst,
 		hdr->signal_id = AVDTP_SET_CONFIGURATION;
 		buf[2] = 1 << 2; /* ACP SEID */
 		buf[3] = 1 << 2; /* INT SEID */
-		memcpy(&buf[4], media_transport, sizeof(media_transport));
+		memcpy(&buf[4], media_transport, media_transport_size);
 		if (invalid)
 			buf[5] = 0x01; /* LOSC != 0 */
-		len = write(sk, buf, 4 + sizeof(media_transport));
+		len = write(sk, buf, 4 + media_transport_size);
 		break;
 
 	case AVDTP_GET_CONFIGURATION:
@@ -709,23 +730,27 @@ static void usage(void)
 	printf("Options:\n"
 		"\t--device <hcidev>    HCI device\n"
 		"\t--reject <command>   Reject command\n"
+		"\t--reject-code <code> Reject code to use\n"
 		"\t--send <command>     Send command\n"
 		"\t--preconf            Configure stream before actual command\n"
 		"\t--wait <N>           Wait N seconds before exiting\n"
 		"\t--fragment           Use minimum MTU and fragmented messages\n"
-		"\t--invalid <command>  Send invalid command\n");
+		"\t--invalid <command>  Send invalid command\n"
+		"\t--aac                MPEG2,4 AAC LC\n");
 }
 
 static struct option main_options[] = {
 	{ "help",	0, 0, 'h' },
 	{ "device",	1, 0, 'i' },
 	{ "reject",	1, 0, 'r' },
+	{ "reject-code",	1, 0, 'R' },
 	{ "send",	1, 0, 's' },
 	{ "invalid",	1, 0, 'f' },
 	{ "preconf",	0, 0, 'c' },
 	{ "fragment",   0, 0, 'F' },
 	{ "avctp",	0, 0, 'C' },
 	{ "wait",	1, 0, 'w' },
+	{ "aac",	0, 0, 'a' },
 	{ 0, 0, 0, 0 }
 };
 
@@ -764,12 +789,12 @@ int main(int argc, char *argv[])
 	unsigned char cmd = 0x00;
 	bdaddr_t src, dst;
 	int opt, mode = MODE_NONE, sk, invalid = 0, preconf = 0, fragment = 0;
-	int avctp = 0, wait_before_exit = 0;
+	int avctp = 0, wait_before_exit = 0, reject_code = 0;
 
 	bacpy(&src, BDADDR_ANY);
 	bacpy(&dst, BDADDR_ANY);
 
-	while ((opt = getopt_long(argc, argv, "+i:r:s:f:hcFCw:",
+	while ((opt = getopt_long(argc, argv, "+i:r:s:f:hcFCw:R:a",
 						main_options, NULL)) != EOF) {
 		switch (opt) {
 		case 'i':
@@ -809,6 +834,15 @@ int main(int argc, char *argv[])
 			wait_before_exit = atoi(optarg);
 			break;
 
+		case 'R':
+			reject_code = atoi(optarg);
+			break;
+
+		case 'a':
+			media_transport = media_transport_aac;
+			media_transport_size = sizeof(media_transport_aac);
+			break;
+
 		case 'h':
 		default:
 			usage();
@@ -826,7 +860,7 @@ int main(int argc, char *argv[])
 
 	switch (mode) {
 	case MODE_REJECT:
-		do_listen(&src, cmd, fragment);
+		do_listen(&src, cmd, fragment, reject_code);
 		break;
 	case MODE_SEND:
 		sk = do_connect(&src, &dst, avctp, fragment);

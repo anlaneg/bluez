@@ -4,63 +4,17 @@
  *  BlueZ - Bluetooth protocol stack for Linux
  *
  *  Copyright (C) 2022  Intel Corporation. All rights reserved.
+ *  Copyright 2023-2025 NXP
  *
  */
 
 #include <stdbool.h>
 #include <inttypes.h>
-
-#ifndef __packed
-#define __packed __attribute__((packed))
-#endif
-
-#define BT_BAP_SINK			0x01
-#define	BT_BAP_SOURCE			0x02
-
-#define BT_BAP_STREAM_STATE_IDLE	0x00
-#define BT_BAP_STREAM_STATE_CONFIG	0x01
-#define BT_BAP_STREAM_STATE_QOS		0x02
-#define BT_BAP_STREAM_STATE_ENABLING	0x03
-#define BT_BAP_STREAM_STATE_STREAMING	0x04
-#define BT_BAP_STREAM_STATE_DISABLING	0x05
-#define BT_BAP_STREAM_STATE_RELEASING	0x06
-
-#define BT_BAP_CONFIG_LATENCY_LOW	0x01
-#define BT_BAP_CONFIG_LATENCY_BALACED	0x02
-#define BT_BAP_CONFIG_LATENCY_HIGH	0x03
-
-#define BT_BAP_CONFIG_PHY_1M		0x01
-#define BT_BAP_CONFIG_PHY_2M		0x02
-#define BT_BAP_CONFIG_PHY_CODEC		0x03
+#include "src/shared/bap-defs.h"
 
 struct bt_bap;
 struct bt_bap_pac;
 struct bt_bap_stream;
-
-struct bt_bap_codec {
-	uint8_t  id;
-	uint16_t cid;
-	uint16_t vid;
-} __packed;
-
-struct bt_ltv {
-	uint8_t  len;
-	uint8_t  type;
-	uint8_t  value[0];
-} __packed;
-
-struct bt_bap_qos {
-	uint8_t  cig_id;
-	uint8_t  cis_id;
-	uint32_t interval;		/* Frame interval */
-	uint8_t  framing;		/* Frame framing */
-	uint8_t  phy;			/* PHY */
-	uint16_t sdu;			/* Maximum SDU Size */
-	uint8_t  rtn;			/* Retransmission Effort */
-	uint16_t latency;		/* Transport Latency */
-	uint32_t delay;			/* Presentation Delay */
-	uint8_t  target_latency;	/* Target Latency */
-};
 
 typedef void (*bt_bap_ready_func_t)(struct bt_bap *bap, void *user_data);
 typedef void (*bt_bap_destroy_func_t)(void *user_data);
@@ -86,6 +40,18 @@ typedef void (*bt_bap_stream_func_t)(struct bt_bap_stream *stream,
 					void *user_data);
 typedef void (*bt_bap_func_t)(struct bt_bap *bap, void *user_data);
 
+typedef void (*bt_bap_bis_func_t)(uint8_t sid, uint8_t bis, uint8_t sgrp,
+				struct iovec *caps, struct iovec *meta,
+				struct bt_bap_qos *qos, void *user_data);
+
+typedef void (*bt_bap_bcode_reply_t)(void *user_data, int err);
+
+typedef void (*bt_bap_bcode_func_t)(struct bt_bap_stream *stream,
+				bt_bap_bcode_reply_t reply, void *reply_data,
+				void *user_data);
+
+extern struct bt_iso_qos bap_sink_pa_qos;
+
 /* Local PAC related functions */
 struct bt_bap_pac_qos {
 	uint8_t  framing;
@@ -96,6 +62,9 @@ struct bt_bap_pac_qos {
 	uint32_t pd_max;
 	uint32_t ppd_min;
 	uint32_t ppd_max;
+	uint32_t location;
+	uint16_t supported_context;
+	uint16_t context;
 };
 
 struct bt_bap_pac *bt_bap_add_vendor_pac(struct gatt_db *db,
@@ -113,7 +82,9 @@ struct bt_bap_pac *bt_bap_add_pac(struct gatt_db *db, const char *name,
 
 struct bt_bap_pac_ops {
 	int (*select)(struct bt_bap_pac *lpac, struct bt_bap_pac *rpac,
-			struct bt_bap_pac_qos *qos,
+			uint32_t chan_alloc, struct bt_bap_pac_qos *qos,
+			bt_bap_pac_select_t cb, void *cb_data, void *user_data);
+	void (*cancel_select)(struct bt_bap_pac *lpac,
 			bt_bap_pac_select_t cb, void *cb_data, void *user_data);
 	int (*config)(struct bt_bap_stream *stream, struct iovec *cfg,
 			struct bt_bap_qos *qos, bt_bap_pac_config_t cb,
@@ -127,6 +98,20 @@ bool bt_bap_pac_set_ops(struct bt_bap_pac *pac, struct bt_bap_pac_ops *ops,
 bool bt_bap_remove_pac(struct bt_bap_pac *pac);
 
 uint8_t bt_bap_pac_get_type(struct bt_bap_pac *pac);
+
+uint32_t bt_bap_pac_get_locations(struct bt_bap_pac *pac);
+
+uint16_t bt_bap_pac_get_supported_context(struct bt_bap_pac *pac);
+
+uint16_t bt_bap_pac_get_context(struct bt_bap_pac *pac);
+
+struct bt_bap_pac_qos *bt_bap_pac_get_qos(struct bt_bap_pac *pac);
+
+struct iovec *bt_bap_pac_get_data(struct bt_bap_pac *pac);
+
+struct iovec *bt_bap_pac_get_metadata(struct bt_bap_pac *pac);
+
+uint8_t bt_bap_stream_get_type(struct bt_bap_stream *stream);
 
 struct bt_bap_stream *bt_bap_pac_get_stream(struct bt_bap_pac *pac);
 
@@ -147,13 +132,11 @@ struct bt_bap *bt_bap_ref(struct bt_bap *bap);
 void bt_bap_unref(struct bt_bap *bap);
 
 bool bt_bap_attach(struct bt_bap *bap, struct bt_gatt_client *client);
+bool bt_bap_attach_broadcast(struct bt_bap *bap);
 void bt_bap_detach(struct bt_bap *bap);
 
 bool bt_bap_set_debug(struct bt_bap *bap, bt_bap_debug_func_t cb,
 			void *user_data, bt_bap_destroy_func_t destroy);
-
-bool bap_print_cc(void *data, size_t len, util_debug_func_t func,
-						void *user_data);
 
 unsigned int bt_bap_pac_register(struct bt_bap *bap, bt_bap_pac_func_t added,
 				bt_bap_pac_func_t removed, void *user_data,
@@ -188,13 +171,20 @@ void *bt_bap_pac_get_user_data(struct bt_bap_pac *pac);
 
 /* Stream related functions */
 int bt_bap_select(struct bt_bap_pac *lpac, struct bt_bap_pac *rpac,
-			bt_bap_pac_select_t func, void *user_data);
+			int *count, bt_bap_pac_select_t func,
+			void *user_data);
+
+void bt_bap_cancel_select(struct bt_bap_pac *lpac, bt_bap_pac_select_t func,
+			void *user_data);
 
 struct bt_bap_stream *bt_bap_stream_new(struct bt_bap *bap,
 					struct bt_bap_pac *lpac,
 					struct bt_bap_pac *rpac,
 					struct bt_bap_qos *pqos,
 					struct iovec *data);
+
+void bt_bap_stream_lock(struct bt_bap_stream *stream);
+void bt_bap_stream_unlock(struct bt_bap_stream *stream);
 
 struct bt_bap *bt_bap_stream_get_session(struct bt_bap_stream *stream);
 uint8_t bt_bap_stream_get_state(struct bt_bap_stream *stream);
@@ -249,12 +239,14 @@ struct bt_bap_qos *bt_bap_stream_get_qos(struct bt_bap_stream *stream);
 struct iovec *bt_bap_stream_get_metadata(struct bt_bap_stream *stream);
 
 struct io *bt_bap_stream_get_io(struct bt_bap_stream *stream);
-
+bool bt_bap_match_bcast_sink_stream(const void *data, const void *user_data);
 bool bt_bap_stream_set_io(struct bt_bap_stream *stream, int fd);
 
 int bt_bap_stream_cancel(struct bt_bap_stream *stream, unsigned int id);
 
 int bt_bap_stream_io_link(struct bt_bap_stream *stream,
+					struct bt_bap_stream *link);
+int bt_bap_stream_io_unlink(struct bt_bap_stream *stream,
 					struct bt_bap_stream *link);
 struct queue *bt_bap_stream_io_get_links(struct bt_bap_stream *stream);
 bool bt_bap_stream_io_get_qos(struct bt_bap_stream *stream,
@@ -265,3 +257,55 @@ uint8_t bt_bap_stream_io_dir(struct bt_bap_stream *stream);
 
 int bt_bap_stream_io_connecting(struct bt_bap_stream *stream, int fd);
 bool bt_bap_stream_io_is_connecting(struct bt_bap_stream *stream, int *fd);
+
+bool bt_bap_new_bcast_source(struct bt_bap *bap, const char *name);
+void bt_bap_update_bcast_source(struct bt_bap_pac *pac,
+					struct bt_bap_codec *codec,
+					struct iovec *data,
+					struct iovec *metadata);
+
+bool bt_bap_pac_bcast_is_local(struct bt_bap *bap, struct bt_bap_pac *pac);
+
+struct iovec *bt_bap_stream_get_base(struct bt_bap_stream *stream);
+
+struct iovec *bt_bap_merge_caps(struct iovec *l2_caps, struct iovec *l3_caps);
+
+void bt_bap_verify_bis(struct bt_bap *bap, uint8_t bis_index,
+		struct iovec *caps,
+		struct bt_bap_pac **lpac);
+
+bool bt_bap_parse_base(uint8_t sid, struct iovec *base,
+			struct bt_bap_qos *qos,
+			util_debug_func_t func,
+			bt_bap_bis_func_t handler,
+			void *user_data);
+
+unsigned int bt_bap_bis_cb_register(struct bt_bap *bap,
+				bt_bap_bis_func_t probe,
+				bt_bap_func_t remove,
+				void *user_data,
+				bt_bap_destroy_func_t destroy);
+bool bt_bap_bis_cb_unregister(struct bt_bap *bap, unsigned int id);
+
+void bt_bap_bis_probe(struct bt_bap *bap, uint8_t sid, uint8_t bis,
+			uint8_t sgrp, struct iovec *caps, struct iovec *meta,
+			struct bt_bap_qos *qos);
+void bt_bap_bis_remove(struct bt_bap *bap);
+
+void bt_bap_req_bcode(struct bt_bap_stream *stream,
+				bt_bap_bcode_reply_t reply,
+				void *reply_data);
+
+unsigned int bt_bap_bcode_cb_register(struct bt_bap *bap,
+				bt_bap_bcode_func_t func,
+				void *user_data,
+				bt_bap_destroy_func_t destroy);
+
+bool bt_bap_bcode_cb_unregister(struct bt_bap *bap, unsigned int id);
+
+struct bt_bap *bt_bap_get_session(struct bt_att *att, struct gatt_db *db);
+
+void bt_bap_iso_qos_to_bap_qos(struct bt_iso_qos *iso_qos,
+				struct bt_bap_qos *bap_qos);
+void bt_bap_qos_to_iso_qos(struct bt_bap_qos *bap_qos,
+				struct bt_iso_qos *iso_qos);

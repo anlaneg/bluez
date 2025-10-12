@@ -32,18 +32,26 @@
 #include <linux/sockios.h>
 #include <time.h>
 #include <inttypes.h>
+#include <sys/wait.h>
+#include <poll.h>
 
-#include "lib/bluetooth.h"
-#include "lib/hci.h"
-#include "lib/hci_lib.h"
-#include "lib/mgmt.h"
-#include "lib/iso.h"
+#include "bluetooth/bluetooth.h"
+#include "bluetooth/hci.h"
+#include "bluetooth/hci_lib.h"
+#include "bluetooth/mgmt.h"
+#include "bluetooth/iso.h"
 
 #include "src/shared/util.h"
 
 #define NSEC_USEC(_t) (_t / 1000L)
 #define SEC_USEC(_t)  (_t  * 1000000L)
 #define TS_USEC(_ts)  (SEC_USEC((_ts)->tv_sec) + NSEC_USEC((_ts)->tv_nsec))
+#define ROUND_CLOSEST(_x, _y) (((_x) + (_y / 2)) / (_y))
+
+#define DEFAULT_BIG_ID 0x01
+#define DEFAULT_BIS_ID 0x01
+
+#define MAX_DATA_SIZE 0x40000000
 
 /* Test modes */
 enum {
@@ -71,6 +79,8 @@ static bool quiet;
 
 struct bt_iso_qos *iso_qos;
 static bool inout;
+
+static uint8_t num_bis = 1;
 
 struct lookup_table {
 	const char *name;
@@ -285,9 +295,20 @@ static void print_bcast_qos(int sk)
 		return;
 	}
 
-	syslog(LOG_INFO, "QoS BIG 0x%02x BIS 0x%02x Packing 0x%02x "
-		"Framing 0x%02x]", qos.bcast.big, qos.bcast.bis,
-		qos.bcast.packing, qos.bcast.framing);
+	syslog(LOG_INFO, "QoS [BIG 0x%02x BIS 0x%02x Packing 0x%02x "
+		"Framing 0x%02x Encryption 0x%02x]", qos.bcast.big,
+		qos.bcast.bis, qos.bcast.packing, qos.bcast.framing,
+		qos.bcast.encryption);
+
+	if (qos.bcast.encryption == 0x01)
+		syslog(LOG_INFO, "Broadcast Code 0x%02x 0x%02x 0x%02x 0x%02x "
+		"0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x "
+		"0x%02x 0x%02x 0x%02x 0x%02x", qos.bcast.bcode[0],
+		qos.bcast.bcode[1], qos.bcast.bcode[2], qos.bcast.bcode[3],
+		qos.bcast.bcode[4], qos.bcast.bcode[5], qos.bcast.bcode[6],
+		qos.bcast.bcode[7], qos.bcast.bcode[8], qos.bcast.bcode[9],
+		qos.bcast.bcode[10], qos.bcast.bcode[11], qos.bcast.bcode[12],
+		qos.bcast.bcode[13], qos.bcast.bcode[14], qos.bcast.bcode[15]);
 
 	syslog(LOG_INFO, "Input QoS [Interval %u us Latency %u "
 		"ms SDU %u PHY 0x%02x RTN %u]", qos.bcast.in.interval,
@@ -300,26 +321,10 @@ static void print_bcast_qos(int sk)
 		qos.bcast.out.phy, qos.bcast.out.rtn);
 }
 
-static void convert_ucast_qos_to_bcast(struct bt_iso_qos *qos)
-{
-	iso_qos->bcast.in.phy = 0x00;
-	iso_qos->bcast.in.sdu = 0;
-	qos->bcast.encryption = 0x00;
-	memset(qos->bcast.bcode, 0, sizeof(qos->bcast.bcode));
-	qos->bcast.options = 0x00;
-	qos->bcast.skip = 0x0000;
-	qos->bcast.sync_timeout = 0x4000;
-	qos->bcast.sync_cte_type = 0x00;
-	qos->bcast.mse = 0x00;
-	qos->bcast.timeout = 0x4000;
-}
-
 static int do_connect(char *peer)
 {
 	struct sockaddr_iso addr;
 	int sk;
-
-	mgmt_set_experimental();
 
 	/* Create socket */
 	sk = socket(PF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_ISO);
@@ -344,13 +349,9 @@ static int do_connect(char *peer)
 
 	/* Set QoS if available */
 	if (iso_qos) {
-		if (!strcmp(peer, "00:00:00:00:00:00")) {
-			convert_ucast_qos_to_bcast(iso_qos);
-		} else {
-			if (!inout) {
-				iso_qos->ucast.in.phy = 0x00;
-				iso_qos->ucast.in.sdu = 0;
-			}
+		if (!inout || !strcmp(peer, "00:00:00:00:00:00")) {
+			iso_qos->ucast.in.phy = 0x00;
+			iso_qos->ucast.in.sdu = 0;
 		}
 
 		if (setsockopt(sk, SOL_BLUETOOTH, BT_ISO_QOS, iso_qos,
@@ -397,13 +398,99 @@ error:
 	return -1;
 }
 
-static void do_listen(char *filename, void (*handler)(int fd, int sk),
-							char *peer)
+static int *bcast_do_connect_mbis(uint8_t count, char *peer)
+{
+	int *sk;
+	uint8_t sk_cnt = 0;
+
+	sk = malloc(count * sizeof(*sk));
+	if (!sk) {
+		syslog(LOG_ERR, "Can't allocate socket array");
+		return NULL;
+	}
+
+	defer_setup = 1;
+
+	for (int i = 0; i < count; i++) {
+		if (i == count - 1)
+			defer_setup = 0;
+
+		sk[i] = do_connect(peer);
+		if (sk[i] < 0) {
+			syslog(LOG_ERR, "Can't create socket: %s (%d)",
+					strerror(errno), errno);
+
+			goto error;
+		}
+
+		sk_cnt++;
+	}
+
+	return sk;
+
+error:
+	for (int i = 0; i < sk_cnt; i++)
+		close(sk[i]);
+
+	free(sk);
+	return NULL;
+
+}
+
+static int accept_conn(int sk, struct sockaddr_iso *addr, char *peer)
+{
+	socklen_t optlen;
+	int nsk, err, sk_err;
+	struct pollfd fds;
+	socklen_t len;
+
+	memset(addr, 0, sizeof(*addr) + sizeof(*addr->iso_bc));
+	optlen = sizeof(*addr);
+
+	if (peer)
+		optlen += sizeof(*addr->iso_bc);
+
+	nsk = accept(sk, (struct sockaddr *) addr, &optlen);
+	if (nsk < 0) {
+		syslog(LOG_ERR, "Accept failed: %s (%d)",
+						strerror(errno), errno);
+		return -1;
+	}
+
+	/* Check if connection was successful */
+	memset(&fds, 0, sizeof(fds));
+	fds.fd = nsk;
+	fds.events = POLLERR;
+
+	if (poll(&fds, 1, 0) > 0 && (fds.revents & POLLERR)) {
+		len = sizeof(sk_err);
+
+		if (getsockopt(nsk, SOL_SOCKET, SO_ERROR,
+					&sk_err, &len) < 0)
+			err = -errno;
+		else
+			err = -sk_err;
+
+		if (err < 0)
+			syslog(LOG_ERR, "Connection failed: %s (%d)",
+					strerror(-err), -err);
+
+		close(nsk);
+		return -1;
+	}
+
+	return nsk;
+}
+
+static void do_listen(char *filename,
+		void (*handler)(int fd, int sk, char *peer),
+		char *peer)
 {
 	struct sockaddr_iso *addr = NULL;
 	socklen_t optlen;
 	int sk, nsk, fd = -1;
 	char ba[18];
+	int read_len;
 
 	if (filename) {
 		fd = open(filename, O_WRONLY | O_CREAT | O_APPEND, 0644);
@@ -438,8 +525,11 @@ static void do_listen(char *filename, void (*handler)(int fd, int sk),
 	if (peer) {
 		str2ba(peer, &addr->iso_bc->bc_bdaddr);
 		addr->iso_bc->bc_bdaddr_type = bdaddr_type;
-		addr->iso_bc->bc_num_bis = 1;
-		addr->iso_bc->bc_bis[0] = 1;
+		addr->iso_bc->bc_num_bis = num_bis;
+
+		for (int i = 0; i < num_bis; i++)
+			addr->iso_bc->bc_bis[i] = i + 1;
+
 		optlen += sizeof(*addr->iso_bc);
 	}
 
@@ -457,6 +547,16 @@ static void do_listen(char *filename, void (*handler)(int fd, int sk),
 		goto error;
 	}
 
+	/* Set QoS if available */
+	if (iso_qos) {
+		if (setsockopt(sk, SOL_BLUETOOTH, BT_ISO_QOS, iso_qos,
+					sizeof(*iso_qos)) < 0) {
+			syslog(LOG_ERR, "Can't set QoS socket option: "
+					"%s (%d)", strerror(errno), errno);
+			goto error;
+		}
+	}
+
 	/* Listen for connections */
 	if (listen(sk, 10)) {
 		syslog(LOG_ERR, "Can not listen on the socket: %s (%d)",
@@ -466,19 +566,27 @@ static void do_listen(char *filename, void (*handler)(int fd, int sk),
 
 	syslog(LOG_INFO, "Waiting for connection %s...", peer ? peer : "");
 
-	while (1) {
-		memset(addr, 0, sizeof(*addr) + sizeof(*addr->iso_bc));
-		optlen = sizeof(*addr);
-
-		if (peer)
-			optlen += sizeof(*addr->iso_bc);
-
-		nsk = accept(sk, (struct sockaddr *) addr, &optlen);
-		if (nsk < 0) {
-			syslog(LOG_ERR, "Accept failed: %s (%d)",
-							strerror(errno), errno);
+	/* Handle deferred setup */
+	if (defer_setup && peer) {
+		nsk = accept_conn(sk, addr, peer);
+		if (nsk < 0)
 			goto error;
-		}
+
+		close(sk);
+		sk = nsk;
+
+		read_len = read(sk, buf, data_size);
+		if (read_len < 0)
+			syslog(LOG_ERR, "Initial read error: %s (%d)",
+						strerror(errno), errno);
+		else
+			syslog(LOG_INFO, "Initial bytes %d", read_len);
+	}
+
+	while (1) {
+		nsk = accept_conn(sk, addr, peer);
+		if (nsk < 0)
+			continue;
 
 		if (fork()) {
 			/* Parent */
@@ -508,7 +616,7 @@ static void do_listen(char *filename, void (*handler)(int fd, int sk),
 			}
 		}
 
-		handler(fd, nsk);
+		handler(fd, nsk, peer);
 
 		syslog(LOG_INFO, "Disconnect");
 		exit(0);
@@ -523,11 +631,11 @@ error:
 	exit(1);
 }
 
-static void dump_mode(int fd, int sk)
+static void dump_mode(int fd, int sk, char *peer)
 {
 	int len;
 
-	if (defer_setup) {
+	if (defer_setup && !peer) {
 		len = read(sk, buf, data_size);
 		if (len < 0)
 			syslog(LOG_ERR, "Initial read error: %s (%d)",
@@ -537,7 +645,7 @@ static void dump_mode(int fd, int sk)
 	}
 
 	syslog(LOG_INFO, "Receiving ...");
-	while ((len = read(sk, buf, data_size)) > 0) {
+	while ((len = read(sk, buf, data_size)) >= 0) {
 		if (fd >= 0) {
 			len = write(fd, buf, len);
 			if (len < 0) {
@@ -550,14 +658,14 @@ static void dump_mode(int fd, int sk)
 	}
 }
 
-static void recv_mode(int fd, int sk)
+static void recv_mode(int fd, int sk, char *peer)
 {
 	struct timeval tv_beg, tv_end, tv_diff;
 	long total;
 	int len;
 	uint32_t seq;
 
-	if (defer_setup) {
+	if (defer_setup && !peer) {
 		len = read(sk, buf, data_size);
 		if (len < 0)
 			syslog(LOG_ERR, "Initial read error: %s (%d)",
@@ -575,12 +683,13 @@ static void recv_mode(int fd, int sk)
 			int r;
 
 			r = recv(sk, buf, data_size, 0);
-			if (r <= 0) {
-				if (r < 0)
-					syslog(LOG_ERR, "Read failed: %s (%d)",
-							strerror(errno), errno);
+			if (r < 0) {
+				syslog(LOG_ERR, "Read failed: %s (%d)",
+						strerror(errno), errno);
+
 				if (errno != ENOTCONN)
 					return;
+
 				r = 0;
 			}
 
@@ -614,7 +723,7 @@ static int open_file(const char *filename)
 	syslog(LOG_INFO, "Opening %s ...", filename);
 
 	fd = open(filename, O_RDONLY);
-	if (fd <= 0) {
+	if (fd < 0) {
 		syslog(LOG_ERR, "Can't open file %s: %s\n",
 						filename, strerror(errno));
 	}
@@ -701,83 +810,15 @@ static int read_file(int fd, ssize_t count, bool rewind)
 	return len;
 }
 
-static void do_send(int sk, int fd, struct bt_iso_io_qos *out, uint32_t num,
-		    bool repeat)
+static void do_send(int sk, int fd, char *peer, bool repeat)
 {
 	uint32_t seq;
 	struct timespec t_start;
-	int len, used;
-
-	if (clock_gettime(CLOCK_MONOTONIC, &t_start) < 0) {
-		perror("clock_gettime");
-		exit(EXIT_FAILURE);
-	}
-
-	for (seq = 0; ; seq++) {
-		if (fd >= 0) {
-			len = read_file(fd, out->sdu, repeat);
-			if (len < 0) {
-				syslog(LOG_ERR, "read failed: %s (%d)",
-						strerror(-len), -len);
-				exit(1);
-			}
-		} else
-			len = out->sdu;
-
-		len = send(sk, buf, len, 0);
-		if (len <= 0) {
-			syslog(LOG_ERR, "send failed: %s (%d)",
-						strerror(errno), errno);
-			exit(1);
-		}
-
-		ioctl(sk, TIOCOUTQ, &used);
-
-		if (!quiet)
-			syslog(LOG_INFO,
-				"[seq %d] %d bytes buffered %d (%d bytes)",
-				seq, len, used / len, used);
-
-		if (seq && !((seq + 1) % num))
-			send_wait(&t_start, num * out->interval);
-	}
-}
-
-static void send_mode(char *filename, char *peer, int i, bool repeat)
-{
-	struct bt_iso_qos qos;
+	int send_len, used;
 	socklen_t len;
-	int sk, fd = -1;
+	struct bt_iso_qos qos;
 	uint32_t num;
 	struct bt_iso_io_qos *out;
-
-	if (filename) {
-		char altername[PATH_MAX];
-		struct stat st;
-		int err;
-
-		snprintf(altername, PATH_MAX, "%s.%u", filename, i);
-
-		err = stat(altername, &st);
-		if (!err)
-			fd = open_file(altername);
-
-		if (fd <= 0)
-			fd = open_file(filename);
-	}
-
-	sk = do_connect(peer);
-	if (sk < 0) {
-		syslog(LOG_ERR, "Can't connect to the server: %s (%d)",
-							strerror(errno), errno);
-		exit(1);
-	}
-
-	if (defer_setup) {
-		syslog(LOG_INFO, "Waiting for %d seconds",
-			abs(defer_setup) - 1);
-		sleep(abs(defer_setup) - 1);
-	}
 
 	syslog(LOG_INFO, "Sending ...");
 
@@ -796,7 +837,9 @@ static void send_mode(char *filename, char *peer, int i, bool repeat)
 	}
 
 	/* num of packets = latency (ms) / interval (us) */
-	num = (out->latency * 1000 / out->interval);
+	num = ROUND_CLOSEST(out->latency * 1000, out->interval);
+	if (!num)
+		num = 1;
 
 	syslog(LOG_INFO, "Number of packets: %d", num);
 
@@ -805,8 +848,7 @@ static void send_mode(char *filename, char *peer, int i, bool repeat)
 		 * latency:
 		 * jitter buffer = 2 * (SDU * subevents)
 		 */
-		sndbuf = 2 * ((out->latency * 1000 / out->interval) *
-							out->sdu);
+		sndbuf = 2 * (num * out->sdu);
 
 	len = sizeof(sndbuf);
 	if (setsockopt(sk, SOL_SOCKET, SO_SNDBUF, &sndbuf, len) < 0) {
@@ -827,14 +869,116 @@ static void send_mode(char *filename, char *peer, int i, bool repeat)
 		}
 	}
 
-	for (i = 6; i < out->sdu; i++)
+	for (int i = 6; i < out->sdu; i++)
 		buf[i] = 0x7f;
 
-	do_send(sk, fd, out, num, repeat);
+	if (clock_gettime(CLOCK_MONOTONIC, &t_start) < 0) {
+		perror("clock_gettime");
+		exit(EXIT_FAILURE);
+	}
+
+	for (seq = 0; ; seq++) {
+		if (fd >= 0) {
+			send_len = read_file(fd, out->sdu, repeat);
+			if (send_len < 0) {
+				syslog(LOG_ERR, "read failed: %s (%d)",
+						strerror(-send_len), -send_len);
+				exit(1);
+			}
+		} else
+			send_len = out->sdu;
+
+		send_len = send(sk, buf, send_len, 0);
+		if (send_len <= 0) {
+			syslog(LOG_ERR, "send failed: %s (%d)",
+						strerror(errno), errno);
+			exit(1);
+		}
+
+		ioctl(sk, TIOCOUTQ, &used);
+
+		if (!quiet)
+			syslog(LOG_INFO,
+				"[seq %d] %d bytes buffered %d (%d bytes)",
+				seq, send_len, used / send_len, used);
+
+		if (seq && !((seq + 1) % num))
+			send_wait(&t_start, num * out->interval);
+	}
+}
+
+static void send_mode(char *filename, char *peer, int i, bool repeat)
+{
+	int sk, fd = -1;
+	int *sk_arr;
+	uint8_t nconn = strcmp(peer, "00:00:00:00:00:00") ? 1 : num_bis;
+
+	mgmt_set_experimental();
+
+	if (filename) {
+		char altername[PATH_MAX];
+		struct stat st;
+		int err;
+
+		snprintf(altername, PATH_MAX, "%s.%u", filename, i);
+
+		err = stat(altername, &st);
+		if (!err)
+			fd = open_file(altername);
+
+		if (fd < 0)
+			fd = open_file(filename);
+	}
+
+	if (nconn > 1) {
+		sk_arr = bcast_do_connect_mbis(nconn, peer);
+		if (!sk_arr)
+			exit(1);
+
+		for (int i = 0; i < nconn; i++) {
+			if (fork()) {
+				/* Parent */
+				continue;
+			}
+
+			/* Child */
+			do_send(sk_arr[i], fd, peer, repeat);
+			exit(0);
+		}
+
+		/* Wait for children to exit */
+		while (wait(NULL) > 0)
+			;
+
+		for (int i = 0; i < nconn; i++)
+			close(sk_arr[i]);
+
+		free(sk_arr);
+		if (fd >= 0)
+			close(fd);
+		return;
+	}
+
+	sk = do_connect(peer);
+	if (sk < 0) {
+		syslog(LOG_ERR, "Can't connect to the server: %s (%d)",
+							strerror(errno), errno);
+		exit(1);
+	}
+
+	if (defer_setup) {
+		syslog(LOG_INFO, "Waiting for %d seconds",
+			abs(defer_setup) - 1);
+		sleep(abs(defer_setup) - 1);
+	}
+
+	do_send(sk, fd, peer, repeat);
 }
 
 static void reconnect_mode(char *peer)
 {
+	mgmt_set_experimental();
+
 	while (1) {
 		int sk;
 
@@ -853,6 +997,8 @@ static void reconnect_mode(char *peer)
 
 static void multy_connect_mode(char *peer)
 {
+	mgmt_set_experimental();
+
 	while (1) {
 		int i, sk;
 
@@ -885,13 +1031,21 @@ static void multy_connect_mode(char *peer)
 
 #define QOS(_interval, _latency, _sdu, _phy, _rtn) \
 { \
-	.ucast = { \
-		.cig = BT_ISO_QOS_CIG_UNSET, \
-		.cis = BT_ISO_QOS_CIS_UNSET, \
-		.sca = 0x07, \
+	.bcast = { \
+		.big = BT_ISO_QOS_BIG_UNSET, \
+		.bis = BT_ISO_QOS_BIS_UNSET, \
+		.sync_factor = 0x07, \
 		.packing = 0x00, \
 		.framing = 0x00, \
 		.out = QOS_IO(_interval, _latency, _sdu, _phy, _rtn), \
+		.encryption = 0x00, \
+		.bcode = {0}, \
+		.options = 0x00, \
+		.skip = 0x0000, \
+		.sync_timeout = 0x4000, \
+		.sync_cte_type = 0x00, \
+		.mse = 0x00, \
+		.timeout = 0x4000, \
 	}, \
 }
 
@@ -925,22 +1079,35 @@ static struct qos_preset {
 	QOS_PRESET("48_5_1", false, 7500, 15, 117, 0x02, 5),
 	QOS_PRESET("44_6_1", false, 10000, 20, 155, 0x02, 5),
 	/* QoS Configuration settings for high reliability audio data */
-	QOS_PRESET("8_1_2", true, 7500, 45, 26, 0x02, 41),
-	QOS_PRESET("8_2_2", true, 10000, 60, 30, 0x02, 53),
-	QOS_PRESET("16_1_2", true, 7500, 45, 30, 0x02, 41),
-	QOS_PRESET("16_2_2", true, 10000, 60, 40, 0x02, 47),
-	QOS_PRESET("24_1_2", true, 7500, 45, 45, 0x02, 35),
-	QOS_PRESET("24_2_2", true, 10000, 60, 60, 0x02, 41),
-	QOS_PRESET("32_1_2", true, 7500, 45, 60, 0x02, 29),
-	QOS_PRESET("32_2_1", true, 10000, 60, 80, 0x02, 35),
-	QOS_PRESET("44_1_2", false, 8163, 54, 98, 0x02, 23),
-	QOS_PRESET("44_2_2", false, 10884, 71, 130, 0x02, 23),
-	QOS_PRESET("48_1_2", false, 7500, 45, 75, 0x02, 23),
-	QOS_PRESET("48_2_2", false, 10000, 60, 100, 0x02, 23),
-	QOS_PRESET("48_3_2", false, 7500, 45, 90, 0x02, 23),
-	QOS_PRESET("48_4_2", false, 10000, 60, 120, 0x02, 23),
-	QOS_PRESET("48_5_2", false, 7500, 45, 117, 0x02, 23),
-	QOS_PRESET("44_6_2", false, 10000, 60, 155, 0x02, 23),
+	QOS_PRESET("8_1_2", true, 7500, 75, 26, 0x02, 13),
+	QOS_PRESET("8_2_2", true, 10000, 95, 30, 0x02, 13),
+	QOS_PRESET("16_1_2", true, 7500, 75, 30, 0x02, 13),
+	QOS_PRESET("16_2_2", true, 10000, 95, 40, 0x02, 13),
+	QOS_PRESET("24_1_2", true, 7500, 75, 45, 0x02, 13),
+	QOS_PRESET("24_2_2", true, 10000, 95, 60, 0x02, 13),
+	QOS_PRESET("32_1_2", true, 7500, 75, 60, 0x02, 13),
+	QOS_PRESET("32_2_2", true, 10000, 95, 80, 0x02, 13),
+	QOS_PRESET("44_1_2", false, 8163, 80, 97, 0x02, 13),
+	QOS_PRESET("44_2_2", false, 10884, 85, 130, 0x02, 13),
+	QOS_PRESET("48_1_2", false, 7500, 75, 75, 0x02, 13),
+	QOS_PRESET("48_2_2", false, 10000, 95, 100, 0x02, 13),
+	QOS_PRESET("48_3_2", false, 7500, 75, 90, 0x02, 13),
+	QOS_PRESET("48_4_2", false, 10000, 100, 120, 0x02, 13),
+	QOS_PRESET("48_5_2", false, 7500, 75, 117, 0x02, 13),
+	QOS_PRESET("44_6_2", false, 10000, 100, 155, 0x02, 13),
+	/* QoS configuration support setting requirements for the UGG and UGT */
+	QOS_PRESET("16_1_gs", true, 7500, 15, 30, 0x02, 1),
+	QOS_PRESET("16_2_gs", true, 10000, 20, 40, 0x02, 1),
+	QOS_PRESET("32_1_gs", true, 7500, 15, 60, 0x02, 1),
+	QOS_PRESET("32_2_gs", true, 10000, 20, 80, 0x02, 1),
+	QOS_PRESET("48_1_gs", true, 7500, 15, 75, 0x02, 1),
+	QOS_PRESET("48_2_gs", true, 10000, 20, 100, 0x02, 1),
+	QOS_PRESET("32_1_gr", true, 7500, 15, 60, 0x02, 1),
+	QOS_PRESET("32_2_gr", true, 10000, 20, 80, 0x02, 1),
+	QOS_PRESET("48_1_gr", true, 7500, 15, 75, 0x02, 1),
+	QOS_PRESET("48_2_gr", true, 10000, 20, 100, 0x02, 1),
+	QOS_PRESET("48_3_gr", true, 7500, 15, 90, 0x02, 1),
+	QOS_PRESET("48_4_gr", true, 10000, 20, 120, 0x02, 1),
 };
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
@@ -978,7 +1145,8 @@ static void usage(void)
 		"\t[-B, --preset <value>]\n"
 		"\t[-G, --CIG/BIG <value>]\n"
 		"\t[-T, --CIS/BIS <value>]\n"
-		"\t[-V, --type <value>] address type (help for list)\n");
+		"\t[-V, --type <value>] address type (help for list)\n"
+		"\t[-N, --nbis <value>] Number of BISes to create/synchronize to\n");
 }
 
 static const struct option main_options[] = {
@@ -1008,8 +1176,28 @@ static const struct option main_options[] = {
 	{ "CIG/BIG",   required_argument, NULL, 'G'},
 	{ "CIS/BIS",   required_argument, NULL, 'T'},
 	{ "type",      required_argument, NULL, 'V'},
+	{ "nbis",      required_argument, NULL, 'N'},
 	{}
 };
+
+static bool str2hex(const char *str, uint16_t in_len, uint8_t *out,
+		uint16_t out_len)
+{
+	uint16_t i;
+
+	if (in_len < out_len * 2)
+		return false;
+
+	if (!strncasecmp(str, "0x", 2))
+		str += 2;
+
+	for (i = 0; i < out_len; i++) {
+		if (sscanf(&str[i * 2], "%02hhx", &out[i]) != 1)
+			return false;
+	}
+
+	return true;
+}
 
 int main(int argc, char *argv[])
 {
@@ -1018,6 +1206,8 @@ int main(int argc, char *argv[])
 	char *filename = NULL;
 	bool repeat = false;
 	unsigned int i;
+	uint8_t nconn = 1;
+	char *peer;
 
 	iso_qos = malloc(sizeof(*iso_qos));
 	/* Default to 16_2_1 */
@@ -1028,7 +1218,7 @@ int main(int argc, char *argv[])
 		int opt;
 
 		opt = getopt_long(argc, argv,
-			"d::cmr::s::nb:i:j:hqt:CV:W:M:S:P:F:I:L:Y:R:B:G:T:",
+			"d::cmr::s::nb:i:j:hqt:CV:W:M:S:P:F:I:L:Y:R:B:G:T:e:k:N:",
 			main_options, NULL);
 		if (opt < 0)
 			break;
@@ -1065,7 +1255,7 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'b':
-			if (optarg)
+			if (optarg && atoi(optarg) < MAX_DATA_SIZE)
 				data_size = atoi(optarg);
 			break;
 
@@ -1181,6 +1371,36 @@ int main(int argc, char *argv[])
 				iso_qos->ucast.cis = atoi(optarg);
 			break;
 
+		case 'e':
+			if (optarg)
+				iso_qos->bcast.encryption =
+					strtol(optarg, NULL, 16);
+			break;
+
+		case 'k':
+			if (optarg)
+				if (!str2hex(optarg, strlen(optarg),
+						iso_qos->bcast.bcode, 16))
+					exit(1);
+			break;
+
+		case 'N':
+			if (optarg)
+				num_bis = atoi(optarg);
+
+			if (num_bis > 1) {
+				/* If the user requested multiple BISes,
+				 * make sure that all BISes are bound
+				 * for the same BIG and advertising set
+				 */
+				if (iso_qos->bcast.big == BT_ISO_QOS_BIG_UNSET)
+					iso_qos->bcast.big = DEFAULT_BIG_ID;
+
+				if (iso_qos->bcast.bis == BT_ISO_QOS_BIS_UNSET)
+					iso_qos->bcast.bis = DEFAULT_BIS_ID;
+			}
+			break;
+
 		/* fall through */
 		default:
 			usage();
@@ -1240,9 +1460,18 @@ int main(int argc, char *argv[])
 
 		switch (mode) {
 		case SEND:
-			send_mode(filename, argv[optind + i], i, repeat);
-			if (filename && strchr(filename, ','))
-				filename = strchr(filename, ',') + 1;
+			peer = argv[optind + i];
+			if (bachk(peer) < 0) {
+				fprintf(stderr, "Invalid peer address '%s'\n",
+						peer);
+				exit(1);
+			}
+			send_mode(filename, peer, i, repeat);
+			if (filename && strchr(filename, ',')) {
+				char *tmp = filename;
+				filename = strdup(strchr(filename, ',') + 1);
+				free(tmp);
+			}
 			break;
 
 		case RECONNECT:
@@ -1254,10 +1483,59 @@ int main(int argc, char *argv[])
 			break;
 
 		case CONNECT:
-			sk = do_connect(argv[optind + i]);
-			if (sk < 0)
+			peer = argv[optind + i];
+			if (bachk(peer) < 0) {
+				fprintf(stderr, "Invalid peer address '%s'\n",
+						peer);
 				exit(1);
-			dump_mode(-1, sk);
+			}
+
+			mgmt_set_experimental();
+
+			if (!strcmp(peer, "00:00:00:00:00:00"))
+				nconn = num_bis;
+
+			if (nconn > 1) {
+				int *sk_arr =  bcast_do_connect_mbis(nconn,
+								peer);
+
+				if (!sk_arr)
+					exit(1);
+
+				for (int i = 0; i < nconn; i++) {
+					if (fork()) {
+						/* Parent */
+						continue;
+					}
+
+					/* Child */
+					if (!strcmp(peer, "00:00:00:00:00:00"))
+						dump_mode(-1, sk_arr[i], peer);
+					else
+						dump_mode(-1, sk_arr[i], NULL);
+
+					exit(0);
+				}
+
+				/* Wait for children to exit */
+				while (wait(NULL) > 0)
+					;
+
+				for (int i = 0; i < nconn; i++)
+					close(sk_arr[i]);
+
+				free(sk_arr);
+			} else {
+				sk = do_connect(peer);
+				if (sk < 0)
+					exit(1);
+
+				if (!strcmp(peer, "00:00:00:00:00:00"))
+					dump_mode(-1, sk, peer);
+				else
+					dump_mode(-1, sk, NULL);
+			}
+
 			break;
 
 		case RECV:

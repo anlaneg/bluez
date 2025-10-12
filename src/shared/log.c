@@ -23,8 +23,8 @@
 #include <signal.h>
 #include <sys/socket.h>
 
-#include "lib/bluetooth.h"
-#include "lib/hci.h"
+#include "bluetooth/bluetooth.h"
+#include "bluetooth/hci.h"
 
 #include "src/shared/util.h"
 #include "src/shared/log.h"
@@ -135,7 +135,7 @@ int bt_log_vprintf(uint16_t index, const char *label, int level,
 	int len;
 
 	len = vasprintf(&str, format, ap);
-	if (len < 0)
+	if (len < 0 || !str)
 		return errno;
 
 	len = strlen(str);
