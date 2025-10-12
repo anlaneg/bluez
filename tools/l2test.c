@@ -49,18 +49,18 @@
 
 /* Test modes */
 enum {
-	SEND,
-	RECV,
+	SEND,/*发送模式*/
+	RECV,/*接收模式*/
 	RECONNECT,
 	MULTY,
 	DUMP,
 	CONNECT,
-	CRECV,
-	LSEND,
+	CRECV,/*连接并接收模式*/
+	LSEND,/*监听并发送模式*/
 	SENDDUMP,
 	LSENDDUMP,
-	LSENDRECV,
-	CSENDRECV,
+	LSENDRECV,/*监听发送并接收模式*/
+	CSENDRECV,/*连接发送并接收模式*/
 	INFOREQ,
 	PAIRING,
 };
@@ -114,7 +114,7 @@ static int central = 0;
 static int auth = 0;
 static int encr = 0;
 static int secure = 0;
-static int socktype = SOCK_SEQPACKET;
+static int socktype = SOCK_SEQPACKET;/*有序报文方式*/
 static int linger = 0;
 static int reliable = 0;
 static int timestamp = 0;
@@ -122,7 +122,7 @@ static int defer_setup = 0;
 static int priority = -1;
 static int rcvbuf = 0;
 static int chan_policy = -1;
-static int bdaddr_type = 0;
+static int bdaddr_type = 0;/*默认为BREDR*/
 
 struct lookup_table {
 	const char *name;
@@ -571,7 +571,7 @@ error:
 	return -1;
 }
 
-static void do_listen(void (*handler)(int sk))
+static void do_listen(void (*handler/*处理接入的socket*/)(int sk))
 {
 	struct sockaddr_l2 addr;
 	struct l2cap_options opts;
@@ -579,7 +579,7 @@ static void do_listen(void (*handler)(int sk))
 	int sk, nsk, opt;
 
 	/* Create socket */
-	sk = socket(PF_BLUETOOTH, socktype, BTPROTO_L2CAP);
+	sk = socket(PF_BLUETOOTH, socktype, BTPROTO_L2CAP);/*创建socket*/
 	if (sk < 0) {
 		syslog(LOG_ERR, "Can't create socket: %s (%d)",
 							strerror(errno), errno);
@@ -589,13 +589,14 @@ static void do_listen(void (*handler)(int sk))
 	/* Bind to local address */
 	memset(&addr, 0, sizeof(addr));
 	addr.l2_family = AF_BLUETOOTH;
-	bacpy(&addr.l2_bdaddr, &bdaddr);
+	bacpy(&addr.l2_bdaddr, &bdaddr);/*要绑定的设备*/
 	addr.l2_bdaddr_type = bdaddr_type;
 	if (cid)
-		addr.l2_cid = htobs(cid);
+		addr.l2_cid = htobs(cid);/*优先使用cid*/
 	else if (psm)
-		addr.l2_psm = htobs(psm);
+		addr.l2_psm = htobs(psm);/*次优先择psm*/
 
+	/*绑定设备*/
 	if (bind(sk, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
 		syslog(LOG_ERR, "Can't bind socket: %s (%d)",
 							strerror(errno), errno);
@@ -629,7 +630,7 @@ static void do_listen(void (*handler)(int sk))
 	}
 
 	/* Set new options */
-	opts.omtu = omtu;
+	opts.omtu = omtu;/*设置mtu*/
 	opts.imtu = imtu;
 	if (rfcmode > 0)
 		opts.mode = rfcmode;
@@ -663,6 +664,7 @@ static void do_listen(void (*handler)(int sk))
 
 	/* Listen for connections */
 	if (listen(sk, 10)) {
+		/*监听失败*/
 		syslog(LOG_ERR, "Can not listen on the socket: %s (%d)",
 							strerror(errno), errno);
 		goto error;
@@ -672,6 +674,7 @@ static void do_listen(void (*handler)(int sk))
 	memset(&addr, 0, sizeof(addr));
 	optlen = sizeof(addr);
 
+	/*取监听地址*/
 	if (getsockname(sk, (struct sockaddr *) &addr, &optlen) < 0) {
 		syslog(LOG_ERR, "Can't get socket name: %s (%d)",
 							strerror(errno), errno);
@@ -687,12 +690,14 @@ static void do_listen(void (*handler)(int sk))
 		memset(&addr, 0, sizeof(addr));
 		optlen = sizeof(addr);
 
+		/*等待对方连接*/
 		nsk = accept(sk, (struct sockaddr *) &addr, &optlen);
 		if (nsk < 0) {
 			syslog(LOG_ERR, "Accept failed: %s (%d)",
 							strerror(errno), errno);
 			goto error;
 		}
+		/*产生子程序*/
 		if (fork()) {
 			/* Parent */
 			close(nsk);
@@ -771,7 +776,7 @@ static void do_listen(void (*handler)(int sk))
 			}
 		}
 
-		handler(nsk);
+		handler(nsk);/*处理此接入的socket*/
 		close(sk);
 
 		syslog(LOG_INFO, "Disconnect: %m");
@@ -838,6 +843,7 @@ static void dump_mode(int sk)
 	}
 }
 
+/*针对此socket执行收取*/
 static void recv_mode(int sk)
 {
 	struct timeval tv_beg, tv_end, tv_diff;
@@ -852,7 +858,7 @@ static void recv_mode(int sk)
 		data_size = imtu;
 
 	if (defer_setup) {
-		len = read(sk, buf, data_size);
+		len = read(sk, buf, data_size);/*收取*/
 		if (len < 0)
 			syslog(LOG_ERR, "Initial read error: %s (%d)",
 						strerror(errno), errno);
@@ -881,12 +887,12 @@ static void recv_mode(int sk)
 
 			p.revents = 0;
 			if (poll(&p, 1, -1) <= 0)
-				return;
+				return;/*不可检测*/
 
 			if (p.revents & (POLLERR | POLLHUP))
 				return;
 
-			len = recv(sk, buf, data_size, 0);
+			len = recv(sk, buf, data_size, 0);/*收取*/
 			if (len < 0) {
 				if (reliable && (errno == ECOMM)) {
 					syslog(LOG_INFO, "L2CAP Error ECOMM - clearing error and continuing.\n");
@@ -962,6 +968,7 @@ static void do_send(int sk)
 		data_size = omtu;
 
 	if (filename) {
+		/*打开要发送的文件*/
 		fd = open(filename, O_RDONLY);
 		if (fd < 0) {
 			syslog(LOG_ERR, "Open failed: %s (%d)",
@@ -970,11 +977,11 @@ static void do_send(int sk)
 		}
 
 		sent = 0;
-		size = read(fd, buf, data_size);
+		size = read(fd, buf, data_size);/*读取文件内容*/
 		while (size > 0) {
 			buflen = (size > omtu) ? omtu : size;
 
-			len = send(sk, buf + sent, buflen, 0);
+			len = send(sk, buf + sent, buflen, 0);/*发送*/
 
 			sent += len;
 			size -= len;
@@ -983,6 +990,7 @@ static void do_send(int sk)
 		close(fd);
 		return;
 	} else {
+		/*未指定要发送的文件,构造数据*/
 		for (i = 6; i < data_size; i++)
 			buf[i] = 0x7f;
 	}
@@ -1002,7 +1010,7 @@ static void do_send(int sk)
 		while (size > 0) {
 			buflen = (size > omtu) ? omtu : size;
 
-			len = send(sk, buf, buflen, 0);
+			len = send(sk, buf, buflen, 0);/*发送内容*/
 			if (len < 0 || len != buflen) {
 				syslog(LOG_ERR, "Send failed: %s (%d)",
 							strerror(errno), errno);
@@ -1035,7 +1043,7 @@ static void send_mode(int sk)
 
 static void senddump_mode(int sk)
 {
-	do_send(sk);
+	do_send(sk);/*发送*/
 
 	dump_mode(sk);
 }
@@ -1050,8 +1058,10 @@ static void send_and_recv_mode(int sk)
 
 	/* fork for duplex channel */
 	if (fork())
+		/*fork后子进程负责发送*/
 		send_mode(sk);
 	else
+		/*fork后父进程负责接收*/
 		recv_mode(sk);
 	return;
 }
@@ -1069,7 +1079,7 @@ static void connect_mode(char *svr)
 	struct pollfd p;
 	int sk;
 
-	if ((sk = do_connect(svr)) < 0)
+	if ((sk = do_connect(svr)) < 0)/*连接*/
 		exit(1);
 
 	p.fd = sk;
@@ -1083,7 +1093,7 @@ static void connect_mode(char *svr)
 
 	syslog(LOG_INFO, "Disconnected");
 
-	close(sk);
+	close(sk);/*断开连接*/
 }
 
 static void multi_connect_mode(int argc, char *argv[])
@@ -1288,6 +1298,7 @@ static void do_pairing(char *svr)
 	str2ba(svr, &addr.l2_bdaddr);
 	addr.l2_bdaddr_type = bdaddr_type;
 
+	/*建立连接*/
 	if (connect(sk, (struct sockaddr *) &addr, sizeof(addr)) < 0 ) {
 		perror("Can't connect socket");
 		goto failed;
@@ -1355,26 +1366,26 @@ int main(int argc, char *argv[])
 	struct sigaction sa;
 	int opt, sk, mode = RECV, need_addr = 0;
 
-	bacpy(&bdaddr, BDADDR_ANY);
+	bacpy(&bdaddr, BDADDR_ANY);/*默认为any地址*/
 
 	while ((opt = getopt(argc, argv, "a:b:cde:g:i:mnpqrstuwxyz"
 		"AB:C:D:EF:GH:I:J:K:L:MN:O:P:Q:RSTUV:W:X:Y:Z:")) != EOF) {
 		switch (opt) {
 		case 'r':
-			mode = RECV;
+			mode = RECV;/*接收模式*/
 			break;
 
 		case 's':
-			mode = SEND;
+			mode = SEND;/*发送模式*/
 			need_addr = 1;
 			break;
 
 		case 'w':
-			mode = LSEND;
+			mode = LSEND;/*监听并发送模式*/
 			break;
 
 		case 'u':
-			mode = CRECV;
+			mode = CRECV;/*连接并接收模式*/
 			need_addr = 1;
 			break;
 
@@ -1383,7 +1394,7 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'c':
-			mode = RECONNECT;
+			mode = RECONNECT;/*重连模式*/
 			need_addr = 1;
 			break;
 
@@ -1429,6 +1440,7 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'i':
+			/*指明使用哪个设备*/
 			if (!strncasecmp(optarg, "hci", 3))
 				hci_devba(atoi(optarg + 3), &bdaddr);
 			else
@@ -1436,7 +1448,7 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'P':
-			psm = strtoul(optarg, NULL, 0);
+			psm = strtoul(optarg, NULL, 0);/*指定psm*/
 			break;
 
 		case 'I':
@@ -1526,11 +1538,11 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'G':
-			socktype = SOCK_DGRAM;
+			socktype = SOCK_DGRAM;/*使用报文方式*/
 			break;
 
 		case 'U':
-			socktype = SOCK_STREAM;
+			socktype = SOCK_STREAM;/*使用流方式*/
 			break;
 
 		case 'T':
@@ -1546,7 +1558,7 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'J':
-			cid = atoi(optarg);
+			cid = atoi(optarg);/*指定cid*/
 			break;
 
 		case 'H':
@@ -1580,12 +1592,13 @@ int main(int argc, char *argv[])
 
 	if (!psm) {
 		if (bdaddr_type == BDADDR_BREDR)
-			psm = BREDR_DEFAULT_PSM;
+			psm = BREDR_DEFAULT_PSM;/*默认PSM*/
 		else
-			psm = LE_DEFAULT_PSM;
+			psm = LE_DEFAULT_PSM;/*默认低功耗psm*/
 	}
 
 	if (need_addr && !(argc - optind)) {
+		/*此模式需要目标地址,但未指明,显示用法并报错*/
 		usage();
 		exit(1);
 	}
@@ -1595,6 +1608,7 @@ int main(int argc, char *argv[])
 	else
 		buffer_size = data_size;
 
+	/*申请buffer大小*/
 	if (!(buf = malloc(buffer_size))) {
 		perror("Can't allocate data buffer");
 		exit(1);
@@ -1658,7 +1672,7 @@ int main(int argc, char *argv[])
 			break;
 
 		case LSENDRECV:
-			do_listen(send_and_recv_mode);
+			do_listen(send_and_recv_mode);/*监听发送并接收*/
 			break;
 
 		case CSENDRECV:
@@ -1666,7 +1680,7 @@ int main(int argc, char *argv[])
 			if (sk < 0)
 				exit(1);
 
-			send_and_recv_mode(sk);
+			send_and_recv_mode(sk);/*连接后,发送并接收*/
 			break;
 
 		case INFOREQ:

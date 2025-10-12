@@ -108,12 +108,13 @@ static int bnep_connadd(int sk, uint16_t role, char *dev)
 	struct bnep_connadd_req req;
 
 	memset(&req, 0, sizeof(req));
-	strncpy(req.device, dev, 15);
+	strncpy(req.device, dev, 15);/*netdev设备名称*/
 	req.device[15] = '\0';
 
-	req.sock = sk;
+	req.sock = sk;/*存入要关联的socket*/
 	req.role = role;
 	req.flags = (1 << BNEP_SETUP_RESPONSE);
+	/*请求kernel创建关联的netdev*/
 	if (ioctl(ctl, BNEPCONNADD, &req) < 0) {
 		int err = -errno;
 		error("bnep: Failed to add device %s: %s(%d)",

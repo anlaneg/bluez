@@ -2311,6 +2311,7 @@ typedef struct {
 #define HCI_MSG_HDR_SIZE	6
 
 /* Command opcode pack/unpack */
+/*利用ogf,ocf打包产生opcode*/
 #define cmd_opcode_pack(ogf, ocf)	(uint16_t)((ocf & 0x03ff)|(ogf << 10))
 #define cmd_opcode_ogf(op)		(op >> 10)
 #define cmd_opcode_ocf(op)		(op & 0x03ff)
@@ -2403,7 +2404,7 @@ struct hci_conn_info {
 
 struct hci_dev_req {
 	uint16_t dev_id;
-	uint32_t dev_opt;
+	uint32_t dev_opt;/*设备标记*/
 };
 
 struct hci_dev_list_req {

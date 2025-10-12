@@ -89,7 +89,7 @@ static int dev_info(int s, int dev_id, long arg)
 		return 0;
 
 	ba2str(&di.bdaddr, addr);
-	printf("\t%s\t%s\n", di.name, addr);
+	printf("\t%s\t%s\n", di.name, addr);/*显示设备名称及bd地址*/
 	return 0;
 }
 
@@ -877,7 +877,7 @@ static void cmd_info(int dev_id, int argc, char **argv)
 		dev_id = hci_for_each_dev(HCI_UP, find_conn, (long) &bdaddr);
 
 	if (dev_id < 0)
-		dev_id = hci_get_route(&bdaddr);
+		dev_id = hci_get_route(&bdaddr);/*查找此地址对应的设备*/
 
 	if (dev_id < 0) {
 		fprintf(stderr, "Device is not available or not connected.\n");
@@ -922,16 +922,18 @@ static void cmd_info(int dev_id, int argc, char **argv)
 
 	free(cr);
 
-	printf("\tBD Address:  %s\n", argv[0]);
+	printf("\tBD Address:  %s\n", argv[0]);/*显示对端地址*/
 
 	comp = batocomp(&bdaddr);
 	if (comp) {
 		char oui[9];
 		ba2oui(&bdaddr, oui);
+		/*显示出品方,例如:OUI Company: Motorola Mobility LLC, a Lenovo Company (30-83-D2)*/
 		printf("\tOUI Company: %s (%s)\n", comp, oui);
 		free(comp);
 	}
 
+	/*对设备名称*/
 	if (hci_read_remote_name(dd, &bdaddr, sizeof(name), name, 25000) == 0)
 		printf("\tDevice Name: %s\n", name);
 
@@ -2332,7 +2334,7 @@ static int check_report_filter(uint8_t procedure, le_advertising_info *info)
 
 	/* If no discovery procedure is set, all reports are treat as valid */
 	if (procedure == 0)
-		return 1;
+		return 1;/*不进行过滤*/
 
 	/* Read flags AD type value from the advertising report if it exists */
 	if (read_flags(&flags, info->data, info->length))
@@ -2428,6 +2430,7 @@ static int print_advertising_devices(int dd, uint8_t filter_type)
 		le_advertising_info *info;
 		char addr[18];
 
+		/*读取扫描结果*/
 		while ((len = read(dd, buf, sizeof(buf))) < 0) {
 			if (errno == EINTR && signal_received == SIGINT) {
 				len = 0;
@@ -2454,11 +2457,11 @@ static int print_advertising_devices(int dd, uint8_t filter_type)
 
 			memset(name, 0, sizeof(name));
 
-			ba2str(&info->bdaddr, addr);
+			ba2str(&info->bdaddr, addr);/*格式化地址*/
 			eir_parse_name(info->data, info->length,
 							name, sizeof(name) - 1);
 
-			printf("%s %s\n", addr, name);
+			printf("%s %s\n", addr, name);/*显示地址及名称*/
 		}
 	}
 
@@ -2495,12 +2498,12 @@ static const char *lescan_help =
 static void cmd_lescan(int dev_id, int argc, char **argv)
 {
 	int err, opt, dd;
-	uint8_t own_type = LE_PUBLIC_ADDRESS;
-	uint8_t scan_type = 0x01;
+	uint8_t own_type = LE_PUBLIC_ADDRESS;/*扫描地址类型,默认为公共地址*/
+	uint8_t scan_type = 0x01;/*默认为主动扫描*/
 	uint8_t filter_type = 0;
-	uint8_t filter_policy = 0x00;
-	uint16_t interval = htobs(0x0010);
-	uint16_t window = htobs(0x0010);
+	uint8_t filter_policy = 0x00;/*扫描过滤策略（filter_policy）,0X00接受所有广播包;0x01：仅接受白名单设备的广播包*/
+	uint16_t interval = htobs(0x0010);/*控制器两次扫描之间的间隔时间（被动 / 主动扫描通用）*/
+	uint16_t window = htobs(0x0010);/*每次扫描持续的时间（必须 ≤ 扫描间隔）。*/
 	uint8_t filter_dup = 0x01;
 
 	for_each_opt(opt, lescan_options, NULL) {
@@ -2509,9 +2512,10 @@ static void cmd_lescan(int dev_id, int argc, char **argv)
 			own_type = LE_RANDOM_ADDRESS;
 			break;
 		case 'p':
-			own_type = LE_RANDOM_ADDRESS;
+			own_type = LE_RANDOM_ADDRESS;/*随机地址（控制器使用的自身地址类型）*/
 			break;
 		case 'P':
+			/*参数可指明为补动扫描,被动扫描（仅接收广播包，不发送扫描请求）*/
 			scan_type = 0x00; /* Passive */
 			break;
 		case 'w': /* Deprecated. Kept for compatibility. */
@@ -2539,15 +2543,16 @@ static void cmd_lescan(int dev_id, int argc, char **argv)
 	helper_arg(0, 1, &argc, &argv, lescan_help);
 
 	if (dev_id < 0)
-		dev_id = hci_get_route(NULL);
+		dev_id = hci_get_route(NULL);/*未指明设备,利用any地址查找一个设备*/
 
-	dd = hci_open_dev(dev_id);
+	dd = hci_open_dev(dev_id);/*绑定设备*/
 	if (dd < 0) {
 		perror("Could not open device");
 		exit(1);
 	}
 
-	err = hci_le_set_scan_parameters(dd, scan_type, interval, window,
+	/*设置扫描参数*/
+	err = hci_le_set_scan_parameters(dd, scan_type/*扫描类型*/, interval, window,
 						own_type, filter_policy, 10000);
 	if (err < 0) {
 		perror("Set scan parameters failed");
@@ -3462,7 +3467,7 @@ int main(int argc, char *argv[])
 
 		case 'h':
 		default:
-			usage();
+			usage();/*显示帮助信息*/
 			exit(0);
 		}
 	}
@@ -3481,12 +3486,13 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+	/*遍历command,检查用户指定的哪个subcommand*/
 	for (i = 0; command[i].cmd; i++) {
 		if (strncmp(command[i].cmd,
 				argv[0], strlen(command[i].cmd)))
 			continue;
 
-		command[i].func(dev_id, argc, argv);
+		command[i].func(dev_id, argc, argv);/*触发回调*/
 		break;
 	}
 

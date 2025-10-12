@@ -22,9 +22,9 @@ struct hci_request {
 	uint16_t ocf;
 	int      event;
 	void     *cparam;
-	int      clen;
+	int      clen;/*cparam参数长度*/
 	void     *rparam;
-	int      rlen;
+	int      rlen;/*rparam参数长度*/
 };
 
 struct hci_version {

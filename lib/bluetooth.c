@@ -75,6 +75,7 @@ int ba2strlc(const bdaddr_t *ba, char *str)
 		ba->b[5], ba->b[4], ba->b[3], ba->b[2], ba->b[1], ba->b[0]);
 }
 
+/*字符串转bd地址*/
 int str2ba(const char *str, bdaddr_t *ba)
 {
 	int i;

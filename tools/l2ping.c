@@ -87,10 +87,11 @@ static void ping(char *svr)
 	}
 
 	/* Bind to local address */
-	memset(&addr, 0, sizeof(addr));
+	memset(&addr, 0, sizeof(addr));/*所有字段置为0,例如地址类型:BDADDR_BREDR*/
 	addr.l2_family = AF_BLUETOOTH;
-	bacpy(&addr.l2_bdaddr, &bdaddr);
+	bacpy(&addr.l2_bdaddr, &bdaddr);/*仅指明L2地址,指明本端地址*/
 
+	/*绑定地址,分配PSM*/
 	if (bind(sk, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
 		perror("Can't bind socket");
 		goto error;
@@ -101,6 +102,7 @@ static void ping(char *svr)
 	addr.l2_family = AF_BLUETOOTH;
 	str2ba(svr, &addr.l2_bdaddr);
 
+	/*连接到远端*/
 	if (connect(sk, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
 		perror("Can't connect");
 		goto error;
@@ -110,17 +112,19 @@ static void ping(char *svr)
 	memset(&addr, 0, sizeof(addr));
 	optlen = sizeof(addr);
 
+	/*取得本端地址*/
 	if (getsockname(sk, (struct sockaddr *) &addr, &optlen) < 0) {
 		perror("Can't get local address");
 		goto error;
 	}
 
+	/*显示PING的源,目的地址及数据大小*/
 	ba2str(&addr.l2_bdaddr, str);
 	printf("Ping: %s from %s (data size %d) ...\n", svr, str, size);
 
 	/* Initialize send buffer */
 	for (i = 0; i < size; i++)
-		send_buf[L2CAP_CMD_HDR_SIZE + i] = (i % 40) + 'A';
+		send_buf[L2CAP_CMD_HDR_SIZE + i] = (i % 40) + 'A';/*填充PING的数据*/
 
 	id = ident;
 
@@ -130,18 +134,19 @@ static void ping(char *svr)
 		l2cap_cmd_hdr *recv_cmd = (l2cap_cmd_hdr *) recv_buf;
 
 		/* Build command header */
-		send_cmd->ident = id;
-		send_cmd->len   = htobs(size);
+		send_cmd->ident = id;/*填写id*/
+		send_cmd->len   = htobs(size);/*填写报文长度*/
 
 		if (reverse)
+			/*如翻转,则指定rsp*/
 			send_cmd->code = L2CAP_ECHO_RSP;
 		else
 			send_cmd->code = L2CAP_ECHO_REQ;
 
-		gettimeofday(&tv_send, NULL);
+		gettimeofday(&tv_send, NULL);/*取当前时间*/
 
 		/* Send Echo Command */
-		if (send(sk, send_buf, L2CAP_CMD_HDR_SIZE + size, 0) <= 0) {
+		if (send(sk, send_buf, L2CAP_CMD_HDR_SIZE + size, 0) <= 0) {/*发送*/
 			perror("Send failed");
 			goto error;
 		}
@@ -155,7 +160,7 @@ static void ping(char *svr)
 			pf[0].fd = sk;
 			pf[0].events = POLLIN;
 
-			if ((err = poll(pf, 1, timeout * 1000)) < 0) {
+			if ((err = poll(pf, 1, timeout * 1000)) < 0) {/*等待连接可读*/
 				perror("Poll failed");
 				goto error;
 			}
@@ -165,17 +170,19 @@ static void ping(char *svr)
 				break;
 			}
 
+			/*收取*/
 			if ((err = recv(sk, recv_buf, L2CAP_CMD_HDR_SIZE + size, 0)) < 0) {
 				perror("Recv failed");
 				goto error;
 			}
 
 			if (!err){
+				/*断开连接*/
 				printf("Disconnected\n");
 				goto error;
 			}
 
-			recv_cmd->len = btohs(recv_cmd->len);
+			recv_cmd->len = btohs(recv_cmd->len);/*取收到的内容长度*/
 
 			/* Check for our id */
 			if (recv_cmd->ident != id)
@@ -249,6 +256,7 @@ static void usage(void)
 	printf("\t-v  Verify request and response payload\n");
 }
 
+/*利用socket(PF_BLUETOOTH, SOCK_RAW, BTPROTO_L2CAP)实现两个程序间的ping及响应*/
 int main(int argc, char *argv[])
 {
 	int opt;
@@ -306,7 +314,7 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	ping(argv[optind]);
+	ping(argv[optind]/*远端地址*/);
 
 	return 0;
 }

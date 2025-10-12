@@ -405,7 +405,7 @@ typedef struct {
 /* Copy, swap, convert BD Address */
 static inline int bacmp(const bdaddr_t *ba1, const bdaddr_t *ba2)
 {
-	return memcmp(ba1, ba2, sizeof(bdaddr_t));
+	return memcmp(ba1, ba2, sizeof(bdaddr_t));/*比较两个地址*/
 }
 static inline void bacpy(bdaddr_t *dst, const bdaddr_t *src)
 {

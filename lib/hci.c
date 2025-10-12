@@ -645,7 +645,7 @@ char *hci_commandstostr(uint8_t *commands, char *pref, int width)
 }
 
 /* Version mapping */
-static hci_map ver_map[] = {
+static hci_map ver_map[] = {/*各版本对应的数字*/
 	{ "1.0b",	0x00 },
 	{ "1.1",	0x01 },
 	{ "1.2",	0x02 },
@@ -833,7 +833,7 @@ char *lmp_featurestostr(uint8_t *features, char *pref, int width)
 }
 
 /* HCI functions that do not require open device */
-int hci_for_each_dev(int flag, int (*func)(int dd, int dev_id, long arg),
+int hci_for_each_dev(int flag/*要区配的标记*/, int (*func)(int dd, int dev_id, long arg),
 			long arg)
 {
 	struct hci_dev_list_req *dl;
@@ -853,9 +853,10 @@ int hci_for_each_dev(int flag, int (*func)(int dd, int dev_id, long arg),
 
 	memset(dl, 0, HCI_MAX_DEV * sizeof(*dr) + sizeof(*dl));
 
-	dl->dev_num = HCI_MAX_DEV;
+	dl->dev_num = HCI_MAX_DEV;/*最大要求设备数*/
 	dr = dl->dev_req;
 
+	/*取设备列表,最大不超过dl->dev_num*/
 	if (ioctl(sk, HCIGETDEVLIST, (void *) dl) < 0) {
 		err = errno;
 		goto free;
@@ -863,6 +864,7 @@ int hci_for_each_dev(int flag, int (*func)(int dd, int dev_id, long arg),
 
 	for (i = 0; i < dl->dev_num; i++, dr++) {
 		if (hci_test_bit(flag, &dr->dev_opt))
+			/*标记匹配,采用func访问,如函数匹配,则记录此设备id*/
 			if (!func || func(sk, dr->dev_id, arg)) {
 				dev_id = dr->dev_id;
 				break;
@@ -870,7 +872,7 @@ int hci_for_each_dev(int flag, int (*func)(int dd, int dev_id, long arg),
 	}
 
 	if (dev_id < 0)
-		err = ENODEV;
+		err = ENODEV;/*没有找到任何设备*/
 
 free:
 	free(dl);
@@ -887,12 +889,12 @@ static int __other_bdaddr(int dd, int dev_id, long arg)
 	struct hci_dev_info di = { .dev_id = dev_id };
 
 	if (ioctl(dd, HCIGETDEVINFO, (void *) &di))
-		return 0;
+		return 0;/*取此设备信息失败,不匹配*/
 
 	if (hci_test_bit(HCI_RAW, &di.flags))
-		return 0;
+		return 0;/*跳过有raw标记的设备*/
 
-	return bacmp((bdaddr_t *) arg, &di.bdaddr);
+	return bacmp((bdaddr_t *) arg, &di.bdaddr);/*检查arg地址是否与设备匹配*/
 }
 
 static int __same_bdaddr(int dd, int dev_id, long arg)
@@ -924,7 +926,7 @@ int hci_devid(const char *str)
 	int id = -1;
 
 	if (!strncmp(str, "hci", 3) && strlen(str) >= 4) {
-		id = atoi(str + 3);
+		id = atoi(str + 3);/*跳过字符'hci',即为设备id*/
 		if (hci_devba(id, &ba) < 0)
 			return -1;
 	} else {
@@ -936,6 +938,7 @@ int hci_devid(const char *str)
 	return id;
 }
 
+/*取设备info*/
 int hci_devinfo(int dev_id, struct hci_dev_info *di)
 {
 	int dd, err, ret;
@@ -956,6 +959,7 @@ int hci_devinfo(int dev_id, struct hci_dev_info *di)
 	return ret;
 }
 
+/*取指定hci设备对应的地址*/
 int hci_devba(int dev_id, bdaddr_t *bdaddr)
 {
 	struct hci_dev_info di;
@@ -967,10 +971,10 @@ int hci_devba(int dev_id, bdaddr_t *bdaddr)
 
 	if (!hci_test_bit(HCI_UP, &di.flags)) {
 		errno = ENETDOWN;
-		return -1;
+		return -1;/*设备必须up*/
 	}
 
-	bacpy(bdaddr, &di.bdaddr);
+	bacpy(bdaddr, &di.bdaddr);/*复制其地址*/
 
 	return 0;
 }
@@ -1066,7 +1070,8 @@ int hci_open_dev(int dev_id)
 	memset(&a, 0, sizeof(a));
 	a.hci_family = AF_BLUETOOTH;
 	a.hci_dev = dev_id;
-	if (bind(dd, (struct sockaddr *) &a, sizeof(a)) < 0)
+	//默认指明了hci_channel为HCI_CHANNEL_RAW
+	if (bind(dd, (struct sockaddr *) &a, sizeof(a)) < 0)/*绑定此hci设备*/
 		goto failed;
 
 	return dd;
@@ -1094,21 +1099,25 @@ int hci_send_cmd(int dd, uint16_t ogf, uint16_t ocf, uint8_t plen, void *param)
 	struct iovec iv[3];
 	int ivn;
 
+	/*command HEADER*/
 	hc.opcode = htobs(cmd_opcode_pack(ogf, ocf));
-	hc.plen= plen;
+	hc.plen= plen;/*参数长度*/
 
+	/*iv[0]为报文类型,如上示为command报文,iv[1]为 hci command hdr*/
 	iv[0].iov_base = &type;
 	iv[0].iov_len  = 1;
 	iv[1].iov_base = &hc;
 	iv[1].iov_len  = HCI_COMMAND_HDR_SIZE;
 	ivn = 2;
 
+	/*iv[2]为请求参数*/
 	if (plen) {
 		iv[2].iov_base = param;
 		iv[2].iov_len  = plen;
 		ivn = 3;
 	}
 
+	/*通过write发送hci command*/
 	while (writev(dd, iv, ivn) < 0) {
 		if (errno == EAGAIN || errno == EINTR)
 			continue;
@@ -1120,6 +1129,7 @@ int hci_send_cmd(int dd, uint16_t ogf, uint16_t ocf, uint8_t plen, void *param)
 int hci_send_req(int dd, struct hci_request *r, int to)
 {
 	unsigned char buf[HCI_MAX_EVENT_SIZE], *ptr;
+	/*生成请求对应的opcode*/
 	uint16_t opcode = htobs(cmd_opcode_pack(r->ogf, r->ocf));
 	struct hci_filter nf, of;
 	socklen_t olen;
@@ -2926,7 +2936,7 @@ int hci_le_set_scan_enable(int dd, uint8_t enable, uint8_t filter_dup, int to)
 
 	memset(&rq, 0, sizeof(rq));
 	rq.ogf = OGF_LE_CTL;
-	rq.ocf = OCF_LE_SET_SCAN_ENABLE;
+	rq.ocf = OCF_LE_SET_SCAN_ENABLE;/*开启扫描*/
 	rq.cparam = &scan_cp;
 	rq.clen = LE_SET_SCAN_ENABLE_CP_SIZE;
 	rq.rparam = &status;
@@ -2945,7 +2955,7 @@ int hci_le_set_scan_enable(int dd, uint8_t enable, uint8_t filter_dup, int to)
 
 int hci_le_set_scan_parameters(int dd, uint8_t type,
 					uint16_t interval, uint16_t window,
-					uint8_t own_type, uint8_t filter, int to)
+					uint8_t own_type, uint8_t filter, int to/*请求超时时间*/)
 {
 	struct hci_request rq;
 	le_set_scan_parameters_cp param_cp;
@@ -2962,10 +2972,11 @@ int hci_le_set_scan_parameters(int dd, uint8_t type,
 	rq.ogf = OGF_LE_CTL;
 	rq.ocf = OCF_LE_SET_SCAN_PARAMETERS;
 	rq.cparam = &param_cp;
-	rq.clen = LE_SET_SCAN_PARAMETERS_CP_SIZE;
+	rq.clen = LE_SET_SCAN_PARAMETERS_CP_SIZE;/*指明参数长度*/
 	rq.rparam = &status;
-	rq.rlen = 1;
+	rq.rlen = 1;/*指明响应参数长度*/
 
+	/*发送请求*/
 	if (hci_send_req(dd, &rq, to) < 0)
 		return -1;
 
