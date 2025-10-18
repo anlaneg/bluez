@@ -863,6 +863,7 @@ static bool set_discoverable(struct btd_adapter *adapter, uint8_t mode,
 	data->adapter = adapter;
 	data->setting = 0;
 
+	/*发送discoverable命令*/
 	if (mgmt_send(adapter->mgmt, MGMT_OP_SET_DISCOVERABLE,
 				adapter->dev_id, sizeof(cp), &cp,
 				set_mode_complete, data, g_free) > 0)

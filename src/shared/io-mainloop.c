@@ -322,6 +322,7 @@ ssize_t io_send(struct io *io, const struct iovec *iov, int iovcnt)
 		return -ENOTCONN;
 
 	do {
+		/*写此fd完成发送*/
 		ret = writev(io->fd, iov, iovcnt);
 	} while (ret < 0 && errno == EINTR);
 

@@ -828,6 +828,7 @@ void control_message(uint16_t opcode, const void *data, uint16_t size)
 		mgmt_connect_failed(size, data);
 		break;
 	case MGMT_EV_PIN_CODE_REQUEST:
+		/*dump pin code request消息*/
 		mgmt_pin_code_request(size, data);
 		break;
 	case MGMT_EV_USER_CONFIRM_REQUEST:

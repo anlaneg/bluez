@@ -17,7 +17,7 @@
 
 struct queue {
 	int ref_count;
-	struct queue_entry *head;
+	struct queue_entry *head;/*队首*/
 	struct queue_entry *tail;
 	unsigned int entries;
 };
@@ -267,6 +267,7 @@ bool queue_remove(struct queue *queue, void *data)
 	return false;
 }
 
+/*此队列上有多个queue_entry,通过function比对匹配的entry,并将其移除*/
 void *queue_remove_if(struct queue *queue, queue_match_func_t function,
 							void *user_data)
 {
@@ -282,6 +283,7 @@ void *queue_remove_if(struct queue *queue, queue_match_func_t function,
 
 	while (entry) {
 		if (function(entry->data, user_data)) {
+			/*entry匹配成功,移除此请求*/
 			void *data;
 
 			if (prev)
@@ -299,6 +301,7 @@ void *queue_remove_if(struct queue *queue, queue_match_func_t function,
 
 			return data;
 		} else {
+			/*未匹配，尝试下一个entry*/
 			prev = entry;
 			entry = entry->next;
 		}
@@ -374,5 +377,5 @@ bool queue_isempty(struct queue *queue)
 	if (!queue)
 		return true;
 
-	return queue->entries == 0;
+	return queue->entries == 0;/*队列是否为空*/
 }

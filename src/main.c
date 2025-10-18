@@ -875,6 +875,7 @@ static void parse_privacy(GKeyFile *config)
 {
 	char *str = NULL;
 
+	/*隐私配置*/
 	if (!parse_config_string(config, "General", "Privacy", &str)) {
 		btd_opts.privacy = 0x00;
 		btd_opts.device_privacy = true;

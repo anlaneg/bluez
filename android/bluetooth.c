@@ -3668,6 +3668,7 @@ static bool set_discoverable(uint8_t mode, uint16_t timeout)
 
 	DBG("mode %u timeout %u", mode, timeout);
 
+	/*发送discoverable 命令*/
 	if (mgmt_send(mgmt_if, MGMT_OP_SET_DISCOVERABLE, adapter.index,
 			sizeof(cp), &cp, set_mode_complete, NULL, NULL) > 0)
 		return true;

@@ -41,9 +41,9 @@
 #define MGMT_STATUS_PERMISSION_DENIED	0x14
 
 struct mgmt_hdr {
-	uint16_t opcode;
+	uint16_t opcode;/*操作码*/
 	uint16_t index;
-	uint16_t len;
+	uint16_t len;/*消息总长度*/
 } __packed;
 #define MGMT_HDR_SIZE	6
 
