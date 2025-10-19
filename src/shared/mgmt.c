@@ -824,7 +824,7 @@ unsigned int mgmt_send_tlv(struct mgmt *mgmt, uint16_t opcode, uint16_t index,
 
 /*创建request,并将request添加至mgmt->request_queue*/
 unsigned int mgmt_send_timeout(struct mgmt *mgmt, uint16_t opcode,
-				uint16_t index, uint16_t length,
+				uint16_t index, uint16_t length/*参数长度*/,
 				const void *param, mgmt_request_func_t callback,
 				void *user_data, mgmt_destroy_func_t destroy,
 				int timeout)
@@ -834,7 +834,7 @@ unsigned int mgmt_send_timeout(struct mgmt *mgmt, uint16_t opcode,
 	if (!mgmt)
 		return 0;
 
-	/*构造请求*/
+	/*利用opcode,参数构造请求*/
 	request = create_request(mgmt, opcode, index, length, param,
 					callback, user_data, destroy, timeout);
 	if (!request)
@@ -857,7 +857,7 @@ unsigned int mgmt_send_timeout(struct mgmt *mgmt, uint16_t opcode,
 	/*尝试触发writer*/
 	wakeup_writer(mgmt);
 
-	return request->id;
+	return request->id;/*返回请求id*/
 }
 
 /*自mgmt socket写入数据*/

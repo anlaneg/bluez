@@ -1027,6 +1027,7 @@ static void process_request(sdp_req_t *req)
 
 	req->opcode = reqhdr->pdu_id;
 
+	/*依据pdu编号处理*/
 	switch (reqhdr->pdu_id) {
 	case SDP_SVC_SEARCH_REQ:
 		SDPDBG("Got a svc srch req");
@@ -1091,6 +1092,7 @@ send_rsp:
 
 	/* stream the rsp PDU */
 	if (send(req->sock, rsp.data, rsp.data_size, 0) < 0)
+		/*执行响应失败*/
 		error("send: %s (%d)", strerror(errno), errno);
 
 	SDPDBG("Bytes Sent : %d", rsp.data_size);
@@ -1123,6 +1125,7 @@ void handle_request(int sk, uint8_t *data, int len)
 
 	size = sizeof(sa);
 	if (getpeername(sk, (struct sockaddr *) &sa, &size) < 0) {
+		/*取对端信息失败*/
 		error("getpeername: %s", strerror(errno));
 		return;
 	}
@@ -1145,6 +1148,7 @@ void handle_request(int sk, uint8_t *data, int len)
 		size = sizeof(sa);
 
 		if (getsockname(sk, (struct sockaddr *) &sa, &size) < 0) {
+			/*取本端信息*/
 			error("getsockname: %s", strerror(errno));
 			return;
 		}

@@ -46,10 +46,10 @@ struct btd_adv_manager {
 	struct queue *clients;
 	struct mgmt *mgmt;
 	uint16_t mgmt_index;
-	uint8_t max_adv_len;
+	uint8_t max_adv_len;/*最大广播报文大小*/
 	uint8_t max_scan_rsp_len;
 	uint8_t max_ads;
-	uint32_t supported_flags;
+	uint32_t supported_flags;/*支持的标记*/
 	uint64_t instance_bitmap;
 	bool extended_add_cmds;
 	int8_t min_tx_power;
@@ -191,6 +191,7 @@ static void remove_advertising(struct btd_adv_manager *manager,
 
 	cp.instance = instance;
 
+	/*移除所有instance*/
 	mgmt_send(manager->mgmt, MGMT_OP_REMOVE_ADVERTISING,
 			manager->mgmt_index, sizeof(cp), &cp, NULL, NULL, NULL);
 }
@@ -1930,11 +1931,12 @@ static void manager_destroy(void *user_data)
 	free(manager);
 }
 
+/*处理MGMT_OP_READ_ADV_FEATURES响应,获得设备广播能力*/
 static void read_adv_features_callback(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
 	struct btd_adv_manager *manager = user_data;
-	const struct mgmt_rp_read_adv_features *feat = param;
+	const struct mgmt_rp_read_adv_features *feat = param;/*响应内容*/
 
 	if (status || !param) {
 		error("Failed to read advertising features: %s (0x%02x)",
@@ -2048,7 +2050,7 @@ static struct btd_adv_manager *manager_create(struct btd_adapter *adapter,
 	manager->max_tx_power = ADV_TX_POWER_NO_PREFERENCE;
 
 	if (!mgmt_send(manager->mgmt, MGMT_OP_READ_ADV_FEATURES,
-				manager->mgmt_index, 0, NULL,
+				manager->mgmt_index, 0, NULL/*无参数*/,
 				read_adv_features_callback, manager, NULL)) {
 		error("Failed to read advertising features");
 		goto fail;

@@ -634,6 +634,7 @@ static void admin_exit(void)
 	btd_unregister_adapter_driver(&admin_policy_driver);
 }
 
-BLUETOOTH_PLUGIN_DEFINE(admin, VERSION,
+/*定义插件*/
+BLUETOOTH_PLUGIN_DEFINE(admin/*插件名称及变量名称*/, VERSION,
 			BLUETOOTH_PLUGIN_PRIORITY_DEFAULT,
 			admin_init, admin_exit)

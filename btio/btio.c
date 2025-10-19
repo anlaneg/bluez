@@ -1973,12 +1973,13 @@ gboolean bt_io_get(GIOChannel *io, GError **err, BtIOOption opt1, ...)
 	return ret;
 }
 
-static GIOChannel *create_io(gboolean server, struct set_opts *opts,
+static GIOChannel *create_io(gboolean server/*是否server端*/, struct set_opts *opts,
 								GError **err)
 {
 	int sock;
 	GIOChannel *io;
 
+	/*依据类型,创建不同的socket*/
 	switch (opts->type) {
 	case BT_IO_L2CAP:
 		sock = socket(PF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_L2CAP);
@@ -2089,6 +2090,7 @@ GIOChannel *bt_io_connect(BtIOConnect connect, gpointer user_data,
 		}
 	}
 
+	/*执行连接*/
 	switch (opts.type) {
 	case BT_IO_L2CAP:
 		err = l2cap_connect(sock, &opts.dst, opts.dst_type,

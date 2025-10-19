@@ -3430,7 +3430,7 @@ int sdp_service_search_req(sdp_session_t *session, const sdp_list_t *search,
 	reqsize = sizeof(sdp_pdu_hdr_t);
 
 	/* add service class IDs for search */
-	seqlen = gen_searchseq_pdu(pdata, search);
+	seqlen = gen_searchseq_pdu(pdata, search);/*产生searchseq pdu*/
 
 	if (seqlen < 0) {
 		errno = EINVAL;

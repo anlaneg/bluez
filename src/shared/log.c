@@ -42,8 +42,9 @@ struct log_l2cap_hdr {
 	uint16_t psm;
 } __attribute__((packed));
 
-static int log_fd = -1;
+static int log_fd = -1;/*记录bt log socket fd*/
 
+/*发log消息,这些消息会转给monitor fd*/
 int bt_log_sendmsg(uint16_t index, const char *label, int level,
 					struct iovec *io, size_t io_len)
 {
@@ -69,13 +70,14 @@ int bt_log_sendmsg(uint16_t index, const char *label, int level,
 	iov[0].iov_base = &hdr;
 	iov[0].iov_len = sizeof(hdr);
 
-	iov[1].iov_base = (void *) label;
+	iov[1].iov_base = (void *) label;/*设置log label*/
 	iov[1].iov_len = hdr.ident_len;
 
 	memset(&msg, 0, sizeof(msg));
 	msg.msg_iov = iov;
 	msg.msg_iovlen = 2;
 
+	/*要输出的log*/
 	for (i = 0; i < io_len; i++) {
 		iov[i + 2] = io[i];
 		hdr.len += io[i].iov_len;
@@ -92,6 +94,7 @@ int bt_log_sendmsg(uint16_t index, const char *label, int level,
 	return err;
 }
 
+/*打开log用bt socket*/
 int bt_log_open(void)
 {
 	struct sockaddr_hci addr;
@@ -102,6 +105,7 @@ int bt_log_open(void)
 		return err;
 
 	if (log_fd >= 0)
+		/*已打开,直接返回*/
 		return log_fd;
 
 	fd = socket(PF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI);
@@ -113,7 +117,7 @@ int bt_log_open(void)
 	memset(&addr, 0, sizeof(addr));
 	addr.hci_family = AF_BLUETOOTH;
 	addr.hci_dev = HCI_DEV_NONE;
-	addr.hci_channel = HCI_CHANNEL_LOGGING;
+	addr.hci_channel = HCI_CHANNEL_LOGGING;/*指明此channel为logging*/
 
 	err = bind(fd, (struct sockaddr *) &addr, sizeof(addr));
 	if (err < 0) {
@@ -122,7 +126,7 @@ int bt_log_open(void)
 		return err;
 	}
 
-	log_fd = fd;
+	log_fd = fd;/*记录bt log socket fd*/
 
 	return fd;
 }
@@ -134,7 +138,7 @@ int bt_log_vprintf(uint16_t index, const char *label, int level,
 	char *str;
 	int len;
 
-	len = vasprintf(&str, format, ap);
+	len = vasprintf(&str, format, ap);/*按格式输出为字符串*/
 	if (len < 0 || !str)
 		return errno;
 
@@ -146,9 +150,11 @@ int bt_log_vprintf(uint16_t index, const char *label, int level,
 		len--;
 	}
 
+	/*转换为iov*/
 	iov.iov_base = str;
 	iov.iov_len = len + 1;
 
+	/*执行发送*/
 	len = bt_log_sendmsg(index, label, level, &iov, 1);
 
 	free(str);
@@ -156,6 +162,7 @@ int bt_log_vprintf(uint16_t index, const char *label, int level,
 	return len;
 }
 
+/*格式化输出log到monitor fd*/
 int bt_log_printf(uint16_t index, const char *label, int level,
 						const char *format, ...)
 {
@@ -169,6 +176,7 @@ int bt_log_printf(uint16_t index, const char *label, int level,
 	return err;
 }
 
+/*关闭log fd*/
 void bt_log_close(void)
 {
 	if (log_fd < 0)

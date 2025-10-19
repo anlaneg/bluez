@@ -82,6 +82,7 @@ static int input_init(void)
 	GKeyFile *config;
 	GError *err = NULL;
 
+	/*加载input.conf文件*/
 	config = load_config_file(CONFIGDIR "/input.conf");
 	if (config) {
 		int idle_timeout;
@@ -117,7 +118,7 @@ static int input_init(void)
 
 	}
 
-	btd_profile_register(&input_profile);
+	btd_profile_register(&input_profile);/*注册input profile*/
 
 	if (config)
 		g_key_file_free(config);

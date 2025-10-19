@@ -756,12 +756,14 @@ static const hci_map lmp_features_map[8][9] = {
 		{ NULL }
 	},
 	{	/* Byte 4 */
+			/*???*/
 		{ "<EV4 packets>",	LMP_EV4		},	/* Bit 0 */
 		{ "<EV5 packets>",	LMP_EV5		},	/* Bit 1 */
 		{ "<no. 34>",		0x04		},	/* Bit 2 */
 		{ "<AFH cap. perip.>",	LMP_AFH_CAP_SLV	},	/* Bit 3 */
 		{ "<AFH cls. perip.>",	LMP_AFH_CLS_SLV	},	/* Bit 4 */
 		{ "<BR/EDR not supp.>",	LMP_NO_BREDR	},	/* Bit 5 */
+		/*支持低功耗*/
 		{ "<LE support>",	LMP_LE		},	/* Bit 6 */
 		{ "<3-slot EDR ACL>",	LMP_EDR_3SLOT	},	/* Bit 7 */
 		{ NULL }
@@ -812,20 +814,21 @@ char *lmp_featurestostr(uint8_t *features, char *pref, int width)
 
 		while (m->str) {
 			if (m->val & features[i])
+				/*此features被打开,计算输出字功能需要的字节长度*/
 				size += strlen(m->str) +
 						(pref ? strlen(pref) : 0) + 1;
 			m++;
 		}
 	}
 
-	str = bt_malloc(size);
+	str = bt_malloc(size);/*申请空间*/
 	if (!str)
 		return NULL;
 
 	ptr = str; *ptr = '\0';
 
 	if (pref)
-		ptr += sprintf(ptr, "%s", pref);
+		ptr += sprintf(ptr, "%s", pref);/*增加前缀*/
 
 	off = ptr;
 
@@ -836,7 +839,7 @@ char *lmp_featurestostr(uint8_t *features, char *pref, int width)
 			if (m->val & features[i]) {
 				if (strlen(off) + strlen(m->str) > maxwidth) {
 					ptr += sprintf(ptr, "\n%s",
-							pref ? pref : "");
+							pref ? pref : "");/*输出功能名称*/
 					off = ptr;
 				}
 				ptr += sprintf(ptr, "%s ", m->str);

@@ -1956,7 +1956,7 @@ static struct {
 		"Get local OOB data" },
 	{ "commands",	cmd_commands,	0,
 		"Display supported commands" },
-	{ "features",	cmd_features,	0,
+	{ "features",	cmd_features/*显示此设备的FEATURES列表*/,	0,
 		"Display device features" },
 	{ "version",	cmd_version,	0,
 		"Display version information" },
@@ -2028,19 +2028,21 @@ int main(int argc, char *argv[])
 	}
 
 	if (argc < 1) {
-		print_dev_list(ctl, 0);
+		print_dev_list(ctl, 0);/*未指明设备及cmd时*/
 		exit(0);
 	}
 
-	di.dev_id = atoi(argv[0] + 3);
+	di.dev_id = atoi(argv[0] + 3);/*首个参数为hci设备名称*/
 	argc--; argv++;
 
+	/*取此设备名称*/
 	if (ioctl(ctl, HCIGETDEVINFO, (void *) &di)) {
 		perror("Can't get device info");
 		exit(1);
 	}
 
 	while (argc > 0) {
+		/*执行其后给出的所有command*/
 		for (i = 0; command[i].cmd; i++) {
 			if (strncmp(command[i].cmd,
 					*argv, strlen(command[i].cmd)))
@@ -2050,7 +2052,7 @@ int main(int argc, char *argv[])
 				argc--; argv++;
 			}
 
-			command[i].func(ctl, di.dev_id, *argv);
+			command[i].func(ctl, di.dev_id, *argv);/*执行此cmd*/
 			cmd = 1;
 			break;
 		}

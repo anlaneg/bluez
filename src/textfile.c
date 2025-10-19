@@ -38,6 +38,7 @@ int create_filename(char *str, size_t size, const char *fmt, ...)
 	int err;
 
 	if (!prefix) {
+		/*前缀未赋值,尝试获取*/
 		const char *statedir = getenv("STATE_DIRECTORY");
 
 		/* Check if running as service */
@@ -51,7 +52,7 @@ int create_filename(char *str, size_t size, const char *fmt, ...)
 			else
 				prefix_len = strlen(prefix);
 		} else {
-			/*否则使用默认directory*/
+			/*否则使用默认directory,例如:/var/lib/bluetooth/*/
 			prefix = STORAGEDIR;
 			prefix_len = strlen(prefix);
 		}

@@ -428,7 +428,7 @@ static int get_mode(const char *str)
 	else if (strcmp(str, "bredr") == 0)
 		return BT_MODE_BREDR;
 	else if (strcmp(str, "le") == 0)
-		return BT_MODE_LE;
+		return BT_MODE_LE;/*低功耗*/
 
 	error("Unknown controller mode \"%s\"", str);
 
@@ -441,6 +441,7 @@ static bool parse_config_string(GKeyFile *config, const char *group,
 	GError *err = NULL;
 	char *tmp;
 
+	/*取配置文件中的指定key的配置*/
 	tmp = g_key_file_get_string(config, group, key, &err);
 	if (err) {
 		if (err->code != G_KEY_FILE_ERROR_KEY_NOT_FOUND)
@@ -958,9 +959,9 @@ static void parse_ctrl_mode(GKeyFile *config)
 
 	parse_config_string(config, "General", "ControllerMode", &str);
 	if (!str)
-		return;
+		return;/*未配置,不处理*/
 
-	btd_opts.mode = get_mode(str);
+	btd_opts.mode = get_mode(str);/*转换为mode*/
 	g_free(str);
 }
 
@@ -1536,7 +1537,7 @@ int main(int argc, char *argv[])
 		if (option_compat == TRUE)
 			sdp_flags |= SDP_SERVER_COMPAT;
 
-		start_sdp_server(sdp_mtu, sdp_flags);
+		start_sdp_server(sdp_mtu, sdp_flags);/*启动sdp server*/
 
 		if (btd_opts.did_source > 0)
 			register_device_id(btd_opts.did_source,
@@ -1552,7 +1553,7 @@ int main(int argc, char *argv[])
 	 * the plugins might wanna expose some paths on the bus. However the
 	 * best order of how to init various subsystems of the Bluetooth
 	 * daemon needs to be re-worked. */
-	plugin_init(option_plugin, option_noplugin);
+	plugin_init(option_plugin, option_noplugin);/*初始化插件*/
 
 	/* no need to keep parsed option in memory */
 	free_options();

@@ -18,7 +18,7 @@ struct btd_profile {
 	const char *name;
 	int priority;
 
-	const char *local_uuid;
+	const char *local_uuid;/*本端uuid*/
 	const char *remote_uuid;
 
 	bool auto_connect;

@@ -280,12 +280,12 @@ int bt_uuid_strcmp(const void *a, const void *b)
 	bt_uuid_t u1, u2;
 
 	if (bt_string_to_uuid(&u1, a) < 0)
-		return -EINVAL;
+		return -EINVAL;/*转UUID失败*/
 
 	if (bt_string_to_uuid(&u2, b) < 0)
 		return -EINVAL;
 
-	return bt_uuid_cmp(&u1, &u2);
+	return bt_uuid_cmp(&u1, &u2);/*检查两者是否相等*/
 }
 
 int bt_uuid_to_le(const bt_uuid_t *src, void *dst)

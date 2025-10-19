@@ -936,6 +936,7 @@ done:
 		if (req->op != avc->opcode)
 			continue;
 
+		/*触发回调*/
 		if (req->func && req->func(control->session, avc->code,
 					avc->subunit_type, p->transaction,
 					operands, operand_count,
@@ -1085,6 +1086,7 @@ static gboolean session_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 		goto failed;
 
 	if (ret < AVCTP_HEADER_LENGTH) {
+		/*读取的avctp报文过断*/
 		error("Too small AVCTP packet");
 		goto failed;
 	}

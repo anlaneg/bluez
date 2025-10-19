@@ -3410,7 +3410,7 @@ static void read_info_complete(uint8_t status, uint16_t length,
 	/* TODO: Register all event notification handlers */
 	register_mgmt_handlers();
 
-	clear_uuids();
+	clear_uuids();/*清除设备UUIDS*/
 	clear_auto_connect_list();
 
 	set_io_capability();

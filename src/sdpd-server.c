@@ -66,6 +66,7 @@ static int init_server(uint16_t mtu, int central, int compat)
 	bacpy(&l2addr.l2_bdaddr, BDADDR_ANY);
 	l2addr.l2_psm = htobs(SDP_PSM);
 
+	/*绑定到SDP_PSM*/
 	if (bind(l2cap_sock, (struct sockaddr *) &l2addr, sizeof(l2addr)) < 0) {
 		error("binding L2CAP socket: %s", strerror(errno));
 		return -1;
@@ -103,6 +104,7 @@ static int init_server(uint16_t mtu, int central, int compat)
 	}
 
 	if (!compat) {
+		/*非compat在此处返回*/
 		unix_sock = -1;
 		return 0;
 	}
@@ -149,6 +151,7 @@ static gboolean io_session_event(GIOChannel *chan, GIOCondition cond, gpointer d
 	if (cond & (G_IO_HUP | G_IO_ERR))
 		goto cleanup;
 
+	/*采用peek方式获得sdp_pdu头部*/
 	len = recv(sk, &hdr, sizeof(sdp_pdu_hdr_t), MSG_PEEK);
 	if (len < 0 || (unsigned int) len < sizeof(sdp_pdu_hdr_t))
 		goto cleanup;
@@ -158,6 +161,7 @@ static gboolean io_session_event(GIOChannel *chan, GIOCondition cond, gpointer d
 	if (!buf)
 		return TRUE;
 
+	/*收取整个sdp_pdu长度*/
 	len = recv(sk, buf, size, 0);
 	/* Check here only that the received message is not empty.
 	 * Incorrect length of message should be processed later
@@ -168,6 +172,7 @@ static gboolean io_session_event(GIOChannel *chan, GIOCondition cond, gpointer d
 		goto cleanup;
 	}
 
+	/*处理sdp pdu*/
 	handle_request(sk, buf, len);
 
 	return TRUE;
@@ -190,11 +195,13 @@ static gboolean io_accept_event(GIOChannel *chan, GIOCondition cond, gpointer da
 		struct sockaddr_l2 addr;
 		socklen_t len = sizeof(addr);
 
+		/*接入新的连接(l2cap版本)*/
 		nsk = accept(l2cap_sock, (struct sockaddr *) &addr, &len);
 	} else if (data == &unix_sock) {
 		struct sockaddr_un addr;
 		socklen_t len = sizeof(addr);
 
+		/*接入新的连接(unix版本)*/
 		nsk = accept(unix_sock, (struct sockaddr *) &addr, &len);
 	} else
 		return FALSE;
@@ -228,14 +235,17 @@ int start_sdp_server(uint16_t mtu, uint32_t flags)
 		return -1;
 	}
 
+	/*创建sdp server socket的io*/
 	io = g_io_channel_unix_new(l2cap_sock);
 	g_io_channel_set_close_on_unref(io, TRUE);
 
+	/*添加针对此IO的关注事件及处理函数*/
 	l2cap_id = g_io_add_watch(io, G_IO_IN | G_IO_ERR | G_IO_HUP | G_IO_NVAL,
 					io_accept_event, &l2cap_sock);
 	g_io_channel_unref(io);
 
 	if (compat && unix_sock > fileno(stderr)) {
+		/*compat情况下,unix sock被使能,添加watch*/
 		io = g_io_channel_unix_new(unix_sock);
 		g_io_channel_set_close_on_unref(io, TRUE);
 

@@ -2394,7 +2394,7 @@ struct hci_dev_info {
 	uint32_t flags;
 	uint8_t  type;
 
-	uint8_t  features[8];
+	uint8_t  features[8];/*HCI设备功能列表*/
 
 	uint32_t pkt_type;
 	uint32_t link_policy;

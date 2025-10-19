@@ -148,6 +148,7 @@ void __btd_enable_debug(struct btd_debug_desc *start,
 
 	for (desc = start; desc < stop; desc++) {
 		if (is_enabled(desc))
+			/*DEBUG开启*/
 			desc->flags |= BTD_DEBUG_FLAG_PRINT;
 	}
 }
@@ -176,6 +177,7 @@ void __btd_log_init(const char *debug, int detach)
 
 	openlog(LOG_IDENT, option, LOG_DAEMON);
 
+	/*显示版本号*/
 	info("Bluetooth daemon %s", VERSION);
 }
 

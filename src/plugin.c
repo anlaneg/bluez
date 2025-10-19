@@ -28,11 +28,11 @@
 
 #define IS_ENABLED(x) (x)
 
-static GSList *plugins = NULL;
+static GSList *plugins = NULL;/*记录系统中所有插件*/
 
 struct bluetooth_plugin {
-	void *handle;
-	const struct bluetooth_plugin_desc *desc;
+	void *handle;/*so对应的handle,对内部插件而言此值为NULL*/
+	const struct bluetooth_plugin_desc *desc;/*插件描述(元数据)*/
 };
 
 static int compare_priority(gconstpointer a, gconstpointer b)
@@ -47,8 +47,9 @@ static int init_plugin(const struct bluetooth_plugin_desc *desc)
 {
 	int err;
 
-	err = desc->init();
+	err = desc->init();/*初始化此插件*/
 	if (err < 0) {
+		/*初始化失败*/
 		if (err == -ENOSYS || err == -ENOTSUP)
 			DBG("System does not support %s plugin",
 						desc->name);
@@ -59,6 +60,7 @@ static int init_plugin(const struct bluetooth_plugin_desc *desc)
 	return err;
 }
 
+/*添加外部插件*/
 static gboolean add_external_plugin(void *handle,
 				const struct bluetooth_plugin_desc *desc)
 {
@@ -69,17 +71,18 @@ static gboolean add_external_plugin(void *handle,
 
 	if (g_str_equal(desc->version, VERSION) == FALSE) {
 		error("Version mismatch for %s", desc->name);
-		return FALSE;
+		return FALSE;/*版本号必须与version匹配(这个等于检查使得可用性很差)*/
 	}
 
 	plugin = g_try_new0(struct bluetooth_plugin, 1);
 	if (plugin == NULL)
 		return FALSE;
 
-	plugin->handle = handle;
+	plugin->handle = handle;/*对外部插件而言此值不为空*/
 	plugin->desc = desc;
 
 	if (init_plugin(desc) < 0) {
+		/*初始化此插件失败*/
 		g_free(plugin);
 		return FALSE;
 	}
@@ -92,6 +95,7 @@ static gboolean add_external_plugin(void *handle,
 	return TRUE;
 }
 
+/*添加内部插件*/
 static void add_plugin(void *data, void *user_data)
 {
 	struct bluetooth_plugin_desc *desc = data;
@@ -99,18 +103,20 @@ static void add_plugin(void *data, void *user_data)
 
 	DBG("Loading %s plugin", desc->name);
 
+	/*申请plugin变量*/
 	plugin = g_try_new0(struct bluetooth_plugin, 1);
 	if (plugin == NULL)
 		return;
 
-	plugin->desc = desc;
+	plugin->desc = desc;/*内部插件仅设置desc即可*/
 
 	if (init_plugin(desc) < 0) {
+		/*初始化此插件失败*/
 		g_free(plugin);
 		return;
 	}
 
-	plugins = g_slist_append(plugins, plugin);
+	plugins = g_slist_append(plugins, plugin);/*添加此插件*/
 	DBG("Plugin %s loaded", desc->name);
 }
 
@@ -118,6 +124,7 @@ static gboolean enable_plugin(const char *name, char **cli_enable,
 							char **cli_disable)
 {
 	if (cli_disable) {
+		/*遍历所有cli disable,如果要使能的插件名称不被包含,则跳过,否则禁用*/
 		for (; *cli_disable; cli_disable++)
 			if (g_pattern_match_simple(*cli_disable, name))
 				break;
@@ -128,6 +135,7 @@ static gboolean enable_plugin(const char *name, char **cli_enable,
 	}
 
 	if (cli_enable) {
+		/*遍历所有cli enable,如果要使能的插件名称不被包含,则禁用;否则使能*/
 		for (; *cli_enable; cli_enable++)
 			if (g_pattern_match_simple(*cli_enable, name))
 				break;
@@ -141,6 +149,7 @@ static gboolean enable_plugin(const char *name, char **cli_enable,
 }
 
 
+/*初始化外部插件*/
 static void external_plugin_init(char **cli_enabled, char **cli_disabled)
 {
 	GDir *dir;
@@ -150,10 +159,11 @@ static void external_plugin_init(char **cli_enabled, char **cli_disabled)
 	info("Consider upstreaming your plugins into the BlueZ project.");
 
 	if (strlen(PLUGINDIR) == 0)
-		return;
+		return;/*未设置插件目录,则直接返回*/
 
 	DBG("Loading plugins %s", PLUGINDIR);
 
+	/*打开插件目录*/
 	dir = g_dir_open(PLUGINDIR, 0, NULL);
 	if (!dir)
 		return;
@@ -165,11 +175,11 @@ static void external_plugin_init(char **cli_enabled, char **cli_disabled)
 
 		if (g_str_has_prefix(file, "lib") == TRUE ||
 				g_str_has_suffix(file, ".so") == FALSE)
-			continue;
+			continue;/*必须是lib开头且.so结尾*/
 
 		filename = g_build_filename(PLUGINDIR, file, NULL);
 
-		/*打开so*/
+		/*打开so文件*/
 		handle = dlopen(filename, RTLD_NOW);
 		if (handle == NULL) {
 			error("Can't load plugin %s: %s", filename,
@@ -180,7 +190,7 @@ static void external_plugin_init(char **cli_enabled, char **cli_disabled)
 
 		g_free(filename);
 
-		/*取描述*/
+		/*取名称为bluetooth_plugin_desc的符号*/
 		desc = dlsym(handle, "bluetooth_plugin_desc");
 		if (desc == NULL) {
 			error("Can't load plugin description: %s", dlerror());
@@ -188,11 +198,13 @@ static void external_plugin_init(char **cli_enabled, char **cli_disabled)
 			continue;
 		}
 
+		/*检查此插件是否开启*/
 		if (!enable_plugin(desc->name, cli_enabled, cli_disabled)) {
 			dlclose(handle);
 			continue;
 		}
 
+		/*添加外部插件*/
 		if (add_external_plugin(handle, desc) == FALSE)
 			dlclose(handle);
 	}
@@ -202,7 +214,7 @@ static void external_plugin_init(char **cli_enabled, char **cli_disabled)
 
 #include "src/builtin.h"
 
-void plugin_init(const char *enable, const char *disable)
+void plugin_init(const char *enable/*白名单*/, const char *disable/*黑名单*/)
 {
 	GSList *builtins = NULL;
 	char **cli_disabled = NULL;
@@ -224,8 +236,10 @@ void plugin_init(const char *enable, const char *disable)
 	for (i = 0; __bluetooth_builtin[i]; i++) {
 		if (!enable_plugin(__bluetooth_builtin[i]->name, cli_enabled,
 								cli_disabled))
+			/*此插件检查黑白名单,不能被使能,跳过*/
 			continue;
 
+		/*按优先级构造list,形成可初始化内置插件*/
 		builtins = g_slist_insert_sorted(builtins,
 			(void *) __bluetooth_builtin[i], compare_priority);
 	}
@@ -233,6 +247,7 @@ void plugin_init(const char *enable, const char *disable)
 	g_slist_foreach(builtins, add_plugin, NULL);
 
 	if IS_ENABLED(EXTERNAL_PLUGINS)
+		/*如果开启了插件,初始化外部插件*/
 		external_plugin_init(cli_enabled, cli_disabled);
 
 	g_slist_free(builtins);
@@ -246,12 +261,14 @@ void plugin_cleanup(void)
 
 	DBG("Cleanup plugins");
 
+	/*遍历并销毁所有plugin*/
 	for (list = plugins; list; list = list->next) {
 		struct bluetooth_plugin *plugin = list->data;
 
 		if (plugin->desc->exit)
 			plugin->desc->exit();
 
+		/*外部插件需要执行dlclose*/
 		if (plugin->handle != NULL)
 			dlclose(plugin->handle);
 

@@ -158,6 +158,7 @@ static GList *adapter_list = NULL;
 static unsigned int adapter_remaining = 0;
 static bool powering_down = false;
 
+/*记录系统中注册的所有adapter*/
 static GSList *adapters = NULL;
 
 static struct mgmt *mgmt_primary = NULL;
@@ -174,10 +175,10 @@ static GSList *disconnect_list = NULL;
 static GSList *conn_fail_list = NULL;
 
 struct link_key_info {
-	bdaddr_t bdaddr;
-	uint8_t bdaddr_type;
+	bdaddr_t bdaddr;/*地址*/
+	uint8_t bdaddr_type;/*地址类型*/
 	unsigned char key[16];
-	uint8_t type;
+	uint8_t type;/*key的类型*/
 	uint8_t pin_len;
 	bool is_blocked;
 };
@@ -265,7 +266,9 @@ struct btd_adapter {
 	uint16_t dev_id;
 	struct mgmt *mgmt;
 
+	/*adapter地址(对应的是一个hci设备地址)*/
 	bdaddr_t bdaddr;		/* controller Bluetooth address */
+	/*adapter地址类型*/
 	uint8_t bdaddr_type;		/* address type */
 	uint8_t version;                /* controller core spec version */
 	uint32_t dev_class;		/* controller class of device */
@@ -273,9 +276,12 @@ struct btd_adapter {
 	char *name;			/* controller device name */
 	/*controller设备短名称*/
 	char *short_name;		/* controller short name */
+	/*controller设备当前支持的设置*/
 	uint32_t supported_settings;	/* controller supported settings */
+	/*向设备请求了某setting,但设备还未响应,处于pending状态*/
 	uint32_t pending_settings;	/* pending controller settings */
 	uint32_t power_state;		/* the power state */
+	/*controller设备当前的设置*/
 	uint32_t current_settings;	/* current controller settings */
 
 	char *path;			/* adapter object path */
@@ -324,7 +330,7 @@ struct btd_adapter {
 	sdp_list_t *services;		/* Services associated to adapter */
 
 	struct btd_gatt_database *database;
-	struct btd_adv_manager *adv_manager;
+	struct btd_adv_manager *adv_manager;/*管理广播*/
 
 	struct btd_adv_monitor_manager *adv_monitor_manager;
 
@@ -338,7 +344,7 @@ struct btd_adapter {
 	GSList *msd_callbacks;
 
 	GSList *drivers;
-	GSList *profiles;
+	GSList *profiles;/*用于记录可成功probe此adapter的profiles*/
 
 	struct oob_handler *oob_handler;
 
@@ -455,11 +461,11 @@ static void dev_class_changed_callback(uint16_t index, uint16_t length,
 	dev_class = rp->val[0] | (rp->val[1] << 8) | (rp->val[2] << 16);
 
 	if (dev_class == adapter->dev_class)
-		return;
+		return;/*响应的dev_class与我们之前缓存的一致*/
 
 	DBG("Class: 0x%06x", dev_class);
 
-	adapter->dev_class = dev_class;
+	adapter->dev_class = dev_class;/*更新dev_class*/
 
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Class");
@@ -551,6 +557,7 @@ static uint8_t get_mode(const char *mode)
 		return MODE_UNKNOWN;
 }
 
+/*取存储目录名称*/
 const char *btd_adapter_get_storage_dir(struct btd_adapter *adapter)
 {
 	static char dir[25];
@@ -779,6 +786,7 @@ static void remove_temporary_devices(struct btd_adapter *adapter)
 	}
 }
 
+/*设置opcode对应的模式*/
 static bool set_mode(struct btd_adapter *adapter, uint16_t opcode,
 							uint8_t mode)
 {
@@ -787,12 +795,13 @@ static bool set_mode(struct btd_adapter *adapter, uint16_t opcode,
 	struct set_mode_data *data;
 
 	memset(&cp, 0, sizeof(cp));
-	cp.val = mode;
+	cp.val = mode;/*设置参数*/
 
 	switch (opcode) {
 	case MGMT_OP_SET_POWERED:
 		setting = MGMT_SETTING_POWERED;
 		if (adapter->power_state != ADAPTER_POWER_STATE_OFF_BLOCKED) {
+			/*开启/关闭 power*/
 			adapter_set_power_state(adapter, mode ?
 					ADAPTER_POWER_STATE_OFF_ENABLING :
 					ADAPTER_POWER_STATE_ON_DISABLING);
@@ -815,22 +824,24 @@ static bool set_mode(struct btd_adapter *adapter, uint16_t opcode,
 	DBG("sending set mode command for index %u", adapter->dev_id);
 
 	data = g_new0(struct set_mode_data, 1);
-	data->adapter = adapter;
-	data->setting = setting;
-	data->value = mode;
+	data->adapter = adapter;/*对应的adapter*/
+	data->setting = setting;/*设置项*/
+	data->value = mode;/*设置项对应的值*/
 
 	if (mgmt_send(adapter->mgmt, opcode,
 				adapter->dev_id, sizeof(cp), &cp,
-				set_mode_complete, data, g_free) > 0) {
-		adapter->pending_settings |= setting;
+				set_mode_complete/*响应处理函数*/, data/*函数参数*/, g_free) > 0) {
+		adapter->pending_settings |= setting;/*已发送请求,待响应处理*/
 		return true;
 	}
+
+	/*发送请求时就出错了*/
 	g_free(data);
 	if (setting == MGMT_SETTING_POWERED) {
 		/* cancel the earlier setting */
 		adapter_set_power_state(adapter, mode ?
 					ADAPTER_POWER_STATE_OFF :
-					ADAPTER_POWER_STATE_ON);
+					ADAPTER_POWER_STATE_ON);/*针对powered,直接置开关*/
 	}
 	btd_error(adapter->dev_id, "Failed to set mode for index %u",
 							adapter->dev_id);
@@ -1172,6 +1183,7 @@ static int add_uuid(struct btd_adapter *adapter, uuid_t *uuid, uint8_t svc_hint)
 	return -EIO;
 }
 
+/*收到uuid移除cmd执行成功时调用*/
 static void remove_uuid_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -1214,9 +1226,10 @@ static int remove_uuid(struct btd_adapter *adapter, uuid_t *uuid)
 
 	DBG("sending remove uuid command for index %u", adapter->dev_id);
 
+	/*移除设备上配置的所有uuid*/
 	if (mgmt_send(adapter->mgmt, MGMT_OP_REMOVE_UUID,
 				adapter->dev_id, sizeof(cp), &cp,
-				remove_uuid_complete, adapter, NULL) > 0)
+				remove_uuid_complete/*响应时调用*/, adapter, NULL) > 0)
 		return 0;
 
 	btd_error(adapter->dev_id, "Failed to remove UUID for index %u",
@@ -1231,6 +1244,7 @@ static void clear_uuids_complete(uint8_t status, uint16_t length,
 	struct btd_adapter *adapter = user_data;
 
 	if (status != MGMT_STATUS_SUCCESS) {
+		/*移除uuid未成功*/
 		btd_error(adapter->dev_id, "Failed to clear UUIDs: %s (0x%02x)",
 						mgmt_errstr(status), status);
 		return;
@@ -1252,6 +1266,7 @@ static int clear_uuids(struct btd_adapter *adapter)
 
 	DBG("sending clear uuids command for index %u", adapter->dev_id);
 
+	/*发送移除uuid*/
 	if (mgmt_send(adapter->mgmt, MGMT_OP_REMOVE_UUID,
 				adapter->dev_id, sizeof(cp), &cp,
 				clear_uuids_complete, adapter, NULL) > 0)
@@ -1341,6 +1356,7 @@ static void adapter_service_insert(struct btd_adapter *adapter, sdp_record_t *re
 	else
 		new_uuid = FALSE;
 
+	/*添加service*/
 	adapter->services = sdp_list_insert_sorted(adapter->services, rec,
 								record_sort);
 
@@ -4039,25 +4055,28 @@ static struct link_key_info *get_key_info(GKeyFile *key_file, const char *peer,
 	struct link_key_info *info = NULL;
 	char *str;
 
+	/*取LinkKey下的key配置*/
 	str = g_key_file_get_string(key_file, "LinkKey", "Key", NULL);
 	if (!str || strlen(str) < 32)
-		goto failed;
+		goto failed;/*其长度必须大于32*/
 
 	info = g_new0(struct link_key_info, 1);
 
-	str2ba(peer, &info->bdaddr);
-	info->bdaddr_type = bdaddr_type;
+	str2ba(peer, &info->bdaddr);/*填写peer地址*/
+	info->bdaddr_type = bdaddr_type;/*填写peer地址类型*/
 
 	/* Fix up address type if it was stored with the wrong
 	 * address type since Load Link Keys are only meant to
 	 * work with BR/EDR addresses as per MGMT documentation.
 	 */
 	if (info->bdaddr_type != BDADDR_BREDR)
-		info->bdaddr_type = BDADDR_BREDR;
+		info->bdaddr_type = BDADDR_BREDR;/*地址类型统一更新为BDADDR_BREDR*/
 
 	if (!strncmp(str, "0x", 2))
+		/*以0X开头的,移除掉'0X'再转换KEY*/
 		str2buf(&str[2], info->key, sizeof(info->key));
 	else
+		/*不以0X开头的,直接转换KEY*/
 		str2buf(&str[0], info->key, sizeof(info->key));
 
 	info->type = g_key_file_get_integer(key_file, "LinkKey", "Type", NULL);
@@ -4149,6 +4168,7 @@ failed:
 	return ltk;
 }
 
+/*读取LongTermKey下设置的配置*/
 static struct smp_ltk_info *get_ltk_info(GKeyFile *key_file, const char *peer,
 							uint8_t bdaddr_type)
 {
@@ -4179,6 +4199,7 @@ static struct smp_ltk_info *get_peripheral_ltk_info(GKeyFile *key_file,
 	return ltk;
 }
 
+/*读取IdentityResolvingKey下配置信息*/
 static struct irk_info *get_irk_info(GKeyFile *key_file, const char *peer,
 							uint8_t bdaddr_type)
 {
@@ -4216,6 +4237,7 @@ failed:
 	return irk;
 }
 
+/*读取key_file文件下ConnectionParameters配置*/
 static struct conn_param *get_conn_param(GKeyFile *key_file, const char *peer,
 							uint8_t bdaddr_type)
 {
@@ -4726,6 +4748,7 @@ static uint8_t get_addr_type(GKeyFile *keyfile)
 	 */
 	type = g_key_file_get_string(keyfile, "General", "AddressType", NULL);
 	if (!type)
+		/*未注名地址类型,则为BDADDR_BREDR*/
 		return BDADDR_BREDR;
 
 	if (g_str_equal(type, "public"))
@@ -4995,17 +5018,20 @@ static void load_devices(struct btd_adapter *adapter)
 	DIR *dir;
 	struct dirent *entry;
 
+	/*生成adapter对应的目录名称,例如:/var/lib/bluetooth/XX:XX:XX:XX:XX:XX*/
 	create_filename(dirname, PATH_MAX, "/%s",
 				btd_adapter_get_storage_dir(adapter));
 
 	dir = opendir(dirname);
 	if (!dir) {
+		/*此目录打开失败*/
 		btd_error(adapter->dev_id,
 				"Unable to open adapter storage directory: %s",
 								dirname);
 		return;
 	}
 
+	/*遍历此目录*/
 	while ((entry = readdir(dir)) != NULL) {
 		struct btd_device *device;
 		char filename[PATH_MAX];
@@ -5022,8 +5048,9 @@ static void load_devices(struct btd_adapter *adapter)
 			entry->d_type = util_get_dt(dirname, entry->d_name);
 
 		if (entry->d_type != DT_DIR || bachk(entry->d_name) < 0)
-			continue;
+			continue;/*不是目录,或者目录名不是bt地址格式*/
 
+		/*取此设备(其地址为entry->d_name)的info文件*/
 		create_filename(filename, PATH_MAX, "/%s/%s/info",
 					btd_adapter_get_storage_dir(adapter),
 					entry->d_name);
@@ -5032,18 +5059,22 @@ static void load_devices(struct btd_adapter *adapter)
 		if (!g_key_file_load_from_file(key_file, filename, 0, &gerr)) {
 			error("Unable to load key file from %s: (%s)", filename,
 								gerr->message);
-			g_clear_error(&gerr);
+			g_clear_error(&gerr);/*加载info文件失败*/
 		}
 
-		bdaddr_type = get_addr_type(key_file);
+		bdaddr_type = get_addr_type(key_file);/*取地址类型*/
 
+		/*读取info指明的key_info信息*/
 		key_info = get_key_info(key_file, entry->d_name, bdaddr_type);
 
+		/*读取info指明的ltk_info信息*/
 		ltk_info = get_ltk_info(key_file, entry->d_name, bdaddr_type);
 
+		/*读取info指明PeripheralLongTermKey信息*/
 		peripheral_ltk_info = get_peripheral_ltk_info(key_file,
 						entry->d_name, bdaddr_type);
 
+		/*读取info指明IdentityResolvingKey信息*/
 		irk_info = get_irk_info(key_file, entry->d_name, bdaddr_type);
 
 		// If any key for the device is blocked, we discard all.
@@ -5052,6 +5083,7 @@ static void load_devices(struct btd_adapter *adapter)
 				(peripheral_ltk_info &&
 					peripheral_ltk_info->is_blocked) ||
 				(irk_info && irk_info->is_blocked)) {
+			/*如果指明被block,则释放并置为NULL*/
 
 			if (key_info) {
 				g_free(key_info);
@@ -5077,7 +5109,7 @@ static void load_devices(struct btd_adapter *adapter)
 		}
 
 		if (key_info)
-			keys = g_slist_append(keys, key_info);
+			keys = g_slist_append(keys, key_info);/*记录此adapter下所有key配置*/
 
 		if (ltk_info)
 			ltks = g_slist_append(ltks, ltk_info);
@@ -5088,17 +5120,21 @@ static void load_devices(struct btd_adapter *adapter)
 		if (irk_info)
 			irks = g_slist_append(irks, irk_info);
 
+		/*取连接参数,如无返回NULL*/
 		param = get_conn_param(key_file, entry->d_name, bdaddr_type);
 		if (param)
-			params = g_slist_append(params, param);
+			params = g_slist_append(params, param);/*记录此adapter下所有conn_param配置*/
 
+		/*检查此设备是否已记录在adapter->devices链表上*/
 		list = g_slist_find_custom(adapter->devices, entry->d_name,
 							device_address_cmp);
 		if (list) {
+			/*已记录,跳过*/
 			device = list->data;
 			goto device_exist;
 		}
 
+		/*不存在,添加到adapter->devices链表上*/
 		device = device_create_from_storage(adapter, entry->d_name,
 							key_file);
 		if (!device)
@@ -5112,7 +5148,7 @@ static void load_devices(struct btd_adapter *adapter)
 
 		/* TODO: register services from pre-loaded list of primaries */
 
-		added_devices = g_slist_append(added_devices, device);
+		added_devices = g_slist_append(added_devices, device);/*记录系统所有已添加的设备*/
 
 device_exist:
 		if (key_info) {
@@ -5218,7 +5254,7 @@ static void load_drivers(struct btd_adapter *adapter)
 
 static void probe_profile(struct btd_profile *profile, void *data)
 {
-	struct btd_adapter *adapter = data;
+	struct btd_adapter *adapter = data;/*参数为adapter*/
 	int err;
 
 	if (profile->adapter_probe == NULL)
@@ -5227,6 +5263,7 @@ static void probe_profile(struct btd_profile *profile, void *data)
 
 	err = profile->adapter_probe(profile, adapter);
 	if (err < 0) {
+		/*probe失败*/
 		btd_error(adapter->dev_id, "%s: %s (%d)", profile->name,
 							strerror(-err), -err);
 		return;
@@ -7702,6 +7739,7 @@ int btd_register_adapter_driver(struct btd_adapter_driver *driver)
 {
 	if (driver->experimental && !(g_dbus_get_flags() &
 					G_DBUS_FLAG_ENABLE_EXPERIMENTAL)) {
+		/*这类driver dbus必须开启experimental*/
 		DBG("D-Bus experimental not enabled");
 		return -ENOTSUP;
 	}
@@ -9311,10 +9349,12 @@ static int adapter_id_cmp(gconstpointer a, gconstpointer b)
 	return adapter->dev_id == id ? 0 : -1;
 }
 
+/*利用sba查找其对应的btd_adapter*/
 struct btd_adapter *adapter_find(const bdaddr_t *sba)
 {
 	GSList *match;
 
+	/*在adapters上查找与sba相同的adapter*/
 	match = g_slist_find_custom(adapters, sba, adapter_cmp);
 	if (!match)
 		return NULL;
@@ -9370,6 +9410,7 @@ static void services_modified(struct gatt_db_attribute *attrib, void *user_data)
 						ADAPTER_INTERFACE, "UUIDs");
 }
 
+/*注册adapter*/
 static int adapter_register(struct btd_adapter *adapter)
 {
 	struct agent *agent;
@@ -9379,6 +9420,7 @@ static int adapter_register(struct btd_adapter *adapter)
 		/*正在对此设备执行power down*/
 		return -EBUSY;
 
+	/*设置adapter path*/
 	adapter->path = g_strdup_printf("/org/bluez/hci%d", adapter->dev_id);
 
 	if (!g_dbus_register_interface(dbus_conn,
@@ -9397,7 +9439,7 @@ static int adapter_register(struct btd_adapter *adapter)
 	if (adapters == NULL)
 		adapter->is_default = true;
 
-	adapters = g_slist_append(adapters, adapter);
+	adapters = g_slist_append(adapters, adapter);/*添加adapter*/
 
 	agent = agent_get(NULL);
 	if (agent) {
@@ -9458,10 +9500,11 @@ load:
 	load_config(adapter);/*加载此adapter的配置*/
 	fix_storage(adapter);
 	load_drivers(adapter);
-	btd_profile_foreach(probe_profile, adapter);/*采用此adapter遍历profile*/
+	/*遍历profiles,检查哪些profile可以probe此adapter,记录在adapter->profiles中*/
+	btd_profile_foreach(probe_profile, adapter);
 	clear_blocked(adapter);
 	load_defaults(adapter);
-	load_devices(adapter);
+	load_devices(adapter);/*加载device*/
 
 	/* restore Service Changed CCC value for bonded devices */
 	btd_gatt_database_restore_svc_chng_ccc(adapter->database);
@@ -9469,9 +9512,9 @@ load:
 	/* retrieve the active connections: address the scenario where
 	 * the are active connections before the daemon've started */
 	if (btd_adapter_get_powered(adapter))
-		load_connections(adapter);
+		load_connections(adapter);/*加载连接*/
 
-	adapter->initialized = TRUE;
+	adapter->initialized = TRUE;/*初始化完成*/
 
 	if (btd_opts.did_source) {
 		/* DeviceID record is added by sdpd-server before any other
@@ -9816,7 +9859,7 @@ static int clear_devices(struct btd_adapter *adapter)
 	if (!btd_has_kernel_features(KERNEL_CONN_CONTROL))
 		return 0;
 
-	memset(&cp, 0, sizeof(cp));
+	memset(&cp, 0, sizeof(cp));/*指定为0,移除所有设备*/
 
 	DBG("sending clear devices command for index %u", adapter->dev_id);
 
@@ -9849,6 +9892,7 @@ static bool get_static_addr(struct btd_adapter *adapter)
 
 	file = g_key_file_new();
 	if (!g_key_file_load_from_file(file, filename, 0, &gerr)) {
+		/*address文件加载失败*/
 		error("Unable to load key file from %s: (%s)",
 					filename, gerr->message);
 		g_clear_error(&gerr);
@@ -9933,10 +9977,10 @@ static bool set_static_addr(struct btd_adapter *adapter)
 
 	/* dual-mode adapters must have a public address */
 	if (adapter->supported_settings & MGMT_SETTING_BREDR)
-		return false;
+		return false;/*支持BR/EDR*/
 
 	if (!(adapter->supported_settings & MGMT_SETTING_LE))
-		return false;
+		return false;/*不支持低功耗设设置*/
 
 	/*除以上两种情况外，设置static addr*/
 	DBG("Setting static address");
@@ -10286,14 +10330,15 @@ static void read_exp_features(struct btd_adapter *adapter)
 static void read_info_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
-	struct btd_adapter *adapter = user_data;
-	const struct mgmt_rp_read_info *rp = param;
+	struct btd_adapter *adapter = user_data;/*设置adapter*/
+	const struct mgmt_rp_read_info *rp = param;/*read info 操作码响应内容*/
 	uint32_t missing_settings;
 	int err;
 
 	DBG("index %u status 0x%02x", adapter->dev_id, status);
 
 	if (status != MGMT_STATUS_SUCCESS) {
+		/*读取失败*/
 		btd_error(adapter->dev_id,
 				"Failed to read info for index %u: %s (0x%02x)",
 				adapter->dev_id, mgmt_errstr(status), status);
@@ -10301,6 +10346,7 @@ static void read_info_complete(uint8_t status, uint16_t length,
 	}
 
 	if (length < sizeof(*rp)) {
+		/*响应长度有误*/
 		btd_error(adapter->dev_id,
 				"Too small read info complete response");
 		goto failed;
@@ -10315,7 +10361,7 @@ static void read_info_complete(uint8_t status, uint16_t length,
 	 * state of the controller.
 	 */
 	adapter->dev_class = rp->dev_class[0] | (rp->dev_class[1] << 8) |
-						(rp->dev_class[2] << 16);
+						(rp->dev_class[2] << 16);/*展成u32*/
 	adapter->name = g_strdup((const char *) rp->name);
 	adapter->short_name = g_strdup((const char *) rp->short_name);
 
@@ -10326,12 +10372,13 @@ static void read_info_complete(uint8_t status, uint16_t length,
 
 	adapter->version = rp->version;
 
-	clear_uuids(adapter);
-	clear_devices(adapter);
+	clear_uuids(adapter);/*清除adapter上所有uuids*/
+	clear_devices(adapter);/*清空所有devices*/
 
 	if (bacmp(&rp->bdaddr, BDADDR_ANY) == 0) {
 		/*如果蓝牙地址是any,则为其设置地址*/
 		if (!set_static_addr(adapter)) {
+			/*响应的地址为ANY,且设置静态地址失败*/
 			btd_error(adapter->dev_id,
 					"No Bluetooth address for index %u",
 					adapter->dev_id);
@@ -10342,13 +10389,14 @@ static void read_info_complete(uint8_t status, uint16_t length,
 
 		tmp = adapter_find(&rp->bdaddr);
 		if (tmp) {
-			/*这个地址已对应了一个设备*/
+			/*这个地址已对应了一个adapter*/
 			btd_error(adapter->dev_id,
 				"Bluetooth address for index %u match index %u",
 				adapter->dev_id, tmp->dev_id);
 			goto failed;
 		}
 
+		/*将此地址设置给此adapter*/
 		bacpy(&adapter->bdaddr, &rp->bdaddr);
 		if (!(adapter->supported_settings & MGMT_SETTING_LE))
 			adapter->bdaddr_type = BDADDR_BREDR;
@@ -10356,17 +10404,19 @@ static void read_info_complete(uint8_t status, uint16_t length,
 			adapter->bdaddr_type = BDADDR_LE_PUBLIC;
 	}
 
+	/*取得未设置的配置*/
 	missing_settings = adapter->current_settings ^
 						adapter->supported_settings;
 
 	switch (btd_opts.mode) {
 	case BT_MODE_DUAL:
+		/*DUAL模式下,设置le,bredr,ssp*/
 		if (missing_settings & MGMT_SETTING_LE)
-			set_mode(adapter, MGMT_OP_SET_LE, 0x01);
+			set_mode(adapter, MGMT_OP_SET_LE, 0x01);/*开启低功耗*/
 		if (missing_settings & MGMT_SETTING_BREDR)
-			set_mode(adapter, MGMT_OP_SET_BREDR, 0x01);
+			set_mode(adapter, MGMT_OP_SET_BREDR, 0x01);/*开启br/edr(le开启后才能开启)*/
 		if (missing_settings & MGMT_SETTING_SSP)
-			set_mode(adapter, MGMT_OP_SET_SSP, 0x01);
+			set_mode(adapter, MGMT_OP_SET_SSP, 0x01);/*开启simple pair(br/edr)开启后才能开启*/
 		break;
 	case BT_MODE_BREDR:
 		if (!(adapter->supported_settings & MGMT_SETTING_BREDR)) {
@@ -10408,7 +10458,7 @@ static void read_info_complete(uint8_t status, uint16_t length,
 
 	if (btd_opts.fast_conn &&
 			(missing_settings & MGMT_SETTING_FAST_CONNECTABLE))
-		set_mode(adapter, MGMT_OP_SET_FAST_CONNECTABLE, 0x01);
+		set_mode(adapter, MGMT_OP_SET_FAST_CONNECTABLE, 0x01);/*设置fast connectable*/
 
 	/*注册此adapter*/
 	err = adapter_register(adapter);
@@ -10616,15 +10666,16 @@ static void read_info(struct btd_adapter *adapter)
 {
 	DBG("sending read info command for index %u", adapter->dev_id);
 
-	if (mgmt_send(mgmt_primary, MGMT_OP_READ_INFO, adapter->dev_id, 0, NULL,
-					read_info_complete, adapter, NULL) > 0)
+	/*读取此hci设备,初始化并填充与此对应的adapter*/
+	if (mgmt_send(mgmt_primary, MGMT_OP_READ_INFO/*操作码*/, adapter->dev_id, 0, NULL,
+					read_info_complete/*收到响应时调用*/, adapter, NULL) > 0)
 		return;
 
 	btd_error(adapter->dev_id,
 			"Failed to read controller info for index %u",
 			adapter->dev_id);
 
-	adapter_list = g_list_remove(adapter_list, adapter);
+	adapter_list = g_list_remove(adapter_list, adapter);/*记录此adapter(每个hci设备一个adapter)*/
 
 	btd_adapter_unref(adapter);
 }
@@ -10702,7 +10753,7 @@ static void index_added(uint16_t index, uint16_t length, const void *param,
 	adapter_list = g_list_append(adapter_list, adapter);/*将此adapter添加进列表*/
 
 	if (queue_isempty(adapter->exp_pending))
-		read_info(adapter);
+		read_info(adapter);/*加载信息,初始化此adapter*/
 }
 
 static void index_removed(uint16_t index, uint16_t length, const void *param,
@@ -10721,6 +10772,7 @@ static void index_removed(uint16_t index, uint16_t length, const void *param,
 	adapter_unregister(adapter);
 }
 
+/*处理收到的MGMT_OP_READ_INDEX_LIST响应*/
 static void read_index_list_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -10739,7 +10791,7 @@ static void read_index_list_complete(uint8_t status, uint16_t length,
 		return;
 	}
 
-	num = btohs(rp->num_controllers);
+	num = btohs(rp->num_controllers);/*有多少hci设备*/
 
 	DBG("Number of controllers: %d", num);
 
@@ -10905,7 +10957,7 @@ static void read_version_complete(uint8_t status, uint16_t length,
 
 	DBG("sending read index list command");
 
-	/*向kernel请求controller数量及其对应的id*/
+	/*向kernel请求hci设备数量及其对应的id,并创建对应的adapter*/
 	if (mgmt_send(mgmt_primary, MGMT_OP_READ_INDEX_LIST,
 				MGMT_INDEX_NONE, 0, NULL,
 				read_index_list_complete, NULL, NULL) > 0)
@@ -10919,6 +10971,7 @@ static void mgmt_debug(const char *str, void *user_data)
 	DBG_IDX(0xffff, "%s", str);
 }
 
+/*初始化adapter*/
 int adapter_init(void)
 {
 	dbus_conn = btd_get_dbus_connection();
@@ -10936,7 +10989,7 @@ int adapter_init(void)
 	/*读取版本，kernel mgmt_handlers规定的回调将被触发*/
 	if (mgmt_send(mgmt_primary, MGMT_OP_READ_VERSION,
 				MGMT_INDEX_NONE/*指定none设备*/, 0/*无参数，故长度须为零*/, NULL/*无参数*/,
-				read_version_complete/*读取版本完成处理*/, NULL, NULL) > 0)
+				read_version_complete/*读取版本完成处理,读取并初始化所有adapter*/, NULL, NULL) > 0)
 		return 0;
 
 	error("Failed to read management version information");

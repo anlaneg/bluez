@@ -3782,7 +3782,7 @@ static struct btd_profile a2dp_sink_profile = {
 	.device_remove	= a2dp_sink_remove,
 
 	.auto_connect	= true,
-	.connect	= a2dp_sink_connect,
+	.connect	= a2dp_sink_connect,/*连接*/
 	.disconnect	= a2dp_sink_disconnect,
 
 	.adapter_probe	= a2dp_source_server_probe,
@@ -3814,5 +3814,6 @@ static void a2dp_exit(void)
 	btd_profile_unregister(&a2dp_sink_profile);
 }
 
+/*定义a2dp插件*/
 BLUETOOTH_PLUGIN_DEFINE(a2dp, VERSION, BLUETOOTH_PLUGIN_PRIORITY_DEFAULT,
 		a2dp_init, a2dp_exit)

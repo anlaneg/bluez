@@ -398,7 +398,7 @@ static struct btd_profile mcp_profile = {
 
 static int mcp_init(void)
 {
-	return btd_profile_register(&mcp_profile);
+	return btd_profile_register(&mcp_profile);/*注册mcp profile*/
 }
 
 static void mcp_exit(void)

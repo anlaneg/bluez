@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
 	while ((opt=getopt_long(argc, argv, "+i:", main_options, NULL)) != -1) {
 		switch (opt) {
 		case 'i':
-			dev = hci_devid(optarg);
+			dev = hci_devid(optarg);/*取指明的hci设备*/
 			if (dev < 0) {
 				perror("Invalid device");
 				exit(1);
@@ -46,7 +46,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	dd = hci_open_dev(dev);
+	dd = hci_open_dev(dev);/*创建绑定此设备的socket*/
 	if (dd < 0) {
 		fprintf(stderr, "Can't open device hci%d: %s (%d)\n",
 						dev, strerror(errno), errno);
@@ -60,6 +60,7 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+	/*取此hci设备版本*/
 	if (hci_read_local_version(dd, &ver, 1000) < 0) {
 		fprintf(stderr, "Can't read version info for hci%d: %s (%d)\n",
 						dev, strerror(errno), errno);
@@ -99,7 +100,7 @@ int main(int argc, char *argv[])
 		}
 
 		if (di.features[4] & LMP_LE)
-			events[7] |= 0x20;
+			events[7] |= 0x20;/*支持低功耗情况*/
 
 		if (di.features[6] & LMP_LE_BREDR)
 			events[7] |= 0x20;

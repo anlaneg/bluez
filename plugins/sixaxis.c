@@ -485,9 +485,9 @@ static gboolean monitor_watch(GIOChannel *source, GIOCondition condition,
 		return TRUE;
 
 	if (!g_strcmp0(udev_device_get_action(udevice), "add"))
-		device_added(udevice);
+		device_added(udevice);/*设备添加*/
 	else if (!g_strcmp0(udev_device_get_action(udevice), "remove"))
-		device_removed(udevice);
+		device_removed(udevice);/*设备移除*/
 
 	udev_device_unref(udevice);
 
@@ -518,7 +518,7 @@ static int sixaxis_init(void)
 	udev_monitor_enable_receiving(monitor);
 
 	channel = g_io_channel_unix_new(udev_monitor_get_fd(monitor));
-	watch_id = g_io_add_watch(channel, G_IO_IN, monitor_watch, NULL);
+	watch_id = g_io_add_watch(channel, G_IO_IN, monitor_watch, NULL);/*监控设备添加及删除*/
 	g_io_channel_unref(channel);
 
 	pending_auths = g_hash_table_new(g_str_hash,

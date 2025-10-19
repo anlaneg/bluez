@@ -99,23 +99,24 @@ int ba2oui(const bdaddr_t *ba, char *str)
 int bachk(const char *str)
 {
 	if (!str)
-		return -1;
+		return -1;/*字符串为空*/
 
 	if (strlen(str) != 17)
-		return -1;
+		return -1;/*字符串长度有误*/
 
+	/*检查是否格式'xx:xx:xx:xx:xx:xx*/
 	while (*str) {
 		if (!isxdigit(*str++))
-			return -1;
+			return -1;/*首个字符不能16进制数字开头*/
 
 		if (!isxdigit(*str++))
-			return -1;
+			return -1;/*次一个字符不是16进制数字*/
 
 		if (*str == 0)
-			break;
+			break;/*达到结尾,则校验成功*/
 
 		if (*str++ != ':')
-			return -1;
+			return -1;/*此字符不为':',报错*/
 	}
 
 	return 0;

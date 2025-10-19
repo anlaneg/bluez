@@ -726,14 +726,16 @@ static GSList *custom_props = NULL;
 
 /*记录系统中所有profiles*/
 static GSList *profiles = NULL;
+/*记录系统中所有ext profiles*/
 static GSList *ext_profiles = NULL;
 
 /*利用函数func遍历profiles,ext_profiles*/
 void btd_profile_foreach(void (*func)(struct btd_profile *p, void *data),
-								void *data)
+								void *data/*回调参数*/)
 {
 	GSList *l, *next;
 
+	/*利用func遍历所有profiles*/
 	for (l = profiles; l != NULL; l = next) {
 		struct btd_profile *profile = l->data;
 
@@ -742,6 +744,7 @@ void btd_profile_foreach(void (*func)(struct btd_profile *p, void *data),
 		func(profile, data);
 	}
 
+	/*利用func遍历所有ext_profiles*/
 	for (l = ext_profiles; l != NULL; l = next) {
 		struct ext_profile *profile = l->data;
 
@@ -751,18 +754,21 @@ void btd_profile_foreach(void (*func)(struct btd_profile *p, void *data),
 	}
 }
 
+/*通过uuid查找btd_profile*/
 static struct btd_profile *btd_profile_find_uuid(const char *uuid)
 {
 	GSList *l, *next;
 
+	/*遍历profiles*/
 	for (l = profiles; l != NULL; l = next) {
 		struct btd_profile *p = l->data;
 
 		if (!g_strcmp0(p->local_uuid, uuid))
-			return p;
+			return p;/*匹配,直接返回*/
 		next = g_slist_next(l);
 	}
 
+	/*遍历ext_profiles*/
 	for (l = ext_profiles; l != NULL; l = next) {
 		struct ext_profile *ext = l->data;
 		struct btd_profile *p = &ext->p;
@@ -780,22 +786,26 @@ int btd_profile_register(struct btd_profile *profile)
 {
 	if (profile->experimental && !(g_dbus_get_flags() &
 					G_DBUS_FLAG_ENABLE_EXPERIMENTAL)) {
+		/*这类profile必须dbus开启experimental*/
 		DBG("D-Bus experimental not enabled");
 		return -ENOTSUP;
 	}
 
 	if (profile->testing && !(g_dbus_get_flags() &
 					G_DBUS_FLAG_ENABLE_TESTING)) {
+		/*这类必须dbus开启testing*/
 		DBG("D-Bus testing not enabled");
 		return -ENOTSUP;
 	}
 
+	/*注册此profile*/
 	profiles = g_slist_append(profiles, profile);
 	return 0;
 }
 
 void btd_profile_unregister(struct btd_profile *profile)
 {
+	/*移除此profile注册*/
 	profiles = g_slist_remove(profiles, profile);
 }
 
@@ -2356,6 +2366,7 @@ static void set_service(struct ext_profile *ext)
 	}
 }
 
+/*创建指定uuid的外部profile*/
 static struct ext_profile *create_ext(const char *owner, const char *path,
 					const char *uuid,
 					DBusMessageIter *opts)
@@ -2429,6 +2440,7 @@ static struct ext_profile *create_ext(const char *owner, const char *path,
 
 	DBG("Created \"%s\"", ext->name);
 
+	/*添加ext_profile*/
 	ext_profiles = g_slist_append(ext_profiles, ext);
 
 	adapter_foreach(adapter_add_profile, &ext->p);
@@ -2504,6 +2516,7 @@ static DBusMessage *register_profile(DBusConnection *conn,
 
 	dbus_message_iter_recurse(&args, &opts);
 
+	/*注册外部profile*/
 	ext = create_ext(sender, path, uuid, &opts);
 	if (!ext)
 		return btd_error_invalid_args(msg);
@@ -2538,6 +2551,7 @@ static DBusMessage *unregister_profile(DBusConnection *conn,
 	return dbus_message_new_method_return(msg);
 }
 
+/*通过dbus注册profile*/
 static const GDBusMethodTable methods[] = {
 	{ GDBUS_METHOD("RegisterProfile",
 			GDBUS_ARGS({ "profile", "o"}, { "UUID", "s" },

@@ -242,7 +242,7 @@ struct btd_device {
 	uint16_t	appearance;
 	char		*modalias;
 	struct btd_adapter	*adapter;
-	GSList		*uuids;
+	GSList		*uuids;/*用于记录此设备上的UUID*/
 	GSList		*primaries;		/* List of primary services */
 	GSList		*services;		/* List of btd_service */
 	GSList		*pending;		/* Pending services */
@@ -4109,10 +4109,12 @@ static void load_services(struct btd_device *device, char **uuids)
 {
 	char **uuid;
 
+	/*遍历所有uuid*/
 	for (uuid = uuids; *uuid; uuid++) {
 		if (g_slist_find_custom(device->uuids, *uuid, bt_uuid_strcmp))
 			continue;
 
+		/*添加此uuid*/
 		device->uuids = g_slist_insert_sorted(device->uuids,
 							g_strdup(*uuid),
 							bt_uuid_strcmp);
@@ -4149,10 +4151,10 @@ static void convert_info(struct btd_device *device, GKeyFile *key_file)
 	g_key_file_remove_key(key_file, "General", "SDPServices", NULL);
 	g_key_file_remove_key(key_file, "General", "GATTServices", NULL);
 
-	ba2str(btd_adapter_get_address(device->adapter), adapter_addr);
-	ba2str(&device->bdaddr, device_addr);
+	ba2str(btd_adapter_get_address(device->adapter), adapter_addr);/*取adapter地址*/
+	ba2str(&device->bdaddr, device_addr);/*取device地址*/
 	create_filename(filename, PATH_MAX, "/%s/%s/info", adapter_addr,
-			device_addr);
+			device_addr);/*构建info文件路径*/
 
 	str = g_key_file_to_data(key_file, &length, NULL);
 	if (!g_file_set_contents(filename, str, length, &gerr)) {
@@ -4180,25 +4182,26 @@ static void load_info(struct btd_device *device, const char *local,
 	/* Load device name from storage info file, if that fails fall back to
 	 * the cache.
 	 */
-	str = g_key_file_get_string(key_file, "General", "Name", NULL);
+	str = g_key_file_get_string(key_file, "General", "Name", NULL);/*取peer名称*/
 	if (str == NULL) {
+		/*自cached中取peer名称*/
 		str = load_cached_name(device, local, peer);
 		if (str)
 			store_needed = TRUE;
 	}
 
 	if (str) {
-		strcpy(device->name, str);
+		strcpy(device->name, str);/*设置设备名称*/
 		g_free(str);
 	}
 
 	/* Load alias */
 	device->alias = g_key_file_get_string(key_file, "General", "Alias",
-									NULL);
+									NULL);/*取设备别名*/
 
 	/* Load class */
 	str = g_key_file_get_string(key_file, "General", "Class", NULL);
-	if (str) {
+	if (str) {/*取设备class*/
 		uint32_t class;
 
 		if (sscanf(str, "%x", &class) == 1)
@@ -4215,21 +4218,21 @@ static void load_info(struct btd_device *device, const char *local,
 
 	/* Load device technology */
 	techno = g_key_file_get_string_list(key_file, "General",
-					"SupportedTechnologies", NULL, NULL);
+					"SupportedTechnologies", NULL, NULL);/*取设备支持的技术标记*/
 	if (!techno)
 		goto next;
 
 	for (t = techno; *t; t++) {
 		if (g_str_equal(*t, "BR/EDR"))
-			device->bredr = btd_bearer_new(device, BDADDR_BREDR);
+			device->bredr = btd_bearer_new(device, BDADDR_BREDR);/*BR/EDR方式*/
 		else if (g_str_equal(*t, "LE"))
-			device->le = btd_bearer_new(device, BDADDR_LE_PUBLIC);
+			device->le = btd_bearer_new(device, BDADDR_LE_PUBLIC);/*低功耗方式*/
 		else
 			error("Unknown device technology");
 	}
 
 	if (!device->le) {
-		device->bdaddr_type = BDADDR_BREDR;
+		device->bdaddr_type = BDADDR_BREDR;/*非低功耗方式地址类型必须为BDADDR_BREDR*/
 	} else {
 		str = g_key_file_get_string(key_file, "General",
 						"AddressType", NULL);
@@ -4275,7 +4278,7 @@ next:
 							"Trusted", NULL);
 
 	/* Load device blocked */
-	blocked = g_key_file_get_boolean(key_file, "General", "Blocked", NULL);
+	blocked = g_key_file_get_boolean(key_file, "General", "Blocked", NULL);/*加载blocked*/
 	if (blocked)
 		device_block(device, FALSE);
 
@@ -4284,7 +4287,7 @@ next:
 
 	/* Load device profile list */
 	uuids = g_key_file_get_string_list(key_file, "General", "Services",
-						NULL, NULL);
+						NULL, NULL);/*取所有services*/
 	if (uuids) {
 		char filename[PATH_MAX];
 		char device_addr[18];
@@ -4292,24 +4295,27 @@ next:
 		GKeyFile *key_file = g_key_file_new();
 		GError *gerr = NULL;
 
-		load_services(device, uuids);
+		load_services(device, uuids);/*设置UUID*/
 
 		ba2str(&device->bdaddr, device_addr);
 		create_filename(filename, PATH_MAX, "/%s/cache/%s",
 			btd_adapter_get_storage_dir(device->adapter),
-			device_addr);
+			device_addr);/*构建此设备对应的cache下的此设备文件*/
 
 		/* Check if ServiceRecords cached group exists */
 		if (stat(filename, &st) < 0) {
+			/*取此文件状态失败*/
 			DBG("Missing cache file for ServiceRecords");
 			device->bredr_state.svc_resolved = false;
 		} else if (!g_key_file_load_from_file(key_file, filename,
 							0, &gerr)) {
+			/*加载此文件失败*/
 			DBG("Unable to load key file from %s: (%s)", filename,
 								gerr->message);
 			g_clear_error(&gerr);
 			device->bredr_state.svc_resolved = false;
 		} else if (!g_key_file_has_group(key_file, "ServiceRecords")) {
+			/*cache文件必须要有ServiceRecords记录*/
 			DBG("Missing ServiceRecords from cache file");
 			device->bredr_state.svc_resolved = false;
 		} else {
@@ -4321,7 +4327,7 @@ next:
 
 	/* Load device id */
 	source = g_key_file_get_integer(key_file, "DeviceID", "Source", NULL);
-	if (source) {
+	if (source) {/*取vendor,product,version*/
 		vendor = g_key_file_get_integer(key_file, "DeviceID",
 							"Vendor", NULL);
 
@@ -4364,19 +4370,21 @@ static void load_att_info(struct btd_device *device, const char *local,
 	char tmp[3];
 	int i;
 
+	/*构建attributes文件路径*/
 	create_filename(filename, PATH_MAX, "/%s/%s/attributes", local, peer);
 
 	/* Check if attributes file exists */
 	if (stat(filename, &st) < 0)
-		return;
+		return;/*文件有误*/
 
+	/*加载key_file*/
 	key_file = g_key_file_new();
 	if (!g_key_file_load_from_file(key_file, filename, 0, &gerr)) {
 		error("Unable to load key file from %s: (%s)", filename,
 								gerr->message);
 		g_clear_error(&gerr);
 	}
-	groups = g_key_file_get_groups(key_file, NULL);
+	groups = g_key_file_get_groups(key_file, NULL);/*取所有groups*/
 
 	sdp_uuid16_create(&uuid, GATT_PRIM_SVC_UUID);
 	prim_uuid = bt_uuid2string(&uuid);
@@ -4385,6 +4393,7 @@ static void load_att_info(struct btd_device *device, const char *local,
 		gboolean uuid_ok;
 		int end;
 
+		/*取此group下UUID*/
 		str = g_key_file_get_string(key_file, *handle, "UUID", NULL);
 		if (!str)
 			continue;
@@ -4764,6 +4773,7 @@ static struct btd_device *device_new(struct btd_adapter *adapter,
 
 	DBG("address %s", address);
 
+	/*创建btd_device*/
 	device = g_try_malloc0(sizeof(struct btd_device));
 	if (device == NULL)
 		return NULL;
@@ -4787,7 +4797,7 @@ static struct btd_device *device_new(struct btd_adapter *adapter,
 	}
 
 	address_up = g_ascii_strup(address, -1);
-	device->path = g_strdup_printf("%s/dev_%s", adapter_path, address_up);
+	device->path = g_strdup_printf("%s/dev_%s", adapter_path, address_up);/*设置设备path*/
 	g_strdelimit(device->path, ":", '_');
 	g_free(address_up);
 
@@ -4824,6 +4834,7 @@ static struct btd_device *device_new(struct btd_adapter *adapter,
 	return btd_device_ref(device);
 }
 
+/*加载文件,返回btd_device*/
 struct btd_device *device_create_from_storage(struct btd_adapter *adapter,
 				const char *address, GKeyFile *key_file)
 {
@@ -4840,8 +4851,8 @@ struct btd_device *device_create_from_storage(struct btd_adapter *adapter,
 
 	src_dir = btd_adapter_get_storage_dir(adapter);
 
-	load_info(device, src_dir, address, key_file);
-	load_att_info(device, src_dir, address);
+	load_info(device, src_dir, address, key_file);/*加载info文件*/
+	load_att_info(device, src_dir, address);/*加载attributes文件*/
 
 	return device;
 }
@@ -5479,7 +5490,7 @@ static struct btd_service *probe_service(struct btd_device *device,
 	struct btd_service *service;
 
 	if (profile->device_probe == NULL)
-		return NULL;
+		return NULL;/*无此回调,返回NULL*/
 
 	if (!device_match_profile(device, profile, uuids))
 		return NULL;
@@ -7958,8 +7969,8 @@ void btd_device_flags_changed(struct btd_device *dev, uint32_t supported_flags,
 }
 
 static void service_state_changed(struct btd_service *service,
-						btd_service_state_t old_state,
-						btd_service_state_t new_state,
+						btd_service_state_t old_state/*旧状态*/,
+						btd_service_state_t new_state/*新状态*/,
 						void *user_data)
 {
 	struct btd_profile *profile = btd_service_get_profile(service);

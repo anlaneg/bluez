@@ -8,15 +8,16 @@
  *
  */
 #define BLUETOOTH_PLUGIN_PRIORITY_LOW      -100
+/*默认优先级*/
 #define BLUETOOTH_PLUGIN_PRIORITY_DEFAULT     0
 #define BLUETOOTH_PLUGIN_PRIORITY_HIGH      100
 
 struct bluetooth_plugin_desc {
-	const char *name;
-	const char *version;
-	int priority;
-	int (*init) (void);
-	void (*exit) (void);
+	const char *name;/*插件名称*/
+	const char *version;/*版本号*/
+	int priority;/*优先级*/
+	int (*init) (void);/*初始化函数*/
+	void (*exit) (void);/*销毁函数*/
 	void *debug_start;
 	void *debug_stop;
 };

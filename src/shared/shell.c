@@ -750,6 +750,7 @@ void bt_shell_printf(const char *fmt, ...)
 
 	if (data.monitor) {
 		va_start(args, fmt);
+		/*输出给monitor fd*/
 		bt_log_vprintf(0xffff, data.name, LOG_INFO, fmt, args);
 		va_end(args);
 	}

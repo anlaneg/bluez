@@ -472,7 +472,7 @@ static struct btd_profile midi_profile = {
 
 static int midi_init(void)
 {
-	return btd_profile_register(&midi_profile);
+	return btd_profile_register(&midi_profile);/*注册midi profile*/
 }
 
 static void midi_exit(void)

@@ -51,6 +51,7 @@ struct service_state_callback {
 	unsigned int		id;
 };
 
+/*添加系统所有state_cb*/
 static GSList *state_callbacks = NULL;
 
 static const char *state2str(btd_service_state_t state)
@@ -79,12 +80,12 @@ static void change_state(struct btd_service *service, btd_service_state_t state,
 	GSList *l;
 
 	if (state == old)
-		return;
+		return;/*两者state相等,直接返回*/
 
 	btd_assert(service->device != NULL);
 	btd_assert(service->profile != NULL);
 
-	service->state = state;
+	service->state = state;/*更新为新的state*/
 	service->err = err;
 
 	ba2str(device_get_address(service->device), addr);
@@ -92,10 +93,11 @@ static void change_state(struct btd_service *service, btd_service_state_t state,
 					addr, service->profile->name,
 					state2str(old), state2str(state), err);
 
+	/*遍历state_callbacks,逐个调用*/
 	for (l = state_callbacks; l != NULL; l = g_slist_next(l)) {
 		struct service_state_callback *cb = l->data;
 
-		cb->cb(service, old, state, cb->user_data);
+		cb->cb(service, old/*旧状态*/, state/*新状态*/, cb->user_data);
 	}
 
 	if (state == BTD_SERVICE_STATE_DISCONNECTED)
@@ -355,6 +357,7 @@ bool btd_service_is_initiator(const struct btd_service *service)
 	return service->initiator;
 }
 
+/*添加state_cb,返回添加的cb的编号*/
 unsigned int btd_service_add_state_cb(btd_service_state_cb cb, void *user_data)
 {
 	struct service_state_callback *state_cb;
@@ -365,7 +368,7 @@ unsigned int btd_service_add_state_cb(btd_service_state_cb cb, void *user_data)
 	state_cb->user_data = user_data;
 	state_cb->id = ++id;
 
-	state_callbacks = g_slist_append(state_callbacks, state_cb);
+	state_callbacks = g_slist_append(state_callbacks, state_cb);/*添加state_cb*/
 
 	return state_cb->id;
 }

@@ -907,6 +907,7 @@ static void cmd_info(int dev_id, int argc, char **argv)
 	bacpy(&cr->bdaddr, &bdaddr);
 	cr->type = ACL_LINK;
 	if (ioctl(dd, HCIGETCONNINFO, (unsigned long) cr) < 0) {
+		/*无此连接,创建新的连接*/
 		if (hci_create_connection(dd, &bdaddr,
 					htobs(di.pkt_type & ACL_PTYPE_MASK),
 					0, 0x01, &handle, 25000) < 0) {
@@ -938,6 +939,7 @@ static void cmd_info(int dev_id, int argc, char **argv)
 		printf("\tDevice Name: %s\n", name);
 
 	if (hci_read_remote_version(dd, handle, &version, 20000) == 0) {
+		/*显示版本号*/
 		char *ver = lmp_vertostr(version.lmp_ver);
 		printf("\tLMP Version: %s (0x%x) LMP Subversion: 0x%x\n"
 			"\tManufacturer: %s (%d)\n",
@@ -955,7 +957,7 @@ static void cmd_info(int dev_id, int argc, char **argv)
 
 	if ((di.features[7] & LMP_EXT_FEAT) && (features[7] & LMP_EXT_FEAT))
 		hci_read_remote_ext_features(dd, handle, 0, &max_page,
-							features, 20000);
+							features, 20000);/*读取功能列表*/
 
 	if (max_page < 1 && (features[6] & LMP_SIMPLE_PAIR))
 		max_page = 1;
@@ -966,10 +968,11 @@ static void cmd_info(int dev_id, int argc, char **argv)
 		features[0], features[1], features[2], features[3],
 		features[4], features[5], features[6], features[7]);
 
-	tmp = lmp_featurestostr(features, "\t\t", 63);
+	tmp = lmp_featurestostr(features, "\t\t", 63);/*将功能列表格式化为字符串*/
 	printf("%s\n", tmp);
 	bt_free(tmp);
 
+	/*再继续读功能列表*/
 	for (i = 1; i <= max_page; i++) {
 		if (hci_read_remote_ext_features(dd, handle, i, NULL,
 							features, 20000) < 0)
@@ -978,12 +981,12 @@ static void cmd_info(int dev_id, int argc, char **argv)
 		printf("\tFeatures page %d: 0x%2.2x 0x%2.2x 0x%2.2x 0x%2.2x "
 					"0x%2.2x 0x%2.2x 0x%2.2x 0x%2.2x\n", i,
 			features[0], features[1], features[2], features[3],
-			features[4], features[5], features[6], features[7]);
+			features[4], features[5], features[6], features[7]);/*输出功能列表(无字符串形式)*/
 	}
 
 	if (cc) {
 		usleep(10000);
-		hci_disconnect(dd, handle, HCI_OE_USER_ENDED_CONNECTION, 10000);
+		hci_disconnect(dd, handle, HCI_OE_USER_ENDED_CONNECTION, 10000);/*断开连接*/
 	}
 
 	hci_close_dev(dd);

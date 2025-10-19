@@ -194,5 +194,6 @@ static void network_exit(void)
 	bnep_cleanup();
 }
 
+/*定义network插件*/
 BLUETOOTH_PLUGIN_DEFINE(network, VERSION,
 			BLUETOOTH_PLUGIN_PRIORITY_DEFAULT, network_init, network_exit)

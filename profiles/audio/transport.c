@@ -150,6 +150,7 @@ struct media_transport {
 	void			*data;
 };
 
+/*用于串连系统中的transports*/
 static GSList *transports = NULL;
 
 static const char *state2str(transport_state_t state)
@@ -2478,7 +2479,7 @@ static void *transport_asha_init(struct media_transport *transport, void *data)
 		      _get_volume, _set_volume, _set_delay, _update_links, \
 		      _destroy) \
 { \
-	.uuid = _uuid, \
+	.uuid = _uuid/*OPS对应的uuid*/, \
 	.properties = _props, \
 	.set_owner = _set_owner, \
 	.remove_owner = _remove_owner, \
@@ -2567,7 +2568,7 @@ media_transport_find_ops(const char *uuid)
 		const struct media_transport_ops *ops = &transport_ops[i];
 
 		if (!strcasecmp(uuid, ops->uuid))
-			return ops;
+			return ops;/*如果UUID匹配,则返回对应的ops*/
 	}
 
 	return NULL;
@@ -2576,7 +2577,7 @@ media_transport_find_ops(const char *uuid)
 struct media_transport *media_transport_create(struct btd_device *device,
 						const char *remote_endpoint,
 						uint8_t *configuration,
-						size_t size, void *data,
+						size_t size, void *data/*endpoint对应的指针*/,
 						void *stream)
 {
 	struct media_endpoint *endpoint = data;
@@ -2606,12 +2607,14 @@ struct media_transport *media_transport_create(struct btd_device *device,
 					fd++);
 	transport->fd = -1;
 
+	/*通过endpoint的uuid获取ops*/
 	ops = media_transport_find_ops(media_endpoint_get_uuid(endpoint));
 	if (!ops)
 		goto fail;
 
 	transport->ops = ops;
 
+	/*初始化此transport*/
 	if (ops->init) {
 		transport->data = ops->init(transport, stream);
 		if (!transport->data)
