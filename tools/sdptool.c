@@ -4363,6 +4363,7 @@ static struct option main_options[] = {
 	{ 0, 0, 0, 0 }
 };
 
+/*sdptool程序入口*/
 int main(int argc, char *argv[])
 {
 	int i, opt;
@@ -4373,7 +4374,7 @@ int main(int argc, char *argv[])
 		switch(opt) {
 		case 'i':
 			if (!strncmp(optarg, "hci", 3))
-				hci_devba(atoi(optarg + 3), &interface);
+				hci_devba(atoi(optarg + 3), &interface);/*取设备地址*/
 			else
 				str2ba(optarg, &interface);
 			break;

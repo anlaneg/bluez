@@ -34,6 +34,7 @@ static struct l_queue *ctl_list;
 static void *list_user_data;
 static bool mesh_detected;
 
+/*mesh对应的uuid并指明0x1,即"开启"*/
 static const uint8_t set_exp_feat_param_mesh[] = {
 	0x76, 0x6e, 0xf3, 0xe8, 0x24, 0x5f, 0x05, 0xbf, /* UUID - Mesh */
 	0x8d, 0x4d, 0x03, 0x7a, 0xd7, 0x63, 0xe4, 0x2c,
@@ -137,10 +138,11 @@ static void read_info_cb(uint8_t status, uint16_t length,
 	if (current_settings & MGMT_SETTING_POWERED)
 		ctl->powered = true;
 
+	/*发送开启mesh功能*/
 	mesh_mgmt_send(MGMT_OP_SET_EXP_FEATURE, index,
 			sizeof(set_exp_feat_param_mesh),
 			set_exp_feat_param_mesh,
-			set_exp_mesh_cb, L_UINT_TO_PTR(index), NULL);
+			set_exp_mesh_cb/*处理响应*/, L_UINT_TO_PTR(index), NULL);
 }
 
 static void index_added(uint16_t index, uint16_t length, const void *param,
@@ -210,7 +212,7 @@ static bool mesh_mgmt_init(void)
 		ctl_list = l_queue_new();
 
 	if (!mgmt_mesh) {
-		mgmt_mesh = mgmt_new_default();
+		mgmt_mesh = mgmt_new_default();/*创建mgmt*/
 
 		if (!mgmt_mesh) {
 			l_error("Failed to initialize mesh management");
@@ -253,7 +255,7 @@ void mesh_mgmt_destroy(void)
 }
 
 unsigned int mesh_mgmt_send(uint16_t opcode, uint16_t index,
-				uint16_t length, const void *param,
+				uint16_t length/*参数长度*/, const void *param/*参数*/,
 				mgmt_request_func_t callback,
 				void *user_data, mgmt_destroy_func_t destroy)
 {

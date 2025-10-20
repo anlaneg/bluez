@@ -60,8 +60,8 @@ struct process_data {
 struct tx_pkt {
 	struct mesh_io_send_info	info;
 	bool				delete;
-	uint8_t				len;
-	uint8_t				pkt[MESH_AD_MAX_LEN];
+	uint8_t				len;/*长度*/
+	uint8_t				pkt[MESH_AD_MAX_LEN];/*报文内容*/
 };
 
 struct tx_pattern {
@@ -519,7 +519,7 @@ static void send_queued(uint8_t status, uint16_t length,
 	}
 }
 
-static void send_pkt(struct mesh_io_private *pvt, struct tx_pkt *tx,
+static void send_pkt(struct mesh_io_private *pvt, struct tx_pkt *tx/*广播报文内容*/,
 							uint16_t interval)
 {
 	uint8_t buffer[sizeof(struct mgmt_cp_mesh_send) + tx->len + 1];
@@ -537,15 +537,16 @@ static void send_pkt(struct mesh_io_private *pvt, struct tx_pkt *tx,
 	send->addr.type = BDADDR_LE_RANDOM;
 	send->instant = 0;
 	send->delay = 0;
-	send->cnt = 1;
-	send->adv_data_len = tx->len + 1;
-	send->adv_data[0] = tx->len;
-	memcpy(send->adv_data + 1, tx->pkt, tx->len);
+	send->cnt = 1;/*广播数1个*/
+	send->adv_data_len = tx->len + 1;/*设置广播报文内容长度*/
+	send->adv_data[0] = tx->len;/*设置广播报文长度*/
+	memcpy(send->adv_data + 1, tx->pkt, tx->len);/*设置广播报文内容*/
 
 	/* Filter looped back Provision packets */
 	if (tx->pkt[0] == BT_AD_MESH_PROV)
 		filter_dups(NULL, send->adv_data, get_instant());
 
+	/*发送mesh_send*/
 	mesh_mgmt_send(MGMT_OP_MESH_SEND, index,
 			len, send, send_queued, tx, NULL);
 	/* print_packet("Mesh Send Start", tx->pkt, tx->len); */
@@ -562,7 +563,7 @@ static void tx_to(struct l_timeout *timeout, void *user_data)
 	if (!pvt)
 		return;
 
-	tx = l_queue_pop_head(pvt->tx_pkts);
+	tx = l_queue_pop_head(pvt->tx_pkts);/*取得要发送的内容*/
 	if (!tx) {
 		l_timeout_remove(timeout);
 		pvt->tx_timeout = NULL;

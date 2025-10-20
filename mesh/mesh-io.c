@@ -48,6 +48,7 @@ static const uint8_t unprv_filter[] = { BT_AD_MESH_BEACON, 0 };
 static struct mesh_io *default_io;
 static struct l_timeout *loop_adv_to;
 
+/*通过type查找mesh_io_api*/
 static const struct mesh_io_api *io_api(enum mesh_io_type type)
 {
 	uint16_t i;
@@ -156,7 +157,7 @@ struct mesh_io *mesh_io_new(enum mesh_io_type type, void *opts,
 
 	/* Only allow one IO */
 	if (default_io)
-		return NULL;
+		return NULL;/*已初始化,返回NULL*/
 
 	default_io = l_new(struct mesh_io, 1);
 	default_io->ready = cb;

@@ -398,7 +398,7 @@ static void hci_init(void *user_data)
 		bt_hci_register(io->pvt->hci, BT_HCI_EVT_LE_META_EVENT,
 						event_callback, io, NULL);
 
-		l_debug("Started mesh on hci %u", io->index);
+		l_debug("Started mesh on hci %u", io->index);/*在此设备上开启mesh*/
 
 		restart_scan(io->pvt);
 	}

@@ -794,8 +794,8 @@ struct mgmt_cp_mesh_send {
 	uint64_t instant;
 	uint16_t delay;
 	uint8_t cnt;
-	uint8_t adv_data_len;
-	uint8_t adv_data[];
+	uint8_t adv_data_len;/*adv_data内容长度*/
+	uint8_t adv_data[];/*广播报文内容*/
 } __packed;
 
 #define MGMT_OP_MESH_SEND_CANCEL	0x005A
