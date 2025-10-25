@@ -74,9 +74,9 @@ static inline void sdp_list_foreach(sdp_list_t *list, sdp_list_func_t f, void *u
  * a session with an SDP server
  */
 typedef struct {
-	int sock;
+	int sock;/*socket fd*/
 	int state;
-	int local;
+	int local;/*是否为到本机的连接（当前到本机的连接采用unix socket)*/
 	int flags;
 	uint16_t tid;	/* Current transaction ID */
 	void *priv;

@@ -448,7 +448,7 @@ static void element_start(GMarkupParseContext *context,
 	struct context_data *ctx_data = user_data;
 
 	if (!strcmp(element_name, "record"))
-		return;
+		return;/*跳过record*/
 
 	if (!strcmp(element_name, "attribute")) {
 		int i;
@@ -610,7 +610,7 @@ static GMarkupParser parser = {
 	element_start, element_end, NULL, NULL, NULL
 };
 
-sdp_record_t *sdp_xml_parse_record(const char *data, int size)
+sdp_record_t *sdp_xml_parse_record(const char *data/*xml内容*/, int size)
 {
 	GMarkupParseContext *ctx;
 	struct context_data *ctx_data;

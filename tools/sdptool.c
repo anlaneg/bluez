@@ -3618,7 +3618,7 @@ static int add_gatt(sdp_session_t *session, svc_info_t *si)
 }
 
 struct {
-	char		*name;
+	char		*name;/*服务名称*/
 	uint32_t	class;
 	int		(*add)(sdp_session_t *sess, svc_info_t *si);
 	unsigned char *uuid;
@@ -3890,6 +3890,7 @@ static int do_search(bdaddr_t *bdaddr, struct search_context *context)
 		return 0;
 	}
 
+	/*连接到对端*/
 	sess = sdp_connect(&interface, bdaddr, SDP_RETRY_IF_BUSY);
 	ba2str(bdaddr, str);
 	if (!sess) {
@@ -3920,6 +3921,7 @@ static int do_search(bdaddr_t *bdaddr, struct search_context *context)
 		sdp_record_t *rec = (sdp_record_t *) seq->data;
 		struct search_context sub_context;
 
+		/*按view方式显示*/
 		switch (context->view) {
 		case DEFAULT_VIEW:
 			/* Display user friendly form */
@@ -4095,7 +4097,7 @@ static int cmd_search(int argc, char **argv)
 	if (!strncasecmp(context.svc, "0x", 2)) {
 		int num;
 		/* This is a UUID16, just convert to int */
-		sscanf(context.svc + 2, "%X", &num);
+		sscanf(context.svc + 2, "%X", &num);/*服务按16进制转换*/
 		class = num;
 		printf("Class 0x%X\n", class);
 	} else {
@@ -4103,11 +4105,13 @@ static int cmd_search(int argc, char **argv)
 
 		for (i = 0; service[i].name; i++)
 			if (strcasecmp(context.svc, service[i].name) == 0) {
+				/*按服务名称命中*/
 				class = service[i].class;
 				uuid = service[i].uuid;
 				break;
 			}
 		if (!class && !uuid) {
+			/*未命中*/
 			printf("Unknown service %s\n", context.svc);
 			return -1;
 		}
@@ -4124,6 +4128,7 @@ static int cmd_search(int argc, char **argv)
 		sdp_uuid128_create(&context.group, uuid);
 
 	if (has_addr)
+		/*给定了地址，按地址查询*/
 		return do_search(&bdaddr, &context);
 
 	return do_search(NULL, &context);
@@ -4376,15 +4381,15 @@ int main(int argc, char *argv[])
 			if (!strncmp(optarg, "hci", 3))
 				hci_devba(atoi(optarg + 3), &interface);/*取设备地址*/
 			else
-				str2ba(optarg, &interface);
+				str2ba(optarg, &interface);/*直接转换为地址*/
 			break;
 
 		case 'h':
-			usage();
+			usage();/*显示帮助信息*/
 			exit(0);
 
 		default:
-			exit(1);
+			exit(1);/*不认识的选项，直接退出*/
 		}
 	}
 
@@ -4392,13 +4397,13 @@ int main(int argc, char *argv[])
 	argv += optind;
 	optind = 0;
 
-	if (argc < 1) {
+	if (argc < 1) {/*无非选项参数，退出*/
 		usage();
 		exit(1);
 	}
 
 	for (i = 0; command[i].cmd; i++)
-		if (strncmp(command[i].cmd, argv[0], 4) == 0)
+		if (strncmp(command[i].cmd, argv[0]/*执行首个cmd*/, 4) == 0)
 			return command[i].func(argc, argv);
 
 	return 1;

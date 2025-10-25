@@ -3744,6 +3744,7 @@ sdp_session_t *sdp_create(int sk, uint32_t flags)
 	sdp_session_t *session;
 	struct sdp_transaction *t;
 
+	/*先申请一个session结构*/
 	session = bt_malloc0(sizeof(sdp_session_t));
 	if (!session) {
 		errno = ENOMEM;
@@ -4665,6 +4666,7 @@ static int sdp_connect_local(sdp_session_t *session)
 {
 	struct sockaddr_un sa;
 
+	/*采用unix连接到本机*/
 	session->sock = socket(PF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	if (session->sock < 0)
 		return -1;
@@ -4707,6 +4709,7 @@ static int sdp_connect_l2cap(const bdaddr_t *src,
 	if (flags & SDP_NON_BLOCKING)
 		sockflags |= SOCK_NONBLOCK;
 
+	/*采用l2cap连接到远端*/
 	session->sock = socket(PF_BLUETOOTH, sockflags, BTPROTO_L2CAP);
 	if (session->sock < 0)
 		return -1;
@@ -4750,13 +4753,14 @@ static int sdp_connect_l2cap(const bdaddr_t *src,
 	return -1;
 }
 
-sdp_session_t *sdp_connect(const bdaddr_t *src,
-		const bdaddr_t *dst, uint32_t flags)
+sdp_session_t *sdp_connect(const bdaddr_t *src/*源地址*/,
+		const bdaddr_t *dst/*目的地址*/, uint32_t flags)
 {
 	sdp_session_t *session;
 	int err;
 
 	if ((flags & SDP_RETRY_IF_BUSY) && (flags & SDP_NON_BLOCKING)) {
+		/*标记冲突*/
 		errno = EINVAL;
 		return NULL;
 	}
@@ -4766,9 +4770,11 @@ sdp_session_t *sdp_connect(const bdaddr_t *src,
 		return NULL;
 
 	if (sdp_is_local(dst)) {
+		/*连接到本机*/
 		if (sdp_connect_local(session) < 0)
 			goto fail;
 	} else {
+		/*连接到远端*/
 		if (sdp_connect_l2cap(src, dst, session) < 0)
 			goto fail;
 	}
