@@ -46,6 +46,7 @@
 
 /* Pending Authorization */
 struct network_session {
+	/*远端bd地址*/
 	bdaddr_t	dst;		/* Remote Bluetooth Address */
 	char		dev[16];	/* Interface name */
 	GIOChannel	*io;		/* Pending connect channel */
@@ -53,27 +54,37 @@ struct network_session {
 };
 
 struct network_adapter {
+	/*关联的adapter*/
 	struct btd_adapter *adapter;	/* Adapter pointer */
 	GIOChannel	*io;		/* Bnep socket */
 	struct network_session *setup;	/* Setup in progress */
+	/*用于挂接network_server*/
 	GSList		*servers;	/* Server register to adapter */
 };
 
 /* Main server structure */
 struct network_server {
+	/*本端adapter地址*/
 	bdaddr_t	src;		/* Bluetooth Local Address */
+	/*名称*/
 	char		*name;		/* Server service name */
+	/*桥名称*/
 	char		*bridge;	/* Bridge name */
+	/*服务记录编号（用于sdp)*/
 	uint32_t	record_id;	/* Service record id */
+	/*唯一标识*/
 	uint16_t	id;		/* Service class identifier */
 	GSList		*sessions;	/* Active connections */
+	/*此server关联的network_adapter*/
 	struct network_adapter *na;	/* Adapter reference */
 	guint		watch_id;	/* Client service watch */
 };
 
+/*注册系统所有network_adapter*/
 static GSList *adapters = NULL;
 static gboolean security = TRUE;
 
+/*遍历list所有成员network_adapter,如果其对应的adapter与要查找到的adapter相等，则返回对应的network_adapter*/
 static struct network_adapter *find_adapter(GSList *list,
 					struct btd_adapter *adapter)
 {
@@ -93,12 +104,13 @@ static struct network_server *find_server(GSList *list, uint16_t id)
 		struct network_server *ns = list->data;
 
 		if (ns->id == id)
-			return ns;
+			return ns;/*通过id查找到network server*/
 	}
 
 	return NULL;
 }
 
+/*通过uuid，在list上查找network_server*/
 static struct network_server *find_server_by_uuid(GSList *list,
 							const char *uuid)
 {
@@ -112,9 +124,10 @@ static struct network_server *find_server_by_uuid(GSList *list,
 
 			/* UUID value compare */
 			if (!bt_uuid_cmp(&srv_uuid, &bnep_uuid))
-				return ns;
+				return ns;/*两者uuid相等，返回network_server*/
 		}
 	} else {
+		/*传入的不是uuid格式，按名称查找*/
 		for (; list; list = list->next) {
 			struct network_server *ns = list->data;
 
@@ -139,7 +152,7 @@ static struct network_server *find_server_by_uuid(GSList *list,
 	return NULL;
 }
 
-static sdp_record_t *server_record_new(const char *name, uint16_t id)
+static sdp_record_t *server_record_new(const char *name, uint16_t id/*服务编号*/)
 {
 	sdp_list_t *svclass, *pfseq, *apseq, *root, *aproto;
 	uuid_t root_uuid, pan, l2cap, bnep;
@@ -163,12 +176,12 @@ static sdp_record_t *server_record_new(const char *name, uint16_t id)
 	switch (id) {
 	case BNEP_SVC_NAP:
 		sdp_uuid16_create(&pan, NAP_SVCLASS_ID);
-		svclass = sdp_list_append(NULL, &pan);
+		svclass = sdp_list_append(NULL, &pan);/*将pan串进到svclass中*/
 		sdp_set_service_classes(record, svclass);
 
 		sdp_uuid16_create(&profile[0].uuid, NAP_PROFILE_ID);
 		profile[0].version = 0x0100;
-		pfseq = sdp_list_append(NULL, &profile[0]);
+		pfseq = sdp_list_append(NULL, &profile[0]);/*将profile[0]串到pfseq中*/
 		sdp_set_profile_descs(record, pfseq);
 
 		sdp_set_info_attr(record, name, NULL, desc);
@@ -296,7 +309,7 @@ static gboolean bnep_setup(GIOChannel *chan,
 {
 	const uint8_t bt_base[] = { 0x00, 0x00, 0x10, 0x00, 0x80, 0x00,
 					0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB };
-	struct network_adapter *na = user_data;
+	struct network_adapter *na = user_data;/*传入的参数为network adapter*/
 	struct network_server *ns;
 	uint8_t packet[BNEP_MTU];
 	struct bnep_setup_conn_req *req = (void *) packet;
@@ -319,8 +332,9 @@ static gboolean bnep_setup(GIOChannel *chan,
 	 * BNEP_SETUP_CONNECTION_REQUEST_MSG should be read and left in case
 	 * of kernel setup connection msg handling.
 	 */
-	n = recv(sk, packet, sizeof(packet), MSG_PEEK);
+	n = recv(sk, packet, sizeof(packet), MSG_PEEK);/*peek一个报文*/
 	if (n < 0) {
+		/*收取报文失败*/
 		error("read(): %s(%d)", strerror(errno), errno);
 		return FALSE;
 	}
@@ -337,12 +351,14 @@ static gboolean bnep_setup(GIOChannel *chan,
 		 * which contains an unknown BNEP control type value.
 		 */
 		if (req->type == BNEP_CONTROL)
+			/*收到控制类报文*/
 			bnep_send_unkown_rsp(sk, req->ctrl);
 
 		error("To few setup connection request data received");
 		return FALSE;
 	}
 
+	/*取dst_role*/
 	switch (req->uuid_size) {
 	case 2:
 		dst_role = get_be16(req->service);
@@ -364,13 +380,15 @@ static gboolean bnep_setup(GIOChannel *chan,
 
 	ns = find_server(na->servers, dst_role);
 	if (!ns || !ns->record_id || !ns->bridge)
+		/*ns参数有误*/
 		error("Server error, bridge not initialized: (0x%x)", dst_role);
 	else
 		bridge = ns->bridge;
 
 	strncpy(na->setup->dev, BNEP_INTERFACE, 16);
-	na->setup->dev[15] = '\0';
+	na->setup->dev[15] = '\0';/*要创建的bnep网口名称*/
 
+	/*检查是否容许建立连接，创建网络设备及加桥处理*/
 	if (bnep_server_add(sk, bridge, na->setup->dev, &na->setup->dst,
 							packet, n) < 0)
 		error("BNEP server cannot be added");
@@ -421,6 +439,7 @@ reject:
 	setup_destroy(na);
 }
 
+/*收到新的连接chan*/
 static void confirm_event(GIOChannel *chan, gpointer user_data)
 {
 	struct network_adapter *na = user_data;
@@ -430,9 +449,9 @@ static void confirm_event(GIOChannel *chan, gpointer user_data)
 	guint ret;
 
 	bt_io_get(chan, &err,
-			BT_IO_OPT_SOURCE_BDADDR, &src,
-			BT_IO_OPT_DEST_BDADDR, &dst,
-			BT_IO_OPT_DEST, address,
+			BT_IO_OPT_SOURCE_BDADDR, &src,/*取连接源地址*/
+			BT_IO_OPT_DEST_BDADDR, &dst,/*取连接目的地址*/
+			BT_IO_OPT_DEST, address,/*取连接目的地址并将其转换为字符串形式*/
 			BT_IO_OPT_INVALID);
 	if (err) {
 		error("%s", err->message);
@@ -451,10 +470,10 @@ static void confirm_event(GIOChannel *chan, gpointer user_data)
 		goto drop;
 
 	na->setup = g_new0(struct network_session, 1);
-	bacpy(&na->setup->dst, &dst);
+	bacpy(&na->setup->dst, &dst);/*填写目的地址*/
 	na->setup->io = g_io_channel_ref(chan);
 
-	ret = btd_request_authorization(&src, &dst, BNEP_SVC_UUID,
+	ret = btd_request_authorization(&src/*本端地址*/, &dst/*远端地址*/, BNEP_SVC_UUID,
 					auth_cb, na);
 	if (ret == 0) {
 		error("Refusing connect from %s", address);
@@ -626,6 +645,7 @@ static void server_free(void *data)
 	g_free(ns);
 }
 
+/*解注册此network adapter*/
 static void path_unregister(void *data)
 {
 	struct network_adapter *na = data;
@@ -654,13 +674,14 @@ static struct network_adapter *create_adapter(struct btd_adapter *adapter)
 	struct network_adapter *na;
 	GError *err = NULL;
 
+	/*申请network adapter*/
 	na = g_new0(struct network_adapter, 1);
 	na->adapter = btd_adapter_ref(adapter);
 
-	na->io = bt_io_listen(NULL, confirm_event, na, NULL, &err,
+	na->io = bt_io_listen(NULL/*无connect回调*/, confirm_event/*此io接入新的client后调用此回调*/, na/*函数参数*/, NULL/*无destory处理*/, &err,
 				BT_IO_OPT_SOURCE_BDADDR,
-				btd_adapter_get_address(adapter),
-				BT_IO_OPT_PSM, BNEP_PSM,
+				btd_adapter_get_address(adapter),/*指为源地址*/
+				BT_IO_OPT_PSM, BNEP_PSM,/*指为psm*/
 				BT_IO_OPT_OMTU, BNEP_MTU,
 				BT_IO_OPT_IMTU, BNEP_MTU,
 				BT_IO_OPT_SEC_LEVEL,
@@ -676,7 +697,7 @@ static struct network_adapter *create_adapter(struct btd_adapter *adapter)
 	return na;
 }
 
-int server_register(struct btd_adapter *adapter, uint16_t id)
+int server_register(struct btd_adapter *adapter, uint16_t id/*服务编号*/)
 {
 	struct network_adapter *na;
 	struct network_server *ns;
@@ -684,6 +705,7 @@ int server_register(struct btd_adapter *adapter, uint16_t id)
 
 	na = find_adapter(adapters, adapter);
 	if (!na) {
+		/*此adapter还没有network_adpater,创建*/
 		na = create_adapter(adapter);
 		if (!na)
 			return -EINVAL;
@@ -692,17 +714,20 @@ int server_register(struct btd_adapter *adapter, uint16_t id)
 
 	ns = find_server(na->servers, id);
 	if (ns)
-		return 0;
+		return 0;/*此network server已存在，直接返回0*/
 
+	/*此id对应的network_server不存在，创建一个*/
 	ns = g_new0(struct network_server, 1);
 
 	ns->name = g_strdup("Network service");
 
 	path = adapter_get_path(adapter);
 
+	/*servers链表数量大于0，不触发dubs注册，直接跳到done*/
 	if (g_slist_length(na->servers) > 0)
 		goto done;
 
+	/*注册interface*/
 	if (!g_dbus_register_interface(btd_get_dbus_connection(), path,
 						NETWORK_SERVER_INTERFACE,
 						server_methods, NULL, NULL, na,
@@ -721,6 +746,7 @@ done:
 	ns->id = id;
 	ns->na = na;
 	ns->record_id = 0;
+	/*挂在链表上*/
 	na->servers = g_slist_append(na->servers, ns);
 
 	return 0;

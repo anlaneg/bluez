@@ -5404,7 +5404,7 @@ static bool device_irk_cmp(const struct btd_device *device,
 int device_addr_type_cmp(gconstpointer a, gconstpointer b)
 {
 	const struct btd_device *dev = a;
-	const struct device_addr_type *addr = b;
+	const struct device_addr_type *addr = b;/*匹配的值*/
 	int cmp;
 
 	cmp = bacmp(&dev->bdaddr, &addr->bdaddr);
@@ -5414,9 +5414,9 @@ int device_addr_type_cmp(gconstpointer a, gconstpointer b)
 	 * (doesn't matter whether LE or BR/EDR, then consider this a
 	 * match.
 	 */
-	if (!cmp && addr_is_public(addr->bdaddr_type) &&
-					addr_is_public(dev->bdaddr_type))
-		return 0;
+	if (!cmp/*两者地址相等*/ && addr_is_public(addr->bdaddr_type) &&
+					addr_is_public(dev->bdaddr_type)/*类型一致*/)
+		return 0;/*认定匹配*/
 
 	if (addr->bdaddr_type == BDADDR_BREDR) {
 		if (!dev->bredr)

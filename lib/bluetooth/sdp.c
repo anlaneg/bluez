@@ -1748,8 +1748,10 @@ sdp_list_t *sdp_list_append(sdp_list_t *p, void *d)
 	n->next = 0;
 
 	if (!p)
+		/*如果list为空，直接返回n*/
 		return n;
 
+	/*否则查找到p的结尾，并将n串进去*/
 	for (q = p; q->next; q = q->next);
 	q->next = n;
 
@@ -1960,7 +1962,7 @@ int sdp_set_uuidseq_attr(sdp_record_t *rec, uint16_t aid, sdp_list_t *seq)
 	uint8_t uuid128 = SDP_UUID128;
 	sdp_list_t *p;
 
-	len = sdp_list_len(seq);
+	len = sdp_list_len(seq);/*链表长度*/
 	if (!seq || len == 0)
 		return -1;
 	dtds = malloc(len * sizeof(void *));
@@ -1998,7 +2000,7 @@ int sdp_set_uuidseq_attr(sdp_record_t *rec, uint16_t aid, sdp_list_t *seq)
 			break;
 		}
 	}
-	if (status == 0) {
+	if (status == 0/*未发生错误*/) {
 		sdp_data_t *data = sdp_seq_alloc(dtds, values, len);
 		sdp_attr_replace(rec, aid, data);
 		sdp_pattern_add_uuidseq(rec, seq);

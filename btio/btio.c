@@ -52,7 +52,7 @@ typedef enum {
 } BtIOType;
 
 struct set_opts {
-	bdaddr_t src;
+	bdaddr_t src;/*源地址*/
 	bdaddr_t dst;
 	BtIOType type;
 	uint8_t src_type;
@@ -60,7 +60,7 @@ struct set_opts {
 	int defer;
 	int sec_level;
 	uint8_t channel;
-	uint16_t psm;
+	uint16_t psm;/*psm编号*/
 	uint16_t cid;
 	uint16_t mtu;
 	int imtu;
@@ -91,12 +91,13 @@ struct accept {
 };
 
 struct server {
-	BtIOConnect connect;
-	BtIOConfirm confirm;
-	gpointer user_data;
+	BtIOConnect connect;/*如果server未提供confirm,则触发connect确认接收新的client*/
+	BtIOConfirm confirm;/*如果server提供了confirm，则触发confirma确认接收新的client*/
+	gpointer user_data;/*函数参数*/
 	GDestroyNotify destroy;
 };
 
+/*取得协议编号*/
 static BtIOType bt_io_get_type(GIOChannel *io, GError **gerr)
 {
 	int sk = g_io_channel_unix_get_fd(io);
@@ -105,13 +106,13 @@ static BtIOType bt_io_get_type(GIOChannel *io, GError **gerr)
 
 	domain = 0;
 	len = sizeof(domain);
-	err = getsockopt(sk, SOL_SOCKET, SO_DOMAIN, &domain, &len);
+	err = getsockopt(sk, SOL_SOCKET, SO_DOMAIN, &domain, &len);/*取此socket对应的domain*/
 	if (err < 0) {
 		ERROR_FAILED(gerr, "getsockopt(SO_DOMAIN)", errno);
 		return BT_IO_INVALID;
 	}
 
-	if (domain != AF_BLUETOOTH) {
+	if (domain != AF_BLUETOOTH) {/*domain不是AF_BLUETOOTH,报错*/
 		g_set_error(gerr, BT_IO_ERROR, EINVAL,
 				"BtIO socket domain not AF_BLUETOOTH");
 		return BT_IO_INVALID;
@@ -119,12 +120,13 @@ static BtIOType bt_io_get_type(GIOChannel *io, GError **gerr)
 
 	proto = 0;
 	len = sizeof(proto);
-	err = getsockopt(sk, SOL_SOCKET, SO_PROTOCOL, &proto, &len);
+	err = getsockopt(sk, SOL_SOCKET, SO_PROTOCOL, &proto, &len);/*取socket设置的协议*/
 	if (err < 0) {
 		ERROR_FAILED(gerr, "getsockopt(SO_PROTOCOL)", errno);
 		return BT_IO_INVALID;
 	}
 
+	/*返回协议编号*/
 	switch (proto) {
 	case BTPROTO_RFCOMM:
 		return BT_IO_RFCOMM;
@@ -250,20 +252,25 @@ static gboolean server_cb(GIOChannel *io, GIOCondition cond,
 	if ((cond & G_IO_NVAL) || check_nval(io))
 		return FALSE;
 
+	/*取得server socket*/
 	srv_sock = g_io_channel_unix_get_fd(io);
 
+	/*按入新连接*/
 	cli_sock = accept(srv_sock, NULL, NULL);
 	if (cli_sock < 0)
 		return TRUE;
 
+	/*构建新连接对应的client io对象*/
 	cli_io = g_io_channel_unix_new(cli_sock);
 
 	g_io_channel_set_close_on_unref(cli_io, TRUE);
 	g_io_channel_set_flags(cli_io, G_IO_FLAG_NONBLOCK, NULL);
 
 	if (server->confirm)
+		/*如果server提供了confirm，则触发confirma确认接收新的client*/
 		server->confirm(cli_io, server->user_data);
 	else
+		/*如果server未提供confirm,则触发connect确认接收新的client*/
 		server->connect(cli_io, NULL, server->user_data);
 
 	g_io_channel_unref(cli_io);
@@ -272,7 +279,7 @@ static gboolean server_cb(GIOChannel *io, GIOCondition cond,
 }
 
 static void server_add(GIOChannel *io, BtIOConnect connect,
-				BtIOConfirm confirm, gpointer user_data,
+				BtIOConfirm confirm, gpointer user_data/*回调参数*/,
 				GDestroyNotify destroy)
 {
 	struct server *server;
@@ -285,7 +292,7 @@ static void server_add(GIOChannel *io, BtIOConnect connect,
 	server->destroy = destroy;
 
 	cond = G_IO_IN | G_IO_ERR | G_IO_HUP | G_IO_NVAL;
-	g_io_add_watch_full(io, G_PRIORITY_HIGH, cond, server_cb, server,
+	g_io_add_watch_full(io, G_PRIORITY_HIGH, cond, server_cb/*负责accept新连接*/, server,
 					(GDestroyNotify) server_remove);
 }
 
@@ -359,10 +366,11 @@ static int l2cap_connect(int sock, const bdaddr_t *dst, uint8_t dst_type,
 	if (cid)
 		addr.l2_cid = htobs(cid);
 	else
-		addr.l2_psm = htobs(psm);
+		addr.l2_psm = htobs(psm);/*设置对端psm*/
 
 	addr.l2_bdaddr_type = dst_type;
 
+	/*执行连接*/
 	err = connect(sock, (struct sockaddr *) &addr, sizeof(addr));
 	if (err < 0 && !(errno == EAGAIN || errno == EINPROGRESS))
 		return -errno;
@@ -623,11 +631,13 @@ static gboolean set_l2opts(int sock, int imtu, uint16_t omtu, uint8_t mode,
 
 	memset(&l2o, 0, sizeof(l2o));
 	len = sizeof(l2o);
+	/*先取旧值*/
 	if (getsockopt(sock, SOL_L2CAP, L2CAP_OPTIONS, &l2o, &len) < 0) {
 		ERROR_FAILED(err, "getsockopt(L2CAP_OPTIONS)", errno);
 		return FALSE;
 	}
 
+	/*按需更新*/
 	if (imtu != -1)
 		l2o.imtu = imtu;
 	if (omtu)
@@ -636,11 +646,13 @@ static gboolean set_l2opts(int sock, int imtu, uint16_t omtu, uint8_t mode,
 	if (mode) {
 		l2o.mode = mode_l2mode(mode);
 		if (l2o.mode == UINT8_MAX) {
+			/*转换mode成功*/
 			ERROR_FAILED(err, "Unsupported mode", errno);
 			return FALSE;
 		}
 	}
 
+	/*再设置imtu,omtu,mode*/
 	if (setsockopt(sock, SOL_L2CAP, L2CAP_OPTIONS, &l2o, sizeof(l2o)) < 0) {
 		ERROR_FAILED(err, "setsockopt(L2CAP_OPTIONS)", errno);
 		return FALSE;
@@ -680,6 +692,7 @@ static gboolean l2cap_set(int sock, uint8_t src_type, int sec_level,
 		gboolean ret = FALSE;
 
 		if (src_type == BDADDR_BREDR) {
+			/*源地址类型为BR/EDR*/
 			ret = set_l2opts(sock, imtu, omtu, mode, err);
 
 			/* Back to default behavior in case the first call
@@ -692,6 +705,7 @@ static gboolean l2cap_set(int sock, uint8_t src_type, int sec_level,
 				ret = set_l2opts(sock, -1, omtu, mode, err);
 			}
 		} else {
+			/*低功耗情况，设置imtu,设置mode*/
 			if (imtu != -1)
 				ret = set_le_imtu(sock, imtu, err);
 
@@ -718,6 +732,7 @@ static gboolean l2cap_set(int sock, uint8_t src_type, int sec_level,
 		return FALSE;
 	}
 
+	/*设置sec_level*/
 	if (sec_level && !set_sec_level(sock, BT_IO_L2CAP, sec_level, err))
 		return FALSE;
 
@@ -946,18 +961,18 @@ static gboolean parse_set_opts(struct set_opts *opts, GError **err,
 	opts->mode = L2CAP_MODE_BASIC;
 	opts->flushable = -1;
 	opts->priority = 0;
-	opts->src_type = BDADDR_BREDR;
+	opts->src_type = BDADDR_BREDR;/*默认src type*/
 	opts->dst_type = BDADDR_BREDR;
 	opts->imtu = -1;
 
-	while (opt != BT_IO_OPT_INVALID) {
+	while (opt != BT_IO_OPT_INVALID/*通过invalid表明参数结束*/) {
 		switch (opt) {
 		case BT_IO_OPT_SOURCE:
 			str = va_arg(args, const char *);
-			str2ba(str, &opts->src);
+			str2ba(str, &opts->src);/*参数转换为源地址*/
 			break;
 		case BT_IO_OPT_SOURCE_BDADDR:
-			bacpy(&opts->src, va_arg(args, const bdaddr_t *));
+			bacpy(&opts->src, va_arg(args, const bdaddr_t *));/*参数转换为源地址*/
 			break;
 		case BT_IO_OPT_SOURCE_TYPE:
 			opts->src_type = va_arg(args, int);
@@ -974,7 +989,7 @@ static gboolean parse_set_opts(struct set_opts *opts, GError **err,
 		case BT_IO_OPT_DEFER_TIMEOUT:
 			opts->defer = va_arg(args, int);
 			break;
-		case BT_IO_OPT_SEC_LEVEL:
+		case BT_IO_OPT_SEC_LEVEL:/*利用参数设置sec_level*/
 			opts->sec_level = va_arg(args, int);
 			break;
 		case BT_IO_OPT_CHANNEL:
@@ -983,7 +998,7 @@ static gboolean parse_set_opts(struct set_opts *opts, GError **err,
 			break;
 		case BT_IO_OPT_PSM:
 			opts->type = BT_IO_L2CAP;
-			opts->psm = va_arg(args, int);
+			opts->psm = va_arg(args, int);/*指定类型为l2cap及转换psm*/
 			break;
 		case BT_IO_OPT_CID:
 			opts->type = BT_IO_L2CAP;
@@ -995,12 +1010,12 @@ static gboolean parse_set_opts(struct set_opts *opts, GError **err,
 			opts->omtu = opts->mtu;
 			break;
 		case BT_IO_OPT_OMTU:
-			opts->omtu = va_arg(args, int);
+			opts->omtu = va_arg(args, int);/*利用参数设置omtu*/
 			if (!opts->mtu)
 				opts->mtu = opts->omtu;
 			break;
 		case BT_IO_OPT_IMTU:
-			opts->imtu = va_arg(args, int);
+			opts->imtu = va_arg(args, int);/*利用参数设置imtu*/
 			if (!opts->mtu)
 				opts->mtu = opts->imtu;
 			break;
@@ -1055,12 +1070,13 @@ static gboolean parse_set_opts(struct set_opts *opts, GError **err,
 			return FALSE;
 		}
 
-		opt = va_arg(args, int);
+		opt = va_arg(args, int);/*取下一个选项*/
 	}
 
 	return TRUE;
 }
 
+/*取源地址及源地址长度*/
 static gboolean get_src(int sock, void *src, socklen_t len, GError **err)
 {
 	socklen_t olen;
@@ -1075,6 +1091,7 @@ static gboolean get_src(int sock, void *src, socklen_t len, GError **err)
 	return TRUE;
 }
 
+/*取对端地址*/
 static gboolean get_dst(int sock, void *dst, socklen_t len, GError **err)
 {
 	socklen_t olen;
@@ -1185,11 +1202,12 @@ static gboolean l2cap_get(int sock, GError **err, BtIOOption opt1,
 	uint32_t priority, phy;
 
 	if (!get_src(sock, &src, sizeof(src), err))
-		return FALSE;
+		return FALSE;/*取源地址失败*/
 
 	memset(&l2o, 0, sizeof(l2o));
 
 	if (src.l2_bdaddr_type != BDADDR_BREDR) {
+		/*源地址类型不是BR/EDR*/
 		if (get_le_imtu(sock, &l2o.imtu) == 0) {
 			/* Older kernels may not support BT_MODE */
 			get_le_mode(sock, &l2o.mode);
@@ -1215,18 +1233,18 @@ parse_opts:
 	while (opt != BT_IO_OPT_INVALID) {
 		switch (opt) {
 		case BT_IO_OPT_SOURCE:
-			ba2str(&src.l2_bdaddr, va_arg(args, char *));
+			ba2str(&src.l2_bdaddr, va_arg(args, char *));/*将源地址格式化为字符串填充到va中*/
 			break;
 		case BT_IO_OPT_SOURCE_BDADDR:
-			bacpy(va_arg(args, bdaddr_t *), &src.l2_bdaddr);
+			bacpy(va_arg(args, bdaddr_t *), &src.l2_bdaddr);/*利用源地址填充参数*/
 			break;
 		case BT_IO_OPT_DEST:
 			if (!have_dst)
 				have_dst = get_dst(sock, &dst, sizeof(dst),
-									err);
+									err);/*自socket中取目的地址*/
 			if (!have_dst)
 				return FALSE;
-			ba2str(&dst.l2_bdaddr, va_arg(args, char *));
+			ba2str(&dst.l2_bdaddr, va_arg(args, char *));/*再将dst地址转换为字符串*/
 			break;
 		case BT_IO_OPT_DEST_BDADDR:
 			if (!have_dst)
@@ -1234,7 +1252,7 @@ parse_opts:
 									err);
 			if (!have_dst)
 				return FALSE;
-			bacpy(va_arg(args, bdaddr_t *), &dst.l2_bdaddr);
+			bacpy(va_arg(args, bdaddr_t *), &dst.l2_bdaddr);/*目的地址填充参数*/
 			break;
 		case BT_IO_OPT_DEST_TYPE:
 			if (!have_dst)
@@ -1242,7 +1260,7 @@ parse_opts:
 									err);
 			if (!have_dst)
 				return FALSE;
-			*(va_arg(args, uint8_t *)) = dst.l2_bdaddr_type;
+			*(va_arg(args, uint8_t *)) = dst.l2_bdaddr_type;/*取目的地址类型做为参数*/
 			break;
 		case BT_IO_OPT_DEFER_TIMEOUT:
 			len = sizeof(int);
@@ -1789,7 +1807,7 @@ static gboolean iso_get(int sock, GError **err, BtIOOption opt1, va_list args)
 	return TRUE;
 }
 
-static gboolean get_valist(GIOChannel *io, BtIOType type, GError **err,
+static gboolean get_valist(GIOChannel *io, BtIOType type/*协议类型*/, GError **err,
 						BtIOOption opt1, va_list args)
 {
 	int sock;
@@ -1798,6 +1816,7 @@ static gboolean get_valist(GIOChannel *io, BtIOType type, GError **err,
 
 	switch (type) {
 	case BT_IO_L2CAP:
+		/*l2cap数值获取*/
 		return l2cap_get(sock, err, opt1, args);
 	case BT_IO_RFCOMM:
 		return rfcomm_get(sock, err, opt1, args);
@@ -1827,6 +1846,7 @@ gboolean bt_io_accept(GIOChannel *io, BtIOConnect connect, gpointer user_data,
 	pfd.events = POLLOUT;
 
 	if (poll(&pfd, 1, 0) < 0) {
+		/*poll失败*/
 		ERROR_FAILED(err, "poll", errno);
 		return FALSE;
 	}
@@ -1967,6 +1987,7 @@ gboolean bt_io_get(GIOChannel *io, GError **err, BtIOOption opt1, ...)
 		return FALSE;
 
 	va_start(args, opt1);
+	/*利用fd填充opt1中的叁数*/
 	ret = get_valist(io, type, err, opt1, args);
 	va_end(args);
 
@@ -1982,14 +2003,18 @@ static GIOChannel *create_io(gboolean server/*是否server端*/, struct set_opts
 	/*依据类型,创建不同的socket*/
 	switch (opts->type) {
 	case BT_IO_L2CAP:
+		/*创建l2cap socket*/
 		sock = socket(PF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_L2CAP);
 		if (sock < 0) {
 			ERROR_FAILED(err, "socket(SEQPACKET, L2CAP)", errno);
 			return NULL;
 		}
+		/*绑定源地址及psm*/
 		if (l2cap_bind(sock, &opts->src, opts->src_type,
-				server ? opts->psm : 0, opts->cid, err) < 0)
+				server ? opts->psm/*server时指明psm*/ : 0/*client时不指明psm*/, opts->cid, err) < 0)
 			goto failed;
+
+		/*设置socket opt*/
 		if (!l2cap_set(sock, opts->src_type, opts->sec_level,
 				opts->imtu, opts->omtu, opts->mode,
 				opts->central, opts->flushable, opts->priority,
@@ -2046,6 +2071,7 @@ static GIOChannel *create_io(gboolean server/*是否server端*/, struct set_opts
 	io = g_io_channel_unix_new(sock);
 
 	g_io_channel_set_close_on_unref(io, TRUE);
+	/*设置非阻塞*/
 	g_io_channel_set_flags(io, G_IO_FLAG_NONBLOCK, NULL);
 
 	return io;
@@ -2067,6 +2093,7 @@ GIOChannel *bt_io_connect(BtIOConnect connect, gpointer user_data,
 	gboolean ret;
 	char addr[18];
 
+	/*按type解析叁数，填充opts*/
 	va_start(args, opt1);
 	ret = parse_set_opts(&opts, gerr, opt1, args);
 	va_end(args);
@@ -2074,7 +2101,7 @@ GIOChannel *bt_io_connect(BtIOConnect connect, gpointer user_data,
 	if (ret == FALSE)
 		return NULL;
 
-	io = create_io(FALSE, &opts, gerr);
+	io = create_io(FALSE/*创建client*/, &opts, gerr);
 	if (io == NULL)
 		return NULL;
 
@@ -2136,14 +2163,15 @@ GIOChannel *bt_io_listen(BtIOConnect connect, BtIOConfirm confirm,
 	int sock;
 	gboolean ret;
 
+	/*解析args参数列表并填充opts*/
 	va_start(args, opt1);
-	ret = parse_set_opts(&opts, err, opt1, args);
+	ret = parse_set_opts(&opts/*出参*/, err, opt1, args);
 	va_end(args);
 
 	if (ret == FALSE)
 		return NULL;
 
-	io = create_io(TRUE, &opts, err);
+	io = create_io(TRUE/*创建server*/, &opts, err);
 	if (io == NULL)
 		return NULL;
 
@@ -2156,6 +2184,7 @@ GIOChannel *bt_io_listen(BtIOConnect connect, BtIOConfirm confirm,
 			return NULL;
 		}
 
+	/*执行listen*/
 	if (listen(sock, 5) < 0) {
 		ERROR_FAILED(err, "listen", errno);
 		g_io_channel_unref(io);

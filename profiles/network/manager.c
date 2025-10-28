@@ -61,6 +61,7 @@ done:
 				conf_security ? "true" : "false");
 }
 
+/*注册panu(Personal Area Network User)*/
 static int panu_server_probe(struct btd_profile *p, struct btd_adapter *adapter)
 {
 	const char *path = adapter_get_path(adapter);
@@ -77,6 +78,7 @@ static void panu_server_remove(struct btd_profile *p,
 
 	DBG("path %s", path);
 
+	/*注册panu网络服务*/
 	server_unregister(adapter, BNEP_SVC_PANU);
 }
 
@@ -86,6 +88,7 @@ static int gn_server_probe(struct btd_profile *p, struct btd_adapter *adapter)
 
 	DBG("path %s", path);
 
+	/*注册gn网络服务*/
 	return server_register(adapter, BNEP_SVC_GN);
 }
 
@@ -105,6 +108,7 @@ static int nap_server_probe(struct btd_profile *p, struct btd_adapter *adapter)
 
 	DBG("path %s", path);
 
+	/*注册Network Access Point网络服务*/
 	return server_register(adapter, BNEP_SVC_NAP);
 }
 
@@ -118,6 +122,9 @@ static void nap_server_remove(struct btd_profile *p,
 	server_unregister(adapter, BNEP_SVC_NAP);
 }
 
+/*蓝牙个人区域网络（PAN）中的一个角色，
+ * 其作用是作为客户端设备，
+ * 通过网络接入点（NAP）或其他设备建立蓝牙网络连接，从而实现网络通信。*/
 static struct btd_profile panu_profile = {
 	.name		= "network-panu",
 	.local_uuid	= NAP_UUID,
@@ -130,6 +137,17 @@ static struct btd_profile panu_profile = {
 	.adapter_remove	= panu_server_remove,
 };
 
+/**
+ * 在蓝牙个人区域网络（PAN）中，GN（Group Ad-hoc Network，组自组网络）
+ * 的作用是实现设备之间直接组网通信，无需通过网络接入点（NAP）连接外部网络。
+ *
+ * GN 作为一种自包含网络，支持设备间的临时协作或数据交换。
+ * 在 GN 模式下，一台蓝牙设备充当主设备（GN），可以带最多 7 个从设备（PANU），
+ * 形成一个微微网（piconet）。从设备之间不能直接通信，需要通过主设备（GN）进行数据转发。
+ * 例如，会议室里 3 台笔记本，A 笔记本开启 “蓝牙组网模式” 扮演 GN，
+ * B、C 笔记本搜索并配对 A 扮演 PANU，B 笔记本传设计图给 C，
+ * 数据先传给 A，A 再转发给 C，全程无需连 WiFi 和使用流量。
+ */
 static struct btd_profile gn_profile = {
 	.name		= "network-gn",
 	.local_uuid	= PANU_UUID,
@@ -142,6 +160,9 @@ static struct btd_profile gn_profile = {
 	.adapter_remove	= gn_server_remove,
 };
 
+/*NAP（Network Access Point，网络接入点）的作用是
+ * 作为蓝牙网络与其他网络技术之间的桥梁、代理或路由器，
+ * 为其他蓝牙设备提供网络访问功能。*/
 static struct btd_profile nap_profile = {
 	.name		= "network-nap",
 	.local_uuid	= PANU_UUID,

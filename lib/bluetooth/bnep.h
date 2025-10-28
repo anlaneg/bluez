@@ -79,7 +79,7 @@ extern "C" {
 struct bnep_setup_conn_req {
 	uint8_t  type;
 	uint8_t  ctrl;
-	uint8_t  uuid_size;
+	uint8_t  uuid_size;/*uuid长度*/
 	uint8_t  service[0];
 } __attribute__((packed));
 
@@ -96,6 +96,7 @@ struct bnep_ctrl_cmd_not_understood_cmd {
 	uint8_t unkn_ctrl;
 } __attribute__((packed));
 
+/*控制响应报文*/
 struct bnep_control_rsp {
 	uint8_t  type;
 	uint8_t  ctrl;

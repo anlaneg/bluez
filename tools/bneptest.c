@@ -69,6 +69,7 @@ static uint8_t mcast_addr_down_range[6];
 static uint8_t mcast_addr_up_range[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
 static uint8_t src_hw_addr[6];
 static uint8_t dst_hw_addr[6];
+/*报文负载*/
 static uint8_t general_frame_payload[] = "abcdef0123456789_bnep_test_data";
 
 static int set_forward_delay(int sk)
@@ -80,6 +81,7 @@ static int set_forward_delay(int sk)
 	strncpy(ifr.ifr_name, bridge, IFNAMSIZ);
 	ifr.ifr_data = (char *) args;
 
+	/*设置桥设备的forward delay时间*/
 	if (ioctl(sk, SIOCDEVPRIVATE, &ifr) < 0) {
 		error("setting forward delay failed: %d (%s)",
 							errno, strerror(errno));
@@ -89,6 +91,7 @@ static int set_forward_delay(int sk)
 	return 0;
 }
 
+/*创建linux bridge*/
 static int nap_create_bridge(void)
 {
 	int sk, err;
@@ -97,6 +100,7 @@ static int nap_create_bridge(void)
 	if (sk < 0)
 		return -EOPNOTSUPP;
 
+	/*添加linux bridge*/
 	if (ioctl(sk, SIOCBRADDBR, bridge) < 0) {
 		if (errno != EEXIST) {
 			close(sk);
@@ -149,6 +153,7 @@ static gboolean bnep_watchdog_cb(GIOChannel *chan, GIOCondition cond,
 	return FALSE;
 }
 
+/*发送compressed报文*/
 static ssize_t send_compressed_frame(int sk, uint8_t type)
 {
 	uint8_t frame[100];
@@ -185,6 +190,7 @@ static ssize_t send_general_frame(int sk)
 		sleep(send_frame_timeout);
 	}
 
+	/*构造GENERAL报文并发送*/
 	frame[0] = BNEP_GENERAL;
 	memcpy(&frame[1], dst_hw_addr, sizeof(dst_hw_addr));
 	memcpy(&frame[7], src_hw_addr, sizeof(src_hw_addr));
@@ -212,11 +218,12 @@ static ssize_t send_ctrl_frame(int sk)
 	if (send_frame_timeout > 0) {
 		printf("waiting %d seconds before sending msg\n",
 						send_frame_timeout);
-		sleep(send_frame_timeout);
+		sleep(send_frame_timeout);/*发送前等待一段时间*/
 	}
 
 	switch (ctrl_msg_type) {
 	case BNEP_FILTER_NET_TYPE_SET:
+		/*filter设置报文（指明容许通过的协议号范围）*/
 		frame->type = BNEP_CONTROL;
 		frame->ctrl = ctrl_msg_type;
 		frame->len = htons(sizeof(ntw_proto_down_range) +
@@ -226,11 +233,13 @@ static ssize_t send_ctrl_frame(int sk)
 		memcpy(frame->list + sizeof(ntw_proto_down_range),
 			&ntw_proto_up_range, sizeof(ntw_proto_up_range));
 
+		/*发送bnep_control*/
 		err = send(sk, frame, sizeof(*frame) +
 						sizeof(ntw_proto_down_range) +
 						sizeof(ntw_proto_up_range), 0);
 		break;
 	case BNEP_FILTER_MULT_ADDR_SET:
+		/*设置报文组播地址列表（指明容许通过的地址范围）*/
 		frame->type = BNEP_CONTROL;
 		frame->ctrl = ctrl_msg_type;
 		frame->len = htons(sizeof(mcast_addr_down_range) +
@@ -245,6 +254,7 @@ static ssize_t send_ctrl_frame(int sk)
 					sizeof(mcast_addr_up_range), 0);
 		break;
 	default:
+		/*不支持其它控制报文*/
 		err = -1;
 		break;
 	}
@@ -252,10 +262,12 @@ static ssize_t send_ctrl_frame(int sk)
 	return err;
 }
 
+/*按命令行要求发送对应的帧*/
 static int send_bnep_frame(int sk)
 {
 	int err;
 
+	/*按msg_type构建报文并发送给对端*/
 	switch (bnep_msg_type) {
 	case BNEP_GENERAL:
 		err = send_general_frame(sk);
@@ -280,10 +292,12 @@ static int send_bnep_frame(int sk)
 	return err;
 }
 
+/*向外发送报文*/
 static void handle_bnep_msg_send(int sk)
 {
 	if (send_ctrl_msg_type_set) {
 		do {
+			/*发送控制报文*/
 			if (send_ctrl_frame(sk) < 0)
 				printf("sending ctrl frame error: %s (%d)\n",
 							strerror(errno), errno);
@@ -292,6 +306,7 @@ static void handle_bnep_msg_send(int sk)
 
 	if (send_bnep_msg_type_set) {
 		do {
+			/*按msg类型发送报文*/
 			if (send_bnep_frame(sk) < 0)
 				printf("sending bnep frame error: %s (%d)\n",
 							strerror(errno), errno);
@@ -315,12 +330,13 @@ static gboolean setup_bnep_cb(GIOChannel *chan, GIOCondition cond,
 	sk = g_io_channel_unix_get_fd(chan);
 
 	/* Reading BNEP_SETUP_CONNECTION_REQUEST_MSG */
-	n = recv(sk, packet, sizeof(packet), MSG_PEEK);
+	n = recv(sk, packet, sizeof(packet), MSG_PEEK);/*peek一个报文*/
 	if (n < 0) {
 		error("read(): %s(%d)", strerror(errno), errno);
 		return FALSE;
 	}
 
+	/*创建bridge*/
 	err = nap_create_bridge();
 	if (err < 0) {
 		error("failed to create bridge: %s (%d)", strerror(-err), err);
@@ -328,7 +344,7 @@ static gboolean setup_bnep_cb(GIOChannel *chan, GIOCondition cond,
 	}
 
 	if (bnep_server_add(sk, (err < 0) ? NULL : bridge, iface, &dst_addr,
-							packet, n) < 0) {
+							packet/*传入peek的报文*/, n) < 0) {
 		printf("server_connadd failed\n");
 		cleanup();
 		return FALSE;
@@ -396,8 +412,8 @@ static void connect_client_cb(GIOChannel *chan, GError *err, gpointer user_data)
 		return;
 	}
 
-	perr = bnep_connect(session, connected_client_cb,
-				disconnected_client_cb, INT_TO_PTR(sk), NULL);
+	perr = bnep_connect(session, connected_client_cb/*发送报文*/,
+				disconnected_client_cb/*断开连接*/, INT_TO_PTR(sk), NULL);
 	if (perr < 0)
 		printf("cannot initiate bnep connection\n");
 }
@@ -436,8 +452,8 @@ static int bnep_server_listen(void)
 	printf("%s\n", __func__);
 
 	bnep_io = bt_io_listen(NULL, confirm_cb, NULL, NULL, &gerr,
-					BT_IO_OPT_SOURCE_BDADDR, &src_addr,
-					BT_IO_OPT_PSM, BNEP_PSM,
+					BT_IO_OPT_SOURCE_BDADDR, &src_addr,/*源地址*/
+					BT_IO_OPT_PSM, BNEP_PSM,/*bnep对应的psm*/
 					BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_LOW,
 					BT_IO_OPT_OMTU, BNEP_MTU,
 					BT_IO_OPT_IMTU, BNEP_MTU,
@@ -458,14 +474,14 @@ static int bnep_client_connect(void)
 
 	printf("%s\n", __func__);
 
-	ba2str(&dst_addr, bdastr);
+	ba2str(&dst_addr, bdastr);/*目的地址*/
 	printf("connecting %s\n", bdastr);
 
 	bnep_io = bt_io_connect(connect_client_cb, NULL, NULL, &gerr,
-					BT_IO_OPT_SOURCE_BDADDR, &src_addr,
-					BT_IO_OPT_DEST_BDADDR, &dst_addr,
-					BT_IO_OPT_PSM, BNEP_PSM,
-					BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_MEDIUM,
+					BT_IO_OPT_SOURCE_BDADDR, &src_addr,/*源地址*/
+					BT_IO_OPT_DEST_BDADDR, &dst_addr,/*目的地址*/
+					BT_IO_OPT_PSM, BNEP_PSM,/*psm*/
+					BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_MEDIUM,/*sec level*/
 					BT_IO_OPT_OMTU, BNEP_MTU,
 					BT_IO_OPT_IMTU, BNEP_MTU,
 					BT_IO_OPT_INVALID);
@@ -550,13 +566,13 @@ int main(int argc, char *argv[])
 {
 	int opt, i;
 	int err;
-	bool is_set_b_name = false, is_set_i_name = false;
+	bool is_set_b_name = false/*是否设置了桥名称*/, is_set_i_name = false/*是否设置了接口名称*/;
 
 	DBG("");
 
 	signal(SIGINT, exit_handler);
 
-	hci_devba(0, &src_addr);
+	hci_devba(0, &src_addr);/*取0号设备地址*/
 	bacpy(&src_addr, BDADDR_ANY);
 
 	mloop = g_main_loop_new(NULL, FALSE);
@@ -572,30 +588,32 @@ int main(int argc, char *argv[])
 		switch (opt) {
 		case 'i':
 			if (!strncmp(optarg, "hci", 3))
-				hci_devba(atoi(optarg + 3), &src_addr);
+				hci_devba(atoi(optarg + 3), &src_addr);/*按设备编号设置src_addr*/
 			else
-				str2ba(optarg, &src_addr);
+				str2ba(optarg, &src_addr);/*由参数直接转换为地址*/
 			break;
 		case 's':
-			mode = MODE_LISTEN;
+			mode = MODE_LISTEN;/*server模式*/
 			break;
 		case 'c':
-			str2ba(optarg, &dst_addr);
-			mode = MODE_CONNECT;
+			str2ba(optarg, &dst_addr);/*设置对端地址*/
+			mode = MODE_CONNECT;/*client模式*/
 			break;
 		case 't':
-			send_ctrl_msg_type_set = true;
-			ctrl_msg_type = atoi(optarg);
+			send_ctrl_msg_type_set = true;/*指明要发送ctrl message*/
+			ctrl_msg_type = atoi(optarg);/*指明要发送的控制msg类型*/
 			break;
 		case 'w':
-			send_bnep_msg_type_set = true;
+			send_bnep_msg_type_set = true;/*指明设置了msg_type*/
 			bnep_msg_type = atoi(optarg);
 			break;
 		case 'k':
+			/*设置src_hw_addr*/
 			for (i = 0; i <= 5; i++, optarg += 3)
 				src_hw_addr[i] = strtol(optarg, NULL, 16);
 			break;
 		case 'f':
+			/*设置dst_hw_addr*/
 			for (i = 0; i <= 5; i++, optarg += 3)
 				dst_hw_addr[i] = strtol(optarg, NULL, 16);
 			break;
@@ -603,17 +621,21 @@ int main(int argc, char *argv[])
 			send_frame_timeout = atoi(optarg);
 			break;
 		case 'd':
+			/*设置容许通过的协议范围*/
 			ntw_proto_down_range = htons(atoi(optarg));
 			break;
 		case 'e':
+			/*设置容许通过的协议范围*/
 			ntw_proto_up_range = htons(atoi(optarg));
 			break;
 		case 'g':
+			/*设置容许通过的组播地址范围*/
 			for (i = 5; i >= 0; i--, optarg += 3)
 				mcast_addr_down_range[i] =
 						strtol(optarg, NULL, 16);
 			break;
 		case 'j':
+			/*设置容许通过的组播地址范围*/
 			for (i = 5; i >= 0; i--, optarg += 3)
 				mcast_addr_up_range[i] =
 						strtol(optarg, NULL, 16);
@@ -626,14 +648,14 @@ int main(int argc, char *argv[])
 			break;
 		case 'b':
 			strncpy(bridge, optarg, 16);
-			bridge[15] = '\0';
+			bridge[15] = '\0';/*设置桥名称*/
 			is_set_b_name = true;
 			break;
 		case 'n':
 			strncpy(iface, optarg, 14);
 			strcat(iface, "\%d");
 			iface[15] = '\0';
-			is_set_i_name = true;
+			is_set_i_name = true;/*设置接口名称*/
 			break;
 		case 'N':
 			no_close_after_disconn = true;
@@ -652,29 +674,30 @@ int main(int argc, char *argv[])
 	}
 
 	if (!is_set_b_name || !is_set_i_name) {
+		/*必须提供桥设备名称及网口接口名称*/
 		printf("bridge, interface name must be set!\n");
 		exit(1);
 	}
 
 	switch (mode) {
-	case MODE_CONNECT:
+	case MODE_CONNECT:/*连接到对端*/
 		err = bnep_init();
 		if (err < 0) {
 			printf("cannot initialize bnep\n");
 			exit(1);
 		}
-		err = bnep_client_connect();
+		err = bnep_client_connect();/*连接远端*/
 		if (err < 0)
 			exit(1);
 
 		break;
-	case MODE_LISTEN:
+	case MODE_LISTEN:/*做server端*/
 		err = bnep_init();
 		if (err < 0) {
 			printf("cannot initialize bnep\n");
 			exit(1);
 		}
-		err = bnep_server_listen();
+		err = bnep_server_listen();/*监听并等待连接*/
 		if (err < 0)
 			exit(1);
 
@@ -684,7 +707,7 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	g_main_loop_run(mloop);
+	g_main_loop_run(mloop);/*loop事件处理*/
 
 	printf("Done\n");
 

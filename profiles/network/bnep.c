@@ -41,7 +41,7 @@
 #define CON_SETUP_RETRIES      3
 #define CON_SETUP_TO           9
 
-static int ctl;
+static int ctl;/*bnep socket*/
 
 struct __service_16 {
 	uint16_t dst;
@@ -53,7 +53,7 @@ struct bnep {
 	uint16_t	src;
 	uint16_t	dst;
 	bdaddr_t	dst_addr;
-	char	iface[16];
+	char	iface[16];/*接口名称*/
 	guint	attempts;
 	unsigned int	setup_to;
 	guint	watch;
@@ -65,6 +65,7 @@ struct bnep {
 
 int bnep_init(void)
 {
+	/*创建bnep协议socket*/
 	ctl = socket(PF_BLUETOOTH, SOCK_RAW, BTPROTO_BNEP);
 	if (ctl < 0) {
 		int err = -errno;
@@ -87,6 +88,7 @@ int bnep_cleanup(void)
 	return 0;
 }
 
+/*删除指定地址的连接*/
 static int bnep_conndel(const bdaddr_t *dst)
 {
 	struct bnep_conndel_req req;
@@ -103,6 +105,7 @@ static int bnep_conndel(const bdaddr_t *dst)
 	return 0;
 }
 
+/*添加bnep连接（sk是一个l2cap连接，其的src,dst即为bnep的src及dst mac,同时指定了设备名称）*/
 static int bnep_connadd(int sk, uint16_t role, char *dev)
 {
 	struct bnep_connadd_req req;
@@ -111,7 +114,7 @@ static int bnep_connadd(int sk, uint16_t role, char *dev)
 	strncpy(req.device, dev, 15);/*netdev设备名称*/
 	req.device[15] = '\0';
 
-	req.sock = sk;/*存入要关联的socket*/
+	req.sock = sk;/*存入要关联的l2cap socket*/
 	req.role = role;
 	req.flags = (1 << BNEP_SETUP_RESPONSE);
 	/*请求kernel创建关联的netdev*/
@@ -126,6 +129,7 @@ static int bnep_connadd(int sk, uint16_t role, char *dev)
 	return 0;
 }
 
+/*获取支持的features*/
 static uint32_t bnep_getsuppfeat(void)
 {
 	uint32_t feat;
@@ -222,7 +226,7 @@ static gboolean bnep_setup_cb(GIOChannel *chan, GIOCondition cond,
 
 	sk = g_io_channel_unix_get_fd(chan);
 	memset(pkt, 0, BNEP_MTU);
-	r = read(sk, pkt, sizeof(pkt) - 1);
+	r = read(sk, pkt, sizeof(pkt) - 1);/*读取内容*/
 	if (r < 0) {
 		error("bnep: IO Channel read error");
 		goto failed;
@@ -242,15 +246,17 @@ static gboolean bnep_setup_cb(GIOChannel *chan, GIOCondition cond,
 
 	rsp = (void *) pkt;
 	if (rsp->type != BNEP_CONTROL) {
+		/*非控制报文*/
 		error("bnep: Packet received is not bnep type");
 		goto failed;
 	}
 
 	if (rsp->ctrl != BNEP_SETUP_CONN_RSP)
-		return TRUE;
+		return TRUE;/*非连接响应报文*/
 
 	r = ntohs(rsp->resp);
 	if (r != BNEP_SUCCESS) {
+		/*连接请求失败*/
 		error("bnep: failed");
 		goto failed;
 	}
@@ -264,9 +270,11 @@ static gboolean bnep_setup_cb(GIOChannel *chan, GIOCondition cond,
 	};
 
 	sk = g_io_channel_unix_get_fd(session->io);
+	/*添加连接*/
 	if (bnep_connadd(sk, session->src, session->iface) < 0)
 		goto failed;
 
+	/*使netdev接口up*/
 	if (bnep_if_up(session->iface) < 0) {
 		bnep_conndel(&session->dst_addr);
 		goto failed;
@@ -274,10 +282,11 @@ static gboolean bnep_setup_cb(GIOChannel *chan, GIOCondition cond,
 
 	session->watch = g_io_add_watch(session->io,
 					G_IO_ERR | G_IO_HUP | G_IO_NVAL,
-					(GIOFunc) bnep_watchdog_cb, session);
+					(GIOFunc) bnep_watchdog_cb/*调用disconnect断开连接*/, session);
 	g_io_channel_unref(session->io);
 	session->io = NULL;
 
+	/*执行conn_cb回调*/
 	session->conn_cb(session->iface, 0, session->conn_data);
 
 	return FALSE;
@@ -346,7 +355,7 @@ struct bnep *bnep_new(int sk, uint16_t local_role, uint16_t remote_role,
 	session->io = g_io_channel_unix_new(dup_fd);
 	session->src = local_role;
 	session->dst = remote_role;
-	strncpy(session->iface, iface, 15);
+	strncpy(session->iface, iface, 15);/*设置接口名称*/
 	session->iface[15] = '\0';
 
 	g_io_channel_set_close_on_unref(session->io, TRUE);
@@ -448,6 +457,7 @@ static int bnep_add_to_bridge(const char *devname, const char *bridge)
 	strncpy(ifr.ifr_name, bridge, IFNAMSIZ - 1);
 	ifr.ifr_ifindex = ifindex;
 
+	/*将接口加入到桥*/
 	if (ioctl(sk, SIOCBRADDIF, &ifr) < 0) {
 		err = -errno;
 		error("bnep: Can't add %s to the bridge %s: %s(%d)",
@@ -541,6 +551,7 @@ static uint16_t bnep_setup_decode(int sk, struct bnep_setup_conn_req *req,
 	if (((req->type != BNEP_CONTROL) &&
 		(req->type != (BNEP_CONTROL | BNEP_EXT_HEADER)))  ||
 					req->ctrl != BNEP_SETUP_CONN_REQ)
+		/*遇到其它以上情况的报文，返回失败*/
 		return BNEP_CONN_NOT_ALLOWED;
 
 	dest = req->service;
@@ -548,20 +559,20 @@ static uint16_t bnep_setup_decode(int sk, struct bnep_setup_conn_req *req,
 
 	switch (req->uuid_size) {
 	case 2: /* UUID16 */
-		*dst = get_be16(dest);
-		src = get_be16(source);
+		*dst = get_be16(dest);/*首先是uuid(2字节）*/
+		src = get_be16(source);/*接着是source（1字节）*/
 		break;
 	case 16: /* UUID128 */
 		/* Check that the bytes in the UUID, except the service ID
 		 * itself, are correct. The service ID is checked in
 		 * bnep_setup_chk(). */
 		if (memcmp(&dest[4], bt_base, sizeof(bt_base)) != 0)
-			return BNEP_CONN_INVALID_DST;
+			return BNEP_CONN_INVALID_DST;/*与bt_base不匹配*/
 		if (memcmp(&source[4], bt_base, sizeof(bt_base)) != 0)
-			return BNEP_CONN_INVALID_SRC;
+			return BNEP_CONN_INVALID_SRC;/*与bt_base不匹配*/
 		/* fall through */
 	case 4: /* UUID32 */
-		val = get_be32(dest);
+		val = get_be32(dest);/*取value，通过uuid检查是哪种服务类型*/
 		if (val > 0xffff)
 			return BNEP_CONN_INVALID_DST;
 
@@ -569,7 +580,7 @@ static uint16_t bnep_setup_decode(int sk, struct bnep_setup_conn_req *req,
 
 		val = get_be32(source);
 		if (val > 0xffff)
-			return BNEP_CONN_INVALID_SRC;
+			return BNEP_CONN_INVALID_SRC;/*取value*/
 
 		src = val;
 		break;
@@ -582,11 +593,13 @@ static uint16_t bnep_setup_decode(int sk, struct bnep_setup_conn_req *req,
 	case BNEP_SVC_NAP:
 	case BNEP_SVC_GN:
 		if (src == BNEP_SVC_PANU)
+			/*以上两种，如果源服务为panu,则返回成功，容许建立*/
 			return BNEP_SUCCESS;
 		return BNEP_CONN_INVALID_SRC;
 	case BNEP_SVC_PANU:
 		if (src == BNEP_SVC_PANU || src == BNEP_SVC_GN ||
 							src == BNEP_SVC_NAP)
+			/*当目标端服务是panu时，本端只能是以上三种*/
 			return BNEP_SUCCESS;
 
 		return BNEP_CONN_INVALID_SRC;
@@ -615,6 +628,7 @@ static int bnep_server_add_legacy(int sk, uint16_t dst, char *bridge,
 		goto reply;
 	}
 
+	/*将netdev接口iface加入到bridge*/
 	err = bnep_add_to_bridge(iface, bridge);
 	if (err < 0) {
 		bnep_conndel(addr);
@@ -622,6 +636,7 @@ static int bnep_server_add_legacy(int sk, uint16_t dst, char *bridge,
 		goto reply;
 	}
 
+	/*使netdev接口up*/
 	err = bnep_if_up(iface);
 	if (err < 0) {
 		bnep_del_from_bridge(iface, bridge);
@@ -642,7 +657,7 @@ reply:
 	return err;
 }
 
-int bnep_server_add(int sk, char *bridge, char *iface, const bdaddr_t *addr,
+int bnep_server_add(int sk/*需关联连接的l2cap socket*/, char *bridge/*桥设备名称*/, char *iface/*bnep网络设备名称*/, const bdaddr_t *addr/*远端地址*/,
 						uint8_t *setup_data, int len)
 {
 	int err;
@@ -654,6 +669,7 @@ int bnep_server_add(int sk, char *bridge, char *iface, const bdaddr_t *addr,
 	 * is BNEP_FILTER_MULT_ADDR_RSP = 0x06 */
 	if (req->type == BNEP_CONTROL &&
 					req->ctrl > BNEP_FILTER_MULT_ADDR_RSP) {
+		/*遇到不认识的control报文，响应*/
 		error("bnep: cmd not understood");
 		err = bnep_send_ctrl_rsp(sk, BNEP_CMD_NOT_UNDERSTOOD,
 								req->ctrl);
@@ -667,6 +683,7 @@ int bnep_server_add(int sk, char *bridge, char *iface, const bdaddr_t *addr,
 	/* Processing BNEP_SETUP_CONNECTION_REQUEST_MSG */
 	rsp = bnep_setup_decode(sk, req, &dst);
 	if (rsp != BNEP_SUCCESS) {
+		/*协商不成功，不能建立*/
 		err = -rsp;
 		error("bnep: error while decoding setup connection request: %d",
 									rsp);
@@ -681,19 +698,23 @@ int bnep_server_add(int sk, char *bridge, char *iface, const bdaddr_t *addr,
 	 * be checked and handled respectively.
 	 */
 	if (!feat || !(feat & (1 << BNEP_SETUP_RESPONSE)))
+		/*不支持setup response*/
 		return bnep_server_add_legacy(sk, dst, bridge, iface, addr,
 							setup_data, len);
 
+	/*创建bnep网络接口，关联此l2cap socket*/
 	err = bnep_connadd(sk, dst, iface);
 	if (err < 0) {
 		rsp = BNEP_CONN_NOT_ALLOWED;
 		goto failed;
 	}
 
+	/*将iface接口加入桥*/
 	err = bnep_add_to_bridge(iface, bridge);
 	if (err < 0)
 		goto failed_conn;
 
+	/*使netdev接口iface up*/
 	err = bnep_if_up(iface);
 	if (err < 0)
 		goto failed_bridge;

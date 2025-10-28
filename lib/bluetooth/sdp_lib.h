@@ -34,6 +34,7 @@ sdp_list_t *sdp_list_remove(sdp_list_t *list, void *d);
 sdp_list_t *sdp_list_insert_sorted(sdp_list_t *list, void *data, sdp_comp_func_t f);
 void        sdp_list_free(sdp_list_t *list, sdp_free_func_t f);
 
+/*取链表长度*/
 static inline int sdp_list_len(const sdp_list_t *list)
 {
 	int n = 0;

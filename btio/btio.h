@@ -20,23 +20,23 @@ GQuark bt_io_error_quark(void);
 
 typedef enum {
 	BT_IO_OPT_INVALID = 0,
-	BT_IO_OPT_SOURCE,
-	BT_IO_OPT_SOURCE_BDADDR,
+	BT_IO_OPT_SOURCE,/*get时将源地址格式化为字符串赋给参数*/
+	BT_IO_OPT_SOURCE_BDADDR,/*set将参数转换为源地址;get时将BDADDR赋值给参数*/
 	BT_IO_OPT_SOURCE_TYPE,
-	BT_IO_OPT_DEST,
-	BT_IO_OPT_DEST_BDADDR,
+	BT_IO_OPT_DEST,/*get时将目的地址格式化为字符串赋给参数*/
+	BT_IO_OPT_DEST_BDADDR,/*get时将目的地址赋给参数*/
 	BT_IO_OPT_DEST_TYPE,
 	BT_IO_OPT_DEFER_TIMEOUT,
-	BT_IO_OPT_SEC_LEVEL,
+	BT_IO_OPT_SEC_LEVEL,/*利用参数设置sec_level*/
 	BT_IO_OPT_KEY_SIZE,
 	BT_IO_OPT_CHANNEL,
 	BT_IO_OPT_SOURCE_CHANNEL,
 	BT_IO_OPT_DEST_CHANNEL,
-	BT_IO_OPT_PSM,
+	BT_IO_OPT_PSM,/*利用参数为psm并设置BT_IO_L2CAP为type*/
 	BT_IO_OPT_CID,
 	BT_IO_OPT_MTU,
-	BT_IO_OPT_OMTU,
-	BT_IO_OPT_IMTU,
+	BT_IO_OPT_OMTU,/*利用参数设置omtu*/
+	BT_IO_OPT_IMTU,/*利用参数设置imtu*/
 	BT_IO_OPT_CENTRAL,
 	BT_IO_OPT_HANDLE,
 	BT_IO_OPT_CLASS,

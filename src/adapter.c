@@ -261,7 +261,7 @@ enum {
 };
 
 struct btd_adapter {
-	int ref_count;
+	int ref_count;/*引用计数*/
 
 	uint16_t dev_id;
 	struct mgmt *mgmt;
@@ -1059,6 +1059,7 @@ struct btd_device *btd_adapter_find_device(struct btd_adapter *adapter,
 	list = g_slist_find_custom(adapter->devices, &addr,
 							device_addr_type_cmp);
 	if (!list)
+		/*没有找到dst对应的设备*/
 		return NULL;
 
 	device = list->data;
@@ -6063,6 +6064,7 @@ static void adapter_free(gpointer user_data)
 	g_free(adapter);
 }
 
+/*增加结构体计数*/
 struct btd_adapter *btd_adapter_ref(struct btd_adapter *adapter)
 {
 	__sync_fetch_and_add(&adapter->ref_count, 1);
@@ -7877,7 +7879,7 @@ static void svc_complete(struct btd_device *dev, int err, void *user_data)
 	adapter->auth_idle_id = g_idle_add(process_auth_queue, adapter);
 }
 
-static int adapter_authorize(struct btd_adapter *adapter, const bdaddr_t *dst,
+static int adapter_authorize(struct btd_adapter *adapter/*本端adapter*/, const bdaddr_t *dst/*远端地址*/,
 					const char *uuid,
 					adapter_authorize_type check_for_connection,
 					service_auth_cb cb, void *user_data)
@@ -7886,7 +7888,7 @@ static int adapter_authorize(struct btd_adapter *adapter, const bdaddr_t *dst,
 	struct btd_device *device;
 	static guint id = 0;
 
-	device = btd_adapter_find_device(adapter, dst, BDADDR_BREDR);
+	device = btd_adapter_find_device(adapter, dst, BDADDR_BREDR/*地址类型指明为BR/EDR*/);
 	if (!device)
 		return 0;
 
@@ -7930,9 +7932,10 @@ guint btd_request_authorization(const bdaddr_t *src, const bdaddr_t *dst,
 	GSList *l;
 
 	if (bacmp(src, BDADDR_ANY) != 0) {
+		/*本端地址不为ANY,通过本端地址查找adapter*/
 		adapter = adapter_find(src);
 		if (!adapter)
-			return 0;
+			return 0;/*未查找到adapter,失败返回0*/
 
 		return adapter_authorize(adapter, dst, uuid,
 				ADAPTER_AUTHORIZE_CHECK_CONNECTED, cb, user_data);

@@ -253,7 +253,7 @@ typedef struct {
 		BT_UUID16 = 16,
 		BT_UUID32 = 32,
 		BT_UUID128 = 128,
-	} type;
+	} type;/*uuid类型*/
 	union {
 		uint16_t  u16;
 		uint32_t  u32;
