@@ -574,6 +574,7 @@ static guint setup_signalfd(void)
 	sigset_t mask;
 	int fd;
 
+	/*设置关注的信号*/
 	sigemptyset(&mask);
 	sigaddset(&mask, SIGINT);
 	sigaddset(&mask, SIGTERM);
@@ -583,6 +584,7 @@ static guint setup_signalfd(void)
 		return 0;
 	}
 
+	/*创建signalfd*/
 	fd = signalfd(-1, &mask, 0);
 	if (fd < 0) {
 		perror("Failed to create signal descriptor");

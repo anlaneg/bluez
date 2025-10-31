@@ -50,11 +50,11 @@ struct __service_16 {
 
 struct bnep {
 	GIOChannel	*io;
-	uint16_t	src;
-	uint16_t	dst;
+	uint16_t	src;/*源服务编号，例如：BNEP_SVC_PANU*/
+	uint16_t	dst;/*目的服务编号，例如：BNEP_SVC_PANU*/
 	bdaddr_t	dst_addr;
 	char	iface[16];/*接口名称*/
-	guint	attempts;
+	guint	attempts;/*尝试连接次数*/
 	unsigned int	setup_to;
 	guint	watch;
 	bnep_connect_cb	conn_cb;
@@ -307,19 +307,20 @@ static int bnep_setup_conn_req(struct bnep *session)
 	/* Send request */
 	req = (void *) pkt;
 	req->type = BNEP_CONTROL;
-	req->ctrl = BNEP_SETUP_CONN_REQ;
+	req->ctrl = BNEP_SETUP_CONN_REQ;/*发送请求连接*/
 	req->uuid_size = 2;     /* 16bit UUID */
-	s = (void *) req->service;
+	s = (void *) req->service;/*设置源目的啥？*/
 	s->src = htons(session->src);
 	s->dst = htons(session->dst);
 
 	fd = g_io_channel_unix_get_fd(session->io);
+	/*向对端发送conn_req*/
 	if (write(fd, pkt, sizeof(*req) + sizeof(*s)) < 0) {
 		error("bnep: connection req send failed: %s", strerror(errno));
 		return -errno;
 	}
 
-	session->attempts++;
+	session->attempts++;/*增加尝试次数*/
 
 	return 0;
 }
@@ -329,8 +330,10 @@ static bool bnep_conn_req_to(gpointer user_data)
 	struct bnep *session = user_data;
 
 	if (session->attempts == CON_SETUP_RETRIES) {
+		/*尝试次数超限，报错*/
 		error("bnep: Too many bnep connection attempts");
 	} else {
+		/*重发请求*/
 		error("bnep: connection setup TO, retrying...");
 		if (bnep_setup_conn_req(session) == 0)
 			return TRUE;
@@ -341,13 +344,13 @@ static bool bnep_conn_req_to(gpointer user_data)
 	return FALSE;
 }
 
-struct bnep *bnep_new(int sk, uint16_t local_role, uint16_t remote_role,
+struct bnep *bnep_new(int sk, uint16_t local_role/*本端服务号*/, uint16_t remote_role/*远端服务号*/,
 								char *iface)
 {
 	struct bnep *session;
 	int dup_fd;
 
-	dup_fd = dup(sk);
+	dup_fd = dup(sk);/*复制sk*/
 	if (dup_fd < 0)
 		return NULL;
 
@@ -401,7 +404,7 @@ int bnep_connect(struct bnep *session, bnep_connect_cb conn_cb,
 	session->conn_data = conn_data;
 	session->disconn_data = disconn_data;
 
-	bt_io_get(session->io, &gerr, BT_IO_OPT_DEST_BDADDR, &session->dst_addr,
+	bt_io_get(session->io, &gerr, BT_IO_OPT_DEST_BDADDR, &session->dst_addr/*利用连接填充目的地址*/,
 							BT_IO_OPT_INVALID);
 	if (gerr) {
 		error("bnep: connect failed: %s", gerr->message);
@@ -521,11 +524,12 @@ static ssize_t bnep_send_ctrl_rsp(int sk, uint8_t ctrl, uint16_t resp)
 	case BNEP_FILTER_MULT_ADDR_RSP:
 	case BNEP_FILTER_NET_TYPE_RSP:
 	case BNEP_SETUP_CONN_RSP: {
+		/*连接响应*/
 		struct bnep_control_rsp rsp;
 
 		rsp.type = BNEP_CONTROL;
 		rsp.ctrl = ctrl;
-		rsp.resp = htons(resp);
+		rsp.resp = htons(resp)/*响应结果*/;
 
 		sent = send(sk, &rsp, sizeof(rsp), 0);
 		break;
@@ -554,12 +558,13 @@ static uint16_t bnep_setup_decode(int sk, struct bnep_setup_conn_req *req,
 		/*遇到其它以上情况的报文，返回失败*/
 		return BNEP_CONN_NOT_ALLOWED;
 
+	/*收到连接请求*/
 	dest = req->service;
 	source = req->service + req->uuid_size;
 
 	switch (req->uuid_size) {
 	case 2: /* UUID16 */
-		*dst = get_be16(dest);/*首先是uuid(2字节）*/
+		*dst = get_be16(dest);/*首先是远端的src服务角色uuid(2字节），对本端而言即为dst*/
 		src = get_be16(source);/*接着是source（1字节）*/
 		break;
 	case 16: /* UUID128 */
@@ -648,6 +653,7 @@ static int bnep_server_add_legacy(int sk, uint16_t dst, char *bridge,
 	rsp = BNEP_SUCCESS;
 
 reply:
+	/*发送连接响应*/
 	if (bnep_send_ctrl_rsp(sk, BNEP_SETUP_CONN_RSP, rsp) < 0) {
 		err = -errno;
 		error("bnep: send ctrl rsp error: %s (%d)", strerror(-err),
@@ -687,9 +693,10 @@ int bnep_server_add(int sk/*需关联连接的l2cap socket*/, char *bridge/*桥�
 		err = -rsp;
 		error("bnep: error while decoding setup connection request: %d",
 									rsp);
-		goto failed;
+		goto failed;/*给对方响应协商结果*/
 	}
 
+	/*协商成功，可以建立*/
 	feat = bnep_getsuppfeat();
 
 	/*
@@ -703,9 +710,9 @@ int bnep_server_add(int sk/*需关联连接的l2cap socket*/, char *bridge/*桥�
 							setup_data, len);
 
 	/*创建bnep网络接口，关联此l2cap socket*/
-	err = bnep_connadd(sk, dst, iface);
+	err = bnep_connadd(sk, dst/*指定本端角色*/, iface);
 	if (err < 0) {
-		rsp = BNEP_CONN_NOT_ALLOWED;
+		rsp = BNEP_CONN_NOT_ALLOWED;/*响应不容许*/
 		goto failed;
 	}
 

@@ -2068,6 +2068,7 @@ static GIOChannel *create_io(gboolean server/*是否server端*/, struct set_opts
 		return NULL;
 	}
 
+	/*利用socket创建GIOChannel*/
 	io = g_io_channel_unix_new(sock);
 
 	g_io_channel_set_close_on_unref(io, TRUE);
@@ -2120,7 +2121,7 @@ GIOChannel *bt_io_connect(BtIOConnect connect, gpointer user_data,
 	/*执行连接*/
 	switch (opts.type) {
 	case BT_IO_L2CAP:
-		err = l2cap_connect(sock, &opts.dst, opts.dst_type,
+		err = l2cap_connect(sock, &opts.dst/*对端地址*/, opts.dst_type,
 							opts.psm, opts.cid);
 		break;
 	case BT_IO_RFCOMM:

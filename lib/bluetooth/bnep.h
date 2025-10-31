@@ -121,7 +121,7 @@ struct bnep_ext_hdr {
 struct bnep_connadd_req {
 	int      sock;		/* Connected socket */
 	uint32_t flags;
-	uint16_t role;
+	uint16_t role;/*本端角色*/
 	char     device[16];	/* Name of the Ethernet device */
 };
 

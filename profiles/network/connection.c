@@ -242,7 +242,7 @@ static void connect_cb(GIOChannel *chan, GError *err, gpointer data)
 	}
 
 	sk = g_io_channel_unix_get_fd(nc->io);
-	nc->session = bnep_new(sk, BNEP_SVC_PANU, nc->id, BNEP_INTERFACE);
+	nc->session = bnep_new(sk, BNEP_SVC_PANU/*本端角色*/, nc->id/*对端角色*/, BNEP_INTERFACE);
 	if (!nc->session)
 		goto failed;
 
@@ -562,7 +562,7 @@ int connection_register(struct btd_service *svc)
 	}
 
 	nc = g_new0(struct network_conn, 1);
-	nc->id = id;
+	nc->id = id;/*角色编号*/
 	nc->service = btd_service_ref(svc);
 	nc->state = DISCONNECTED;
 	nc->peer = peer;
