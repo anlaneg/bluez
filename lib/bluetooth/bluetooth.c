@@ -62,6 +62,7 @@ bdaddr_t *strtoba(const char *str)
 	return ba;
 }
 
+/*反序显示*/
 int ba2str(const bdaddr_t *ba, char *str)
 {
 	return sprintf(str, "%2.2X:%2.2X:%2.2X:%2.2X:%2.2X:%2.2X",

@@ -52,7 +52,7 @@ static bool no_close_after_disconn;
 static int send_frame_timeout;
 
 static bdaddr_t src_addr, dst_addr;
-static char iface[16];
+static char iface[16];/*接口名称*/
 static char bridge[16];
 static bool send_ctrl_msg_type_set = false;
 static uint8_t ctrl_msg_type = 0x00;
@@ -336,7 +336,7 @@ static gboolean setup_bnep_cb(GIOChannel *chan, GIOCondition cond,
 		return FALSE;
 	}
 
-	/*创建bridge*/
+	/*创建linux bridge*/
 	err = nap_create_bridge();
 	if (err < 0) {
 		error("failed to create bridge: %s (%d)", strerror(-err), err);
@@ -415,6 +415,7 @@ static void connect_client_cb(GIOChannel *chan, GError *err, gpointer user_data)
 	perr = bnep_connect(session, connected_client_cb/*发送报文*/,
 				disconnected_client_cb/*断开连接*/, INT_TO_PTR(sk), NULL);
 	if (perr < 0)
+		/*连接失败,仅报错*/
 		printf("cannot initiate bnep connection\n");
 }
 
@@ -459,6 +460,7 @@ static int bnep_server_listen(void)
 					BT_IO_OPT_IMTU, BNEP_MTU,
 					BT_IO_OPT_INVALID);
 	if (!bnep_io) {
+		/*执行listen出错*/
 		printf("can't start server listening: err %s\n", gerr->message);
 		g_error_free(gerr);
 		return -1;
@@ -475,12 +477,12 @@ static int bnep_client_connect(void)
 	printf("%s\n", __func__);
 
 	ba2str(&dst_addr, bdastr);/*目的地址*/
-	printf("connecting %s\n", bdastr);
+	printf("connecting %s\n", bdastr);/*显示目的地址*/
 
 	bnep_io = bt_io_connect(connect_client_cb, NULL, NULL, &gerr,
 					BT_IO_OPT_SOURCE_BDADDR, &src_addr,/*源地址*/
 					BT_IO_OPT_DEST_BDADDR, &dst_addr,/*目的地址*/
-					BT_IO_OPT_PSM, BNEP_PSM,/*psm*/
+					BT_IO_OPT_PSM, BNEP_PSM,/*目标psm psm*/
 					BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_MEDIUM,/*sec level*/
 					BT_IO_OPT_OMTU, BNEP_MTU,
 					BT_IO_OPT_IMTU, BNEP_MTU,

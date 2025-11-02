@@ -1343,6 +1343,7 @@ int sap_server_register(struct btd_adapter *adapter)
 	struct sap_server *server;
 
 	if (sap_init() < 0) {
+		/*驱动初始化失败*/
 		error("Sap driver initialization failed.");
 		return -1;
 	}
@@ -1362,7 +1363,7 @@ int sap_server_register(struct btd_adapter *adapter)
 	server = g_new0(struct sap_server, 1);
 	server->adapter = btd_adapter_ref(adapter);
 	server->record_id = record->handle;
-
+	systemctl edit bluetooth
 	io = bt_io_listen(NULL, connect_confirm_cb, server,
 			NULL, &gerr,
 			BT_IO_OPT_SOURCE_BDADDR,

@@ -41,7 +41,7 @@
 #define CON_SETUP_RETRIES      3
 #define CON_SETUP_TO           9
 
-static int ctl;/*bnep socket*/
+static int ctl;/*对应为bnep socket,由bnep_init创建*/
 
 struct __service_16 {
 	uint16_t dst;

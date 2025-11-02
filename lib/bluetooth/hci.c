@@ -998,8 +998,8 @@ int hci_devba(int dev_id, bdaddr_t *bdaddr)
 	return 0;
 }
 
-int hci_inquiry(int dev_id, int len, int nrsp, const uint8_t *lap,
-		inquiry_info **ii, long flags)
+int hci_inquiry(int dev_id, int len/*超时时间*/, int nrsp/*最大响应数*/, const uint8_t *lap,
+		inquiry_info **ii/*出参,查询到的设备信息*/, long flags)
 {
 	struct hci_inquiry_req *ir;
 	uint8_t num_rsp = nrsp;
@@ -1012,6 +1012,7 @@ int hci_inquiry(int dev_id, int len, int nrsp, const uint8_t *lap,
 	}
 
 	if (dev_id < 0) {
+		/*未指明设备,获取一个*/
 		dev_id = hci_get_route(NULL);
 		if (dev_id < 0) {
 			errno = ENODEV;
@@ -1034,13 +1035,14 @@ int hci_inquiry(int dev_id, int len, int nrsp, const uint8_t *lap,
 	ir->flags   = flags;
 
 	if (lap) {
-		memcpy(ir->lap, lap, 3);
+		memcpy(ir->lap, lap, 3);/*按指定LAP查询*/
 	} else {
 		ir->lap[0] = 0x33;
 		ir->lap[1] = 0x8b;
 		ir->lap[2] = 0x9e;
 	}
 
+	/*做设备查询*/
 	ret = ioctl(dd, HCIINQUIRY, (unsigned long) buf);
 	if (ret < 0)
 		goto free;
@@ -1052,7 +1054,7 @@ int hci_inquiry(int dev_id, int len, int nrsp, const uint8_t *lap,
 
 	if (*ii) {
 		memcpy((void *) *ii, buf + sizeof(*ir), size);
-		ret = ir->num_rsp;
+		ret = ir->num_rsp;/*设备数目*/
 	} else
 		ret = -1;
 
@@ -1089,7 +1091,7 @@ int hci_open_dev(int dev_id)
 	memset(&a, 0, sizeof(a));
 	a.hci_family = AF_BLUETOOTH;
 	a.hci_dev = dev_id;
-	//默认指明了hci_channel为HCI_CHANNEL_RAW
+	//默认指明了hci_channel为HCI_CHANNEL_RAW,由于此处指定了hci_dev,故此设备开启了混杂
 	if (bind(dd, (struct sockaddr *) &a, sizeof(a)) < 0)/*绑定此hci设备*/
 		goto failed;
 
@@ -1145,7 +1147,8 @@ int hci_send_cmd(int dd, uint16_t ogf, uint16_t ocf, uint8_t plen, void *param)
 	return 0;
 }
 
-int hci_send_req(int dd, struct hci_request *r, int to)
+/*发送请求并读取响应*/
+int hci_send_req(int dd, struct hci_request *r, int to/*超时时间*/)
 {
 	unsigned char buf[HCI_MAX_EVENT_SIZE], *ptr;
 	/*生成请求对应的opcode*/
@@ -1169,6 +1172,7 @@ int hci_send_req(int dd, struct hci_request *r, int to)
 	if (setsockopt(dd, SOL_HCI, HCI_FILTER, &nf, sizeof(nf)) < 0)
 		return -1;
 
+	/*发送此命令*/
 	if (hci_send_cmd(dd, r->ogf, r->ocf, r->clen, r->cparam) < 0)
 		goto failed;
 
@@ -1187,12 +1191,14 @@ int hci_send_req(int dd, struct hci_request *r, int to)
 
 			p.fd = dd; p.events = POLLIN;
 			while ((n = poll(&p, 1, to)) < 0) {
+				/*POLL失败*/
 				if (errno == EAGAIN || errno == EINTR)
 					continue;
 				goto failed;
 			}
 
 			if (!n) {
+				/*未收到事件,认定为超时*/
 				errno = ETIMEDOUT;
 				goto failed;
 			}
@@ -1203,6 +1209,7 @@ int hci_send_req(int dd, struct hci_request *r, int to)
 
 		}
 
+		/*读取事件*/
 		while ((len = read(dd, buf, sizeof(buf))) < 0) {
 			if (errno == EAGAIN || errno == EINTR)
 				continue;
@@ -1218,7 +1225,7 @@ int hci_send_req(int dd, struct hci_request *r, int to)
 			cs = (void *) ptr;
 
 			if (cs->opcode != opcode)
-				continue;
+				continue;/*非本请求事件,忽略*/
 
 			if (r->event != EVT_CMD_STATUS) {
 				if (cs->status) {
@@ -1236,7 +1243,7 @@ int hci_send_req(int dd, struct hci_request *r, int to)
 			cc = (void *) ptr;
 
 			if (cc->opcode != opcode)
-				continue;
+				continue;/*非本请求事件,忽略*/
 
 			ptr += EVT_CMD_COMPLETE_SIZE;
 			len -= EVT_CMD_COMPLETE_SIZE;
@@ -1245,7 +1252,7 @@ int hci_send_req(int dd, struct hci_request *r, int to)
 			memcpy(r->rparam, ptr, r->rlen);
 			goto done;
 
-		case EVT_REMOTE_NAME_REQ_COMPLETE:
+		case EVT_REMOTE_NAME_REQ_COMPLETE:/*收到名称请求完成事件*/
 			if (hdr->evt != r->event)
 				break;
 
@@ -1256,7 +1263,7 @@ int hci_send_req(int dd, struct hci_request *r, int to)
 				continue;
 
 			r->rlen = MIN(len, r->rlen);
-			memcpy(r->rparam, ptr, r->rlen);
+			memcpy(r->rparam, ptr, r->rlen);/*填写响应内容*/
 			goto done;
 
 		case EVT_LE_META_EVENT:
@@ -1272,10 +1279,10 @@ int hci_send_req(int dd, struct hci_request *r, int to)
 
 		default:
 			if (hdr->evt != r->event)
-				break;
+				break;/*响应事件非预期,跳出报错*/
 
 			r->rlen = MIN(len, r->rlen);
-			memcpy(r->rparam, ptr, r->rlen);
+			memcpy(r->rparam, ptr, r->rlen);/*复制响应参数*/
 			goto done;
 		}
 	}
@@ -1294,7 +1301,8 @@ done:
 	return 0;
 }
 
-int hci_create_connection(int dd, const bdaddr_t *bdaddr, uint16_t ptype,
+/*创建连接*/
+int hci_create_connection(int dd, const bdaddr_t *bdaddr/*目的地址*/, uint16_t ptype,
 				uint16_t clkoffset, uint8_t rswitch,
 				uint16_t *handle, int to)
 {
@@ -1311,22 +1319,24 @@ int hci_create_connection(int dd, const bdaddr_t *bdaddr, uint16_t ptype,
 
 	memset(&rq, 0, sizeof(rq));
 	rq.ogf    = OGF_LINK_CTL;
-	rq.ocf    = OCF_CREATE_CONN;
+	rq.ocf    = OCF_CREATE_CONN;/*建立连接*/
 	rq.event  = EVT_CONN_COMPLETE;
-	rq.cparam = &cp;
+	rq.cparam = &cp;/*连接参数*/
 	rq.clen   = CREATE_CONN_CP_SIZE;
-	rq.rparam = &rp;
+	rq.rparam = &rp;/*响应参数*/
 	rq.rlen   = EVT_CONN_COMPLETE_SIZE;
 
+	/*发送连接请求并读取响应*/
 	if (hci_send_req(dd, &rq, to) < 0)
 		return -1;
 
 	if (rp.status) {
+		/*响应失败*/
 		errno = EIO;
 		return -1;
 	}
 
-	*handle = rp.handle;
+	*handle = rp.handle;/*返回连接handle*/
 	return 0;
 }
 
@@ -1660,13 +1670,13 @@ int hci_read_remote_name_with_clock_offset(int dd, const bdaddr_t *bdaddr,
 	struct hci_request rq;
 
 	memset(&cp, 0, sizeof(cp));
-	bacpy(&cp.bdaddr, bdaddr);
+	bacpy(&cp.bdaddr, bdaddr);/*设置远端地址*/
 	cp.pscan_rep_mode = pscan_rep_mode;
 	cp.clock_offset   = clkoffset;
 
 	memset(&rq, 0, sizeof(rq));
 	rq.ogf    = OGF_LINK_CTL;
-	rq.ocf    = OCF_REMOTE_NAME_REQ;
+	rq.ocf    = OCF_REMOTE_NAME_REQ;/*请求查询名称*/
 	rq.cparam = &cp;
 	rq.clen   = REMOTE_NAME_REQ_CP_SIZE;
 	rq.event  = EVT_REMOTE_NAME_REQ_COMPLETE;
@@ -1681,6 +1691,7 @@ int hci_read_remote_name_with_clock_offset(int dd, const bdaddr_t *bdaddr,
 		return -1;
 	}
 
+	/*显示响应内容*/
 	rn.name[247] = '\0';
 	strncpy(name, (char *) rn.name, len);
 	return 0;
@@ -1721,7 +1732,7 @@ int hci_read_remote_version(int dd, uint16_t handle, struct hci_version *ver,
 	struct hci_request rq;
 
 	memset(&cp, 0, sizeof(cp));
-	cp.handle = handle;
+	cp.handle = handle;/*指明连接的handle,用于指针对端设备*/
 
 	memset(&rq, 0, sizeof(rq));
 	rq.ogf    = OGF_LINK_CTL;
@@ -1740,6 +1751,7 @@ int hci_read_remote_version(int dd, uint16_t handle, struct hci_version *ver,
 		return -1;
 	}
 
+	/*记录收到的版本信息*/
 	ver->manufacturer = btohs(rp.manufacturer);
 	ver->lmp_ver      = rp.lmp_ver;
 	ver->lmp_subver   = btohs(rp.lmp_subver);
@@ -1773,7 +1785,7 @@ int hci_read_remote_features(int dd, uint16_t handle, uint8_t *features, int to)
 	}
 
 	if (features)
-		memcpy(features, rp.features, 8);
+		memcpy(features, rp.features, 8);/*记录读取到的远端功能信息*/
 
 	return 0;
 }
@@ -2943,7 +2955,7 @@ int hci_read_clock(int dd, uint16_t handle, uint8_t which, uint32_t *clock,
 	return 0;
 }
 
-int hci_le_set_scan_enable(int dd, uint8_t enable, uint8_t filter_dup, int to)
+int hci_le_set_scan_enable(int dd, uint8_t enable/*是否开启*/, uint8_t filter_dup/*是否过滤重复的广播报文*/, int to)
 {
 	struct hci_request rq;
 	le_set_scan_enable_cp scan_cp;
@@ -2955,7 +2967,7 @@ int hci_le_set_scan_enable(int dd, uint8_t enable, uint8_t filter_dup, int to)
 
 	memset(&rq, 0, sizeof(rq));
 	rq.ogf = OGF_LE_CTL;
-	rq.ocf = OCF_LE_SET_SCAN_ENABLE;/*开启扫描*/
+	rq.ocf = OCF_LE_SET_SCAN_ENABLE;/*要求控制器开启/关闭扫描*/
 	rq.cparam = &scan_cp;
 	rq.clen = LE_SET_SCAN_ENABLE_CP_SIZE;
 	rq.rparam = &status;
@@ -2965,6 +2977,7 @@ int hci_le_set_scan_enable(int dd, uint8_t enable, uint8_t filter_dup, int to)
 		return -1;
 
 	if (status) {
+		/*执行扫描开启失败*/
 		errno = EIO;
 		return -1;
 	}
@@ -3000,6 +3013,7 @@ int hci_le_set_scan_parameters(int dd, uint8_t type,
 		return -1;
 
 	if (status) {
+		/*设置扫描参数出错*/
 		errno = EIO;
 		return -1;
 	}
@@ -3037,7 +3051,7 @@ int hci_le_set_advertise_enable(int dd, uint8_t enable, int to)
 
 int hci_le_create_conn(int dd, uint16_t interval, uint16_t window,
 		uint8_t initiator_filter, uint8_t peer_bdaddr_type,
-		bdaddr_t peer_bdaddr, uint8_t own_bdaddr_type,
+		bdaddr_t peer_bdaddr/*对端地址*/, uint8_t own_bdaddr_type,
 		uint16_t min_interval, uint16_t max_interval,
 		uint16_t latency, uint16_t supervision_timeout,
 		uint16_t min_ce_length, uint16_t max_ce_length,
@@ -3063,7 +3077,7 @@ int hci_le_create_conn(int dd, uint16_t interval, uint16_t window,
 
 	memset(&rq, 0, sizeof(rq));
 	rq.ogf = OGF_LE_CTL;
-	rq.ocf = OCF_LE_CREATE_CONN;
+	rq.ocf = OCF_LE_CREATE_CONN;/*创建连接*/
 	rq.event = EVT_LE_CONN_COMPLETE;
 	rq.cparam = &create_conn_cp;
 	rq.clen = LE_CREATE_CONN_CP_SIZE;
@@ -3078,6 +3092,7 @@ int hci_le_create_conn(int dd, uint16_t interval, uint16_t window,
 		return -1;
 	}
 
+	/*创建 le connect成功*/
 	if (handle)
 		*handle = conn_complete_rp.handle;
 

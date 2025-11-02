@@ -346,6 +346,7 @@ static int l2cap_bind(int sock, const bdaddr_t *src, uint8_t src_type,
 	addr.l2_bdaddr_type = src_type;
 
 	if (bind(sock, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
+		/*执行bind出错*/
 		int error = -errno;
 		ERROR_FAILED(err, "l2cap_bind", errno);
 		return error;
@@ -354,6 +355,7 @@ static int l2cap_bind(int sock, const bdaddr_t *src, uint8_t src_type,
 	return 0;
 }
 
+/*执行到目地的连接*/
 static int l2cap_connect(int sock, const bdaddr_t *dst, uint8_t dst_type,
 						uint16_t psm, uint16_t cid)
 {
@@ -2083,7 +2085,7 @@ failed:
 	return NULL;
 }
 
-GIOChannel *bt_io_connect(BtIOConnect connect, gpointer user_data,
+GIOChannel *bt_io_connect(BtIOConnect connect/*执行到对端的连接*/, gpointer user_data,
 				GDestroyNotify destroy, GError **gerr,
 				BtIOOption opt1, ...)
 {

@@ -29,7 +29,7 @@ struct hci_request {
 	int      event;
 	void     *cparam;
 	int      clen;/*cparam参数长度*/
-	void     *rparam;
+	void     *rparam;/*响应内容*/
 	int      rlen;/*rparam参数长度*/
 };
 

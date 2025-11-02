@@ -470,7 +470,7 @@ static const char *inq_help =
 	"\t    [--iac=lap]  specify the inquiry access code\n"
 	"\t    [--flush]    flush the inquiry cache\n";
 
-static void cmd_inq(int dev_id, int argc, char **argv)
+static void cmd_inq(int dev_id/*查询发起设备*/, int argc, char **argv)
 {
 	inquiry_info *info = NULL;
 	uint8_t lap[3] = { 0x33, 0x8b, 0x9e };
@@ -485,11 +485,11 @@ static void cmd_inq(int dev_id, int argc, char **argv)
 	for_each_opt(opt, inq_options, NULL) {
 		switch (opt) {
 		case 'l':
-			length = atoi(optarg);
+			length = atoi(optarg);/*超时时间*/
 			break;
 
 		case 'n':
-			num_rsp = atoi(optarg);
+			num_rsp = atoi(optarg);/*最大响应数*/
 			break;
 
 		case 'i':
@@ -508,7 +508,7 @@ static void cmd_inq(int dev_id, int argc, char **argv)
 			break;
 
 		case 'f':
-			flags |= IREQ_CACHE_FLUSH;
+			flags |= IREQ_CACHE_FLUSH;/*指明移除掉kernel cache再查询*/
 			break;
 
 		default:
@@ -520,14 +520,18 @@ static void cmd_inq(int dev_id, int argc, char **argv)
 
 	printf("Inquiring ...\n");
 
+	/*执行查询*/
 	num_rsp = hci_inquiry(dev_id, length, num_rsp, lap, &info, flags);
 	if (num_rsp < 0) {
+		/*没有查询到*/
 		perror("Inquiry failed.");
 		exit(1);
 	}
 
+	/*显示查询结果*/
 	for (i = 0; i < num_rsp; i++) {
 		ba2str(&(info+i)->bdaddr, addr);
+		/*显示设备地址,时间offset,设备类型*/
 		printf("\t%s\tclock offset: 0x%4.4x\tclass: 0x%2.2x%2.2x%2.2x\n",
 			addr, btohs((info+i)->clock_offset),
 			(info+i)->dev_class[2],
@@ -601,7 +605,7 @@ static void cmd_scan(int dev_id, int argc, char **argv)
 			break;
 
 		case 'f':
-			flags |= IREQ_CACHE_FLUSH;
+			flags |= IREQ_CACHE_FLUSH;/*清空cache*/
 			break;
 
 		case 'C':
@@ -630,6 +634,7 @@ static void cmd_scan(int dev_id, int argc, char **argv)
 	helper_arg(0, 0, &argc, &argv, scan_help);
 
 	if (dev_id < 0) {
+		/*取hci设备*/
 		dev_id = hci_get_route(NULL);
 		if (dev_id < 0) {
 			perror("Device is not available");
@@ -637,12 +642,14 @@ static void cmd_scan(int dev_id, int argc, char **argv)
 		}
 	}
 
+	/*取此设备信息*/
 	if (hci_devinfo(dev_id, &di) < 0) {
 		perror("Can't get device info");
 		exit(1);
 	}
 
 	printf("Scanning ...\n");
+	/*利用inquiry命令进行查询*/
 	num_rsp = hci_inquiry(dev_id, length, num_rsp, lap, &info, flags);
 	if (num_rsp < 0) {
 		perror("Inquiry failed");
@@ -659,6 +666,7 @@ static void cmd_scan(int dev_id, int argc, char **argv)
 	if (extcls || extinf || extoui)
 		printf("\n");
 
+	/*显示查询结果*/
 	for (i = 0; i < num_rsp; i++) {
 		uint16_t handle = 0;
 
@@ -828,12 +836,13 @@ static void cmd_name(int dev_id, int argc, char **argv)
 		}
 	}
 
-	dd = hci_open_dev(dev_id);
+	dd = hci_open_dev(dev_id);/*打开本端设备*/
 	if (dd < 0) {
 		perror("HCI device open failed");
 		exit(1);
 	}
 
+	/*请求远端地址名称*/
 	if (hci_read_remote_name(dd, &bdaddr, sizeof(name), name, 25000) == 0)
 		printf("%s\n", name);
 
@@ -851,6 +860,7 @@ static const char *info_help =
 	"Usage:\n"
 	"\tinfo <bdaddr>\n";
 
+/*请求信息前需要配对*/
 static void cmd_info(int dev_id, int argc, char **argv)
 {
 	bdaddr_t bdaddr;
@@ -871,7 +881,7 @@ static void cmd_info(int dev_id, int argc, char **argv)
 	}
 	helper_arg(1, 1, &argc, &argv, info_help);
 
-	str2ba(argv[0], &bdaddr);
+	str2ba(argv[0], &bdaddr);/*首个参数指出的是目标端地址*/
 
 	if (dev_id < 0)
 		dev_id = hci_for_each_dev(HCI_UP, find_conn, (long) &bdaddr);
@@ -934,7 +944,7 @@ static void cmd_info(int dev_id, int argc, char **argv)
 		free(comp);
 	}
 
-	/*对设备名称*/
+	/*读对端设备名称*/
 	if (hci_read_remote_name(dd, &bdaddr, sizeof(name), name, 25000) == 0)
 		printf("\tDevice Name: %s\n", name);
 
@@ -985,6 +995,7 @@ static void cmd_info(int dev_id, int argc, char **argv)
 	}
 
 	if (cc) {
+		/*创建了新连接,断开连接*/
 		usleep(10000);
 		hci_disconnect(dd, handle, HCI_OE_USER_ENDED_CONNECTION, 10000);/*断开连接*/
 	}
@@ -2501,24 +2512,24 @@ static const char *lescan_help =
 static void cmd_lescan(int dev_id, int argc, char **argv)
 {
 	int err, opt, dd;
-	uint8_t own_type = LE_PUBLIC_ADDRESS;/*扫描地址类型,默认为公共地址*/
+	uint8_t own_type = LE_PUBLIC_ADDRESS;/*扫描地址类型,默认为公共地址,用于在扫描包中展示的地址类型*/
 	uint8_t scan_type = 0x01;/*默认为主动扫描*/
 	uint8_t filter_type = 0;
 	uint8_t filter_policy = 0x00;/*扫描过滤策略（filter_policy）,0X00接受所有广播包;0x01：仅接受白名单设备的广播包*/
 	uint16_t interval = htobs(0x0010);/*控制器两次扫描之间的间隔时间（被动 / 主动扫描通用）*/
-	uint16_t window = htobs(0x0010);/*每次扫描持续的时间（必须 ≤ 扫描间隔）。*/
+	uint16_t window = htobs(0x0010);/*每次扫描持续的时间（必须 ≤ 扫描间隔）,以上两者相等,会持续扫描*/
 	uint8_t filter_dup = 0x01;
 
 	for_each_opt(opt, lescan_options, NULL) {
 		switch (opt) {
 		case 's':
-			own_type = LE_RANDOM_ADDRESS;
+			own_type = LE_RANDOM_ADDRESS;/*这里对own_type设置有bug*/
 			break;
 		case 'p':
-			own_type = LE_RANDOM_ADDRESS;/*随机地址（控制器使用的自身地址类型）*/
+			own_type = LE_RANDOM_ADDRESS;/*随机设备地址（控制器使用的自身地址类型）*/
 			break;
 		case 'P':
-			/*参数可指明为补动扫描,被动扫描（仅接收广播包，不发送扫描请求）*/
+			/*参数可指明为被动扫描,被动扫描（仅接收广播包，不发送扫描请求）*/
 			scan_type = 0x00; /* Passive */
 			break;
 		case 'w': /* Deprecated. Kept for compatibility. */
@@ -2533,10 +2544,10 @@ static void cmd_lescan(int dev_id, int argc, char **argv)
 			}
 
 			interval = htobs(0x0012);
-			window = htobs(0x0012);
+			window = htobs(0x0012);/*两者相等,会持续扫描*/
 			break;
 		case 'D':
-			filter_dup = 0x00;
+			filter_dup = 0x00;/*不过滤重复广播报文*/
 			break;
 		default:
 			printf("%s", lescan_help);
@@ -2562,6 +2573,7 @@ static void cmd_lescan(int dev_id, int argc, char **argv)
 		exit(1);
 	}
 
+	/*开启扫描,此操作将导致0或多个hci_le_advertising_report*/
 	err = hci_le_set_scan_enable(dd, 0x01, filter_dup, 10000);
 	if (err < 0) {
 		perror("Enable scan failed");
@@ -2576,6 +2588,7 @@ static void cmd_lescan(int dev_id, int argc, char **argv)
 		exit(1);
 	}
 
+	/*关闭扫描*/
 	err = hci_le_set_scan_enable(dd, 0x00, filter_dup, 10000);
 	if (err < 0) {
 		perror("Disable scan failed");
@@ -3383,9 +3396,12 @@ static struct {
 	char *doc;
 } command[] = {
 	{ "dev",      cmd_dev,     "Display local devices"                },
+	/*查询设备*/
 	{ "inq",      cmd_inq,     "Inquire remote devices"               },
 	{ "scan",     cmd_scan,    "Scan for remote devices"              },
+	/*取远端名称*/
 	{ "name",     cmd_name,    "Get name from remote device"          },
+	/*通过连接读取远端设备信息*/
 	{ "info",     cmd_info,    "Get information from remote device"   },
 	{ "spinq",    cmd_spinq,   "Start periodic inquiry"               },
 	{ "epinq",    cmd_epinq,   "Exit periodic inquiry"                },
@@ -3406,6 +3422,7 @@ static struct {
 	{ "key",      cmd_key,     "Change connection link key"           },
 	{ "clkoff",   cmd_clkoff,  "Read clock offset"                    },
 	{ "clock",    cmd_clock,   "Read local or remote clock"           },
+	/*执行le扫描*/
 	{ "lescan",   cmd_lescan,  "Start LE scan"                        },
 	{ "leinfo",   cmd_leinfo,  "Get LE remote information"            },
 	{ "lealadd",  cmd_lealadd, "Add device to LE Accept List"         },
