@@ -2246,8 +2246,14 @@ static uint8_t stream_metadata(struct bt_bap_stream *stream, struct iovec *meta,
 	util_iov_free(stream->meta, 1);
 	stream->meta = util_iov_dup(meta, 1);
 
-	/* Force state change to the same state to update the metadata */
-	stream_set_state(stream, bt_bap_stream_get_state(stream));
+	switch (bt_bap_stream_get_state(stream)) {
+	case BT_BAP_STREAM_STATE_IDLE:
+		/* Initial metadata */
+		break;
+	default:
+		/* Force state change to the same state to update metadata */
+		stream_set_state(stream, bt_bap_stream_get_state(stream));
+	}
 
 	return 0;
 }
@@ -4647,6 +4653,17 @@ struct bt_att *bt_bap_get_att(struct bt_bap *bap)
 	return bt_gatt_client_get_att(bap->client);
 }
 
+struct gatt_db *bt_bap_get_db(struct bt_bap *bap, bool remote)
+{
+	if (!bap)
+		return NULL;
+
+	if (remote)
+		return bap->rdb ? bap->rdb->db : NULL;
+
+	return bap->ldb ? bap->ldb->db : NULL;
+}
+
 struct bt_bap *bt_bap_ref(struct bt_bap *bap)
 {
 	if (!bap)
@@ -4708,7 +4725,7 @@ static void bap_parse_pacs(struct bt_bap *bap, uint8_t type,
 	for (i = 0; i < rsp->num_pac; i++) {
 		struct bt_bap_pac *pac;
 		struct bt_pac *p;
-		struct bt_ltv *cc;
+		struct bt_ltv *cc, *m;
 		struct bt_pac_metadata *meta;
 		struct iovec data, metadata;
 
@@ -4725,13 +4742,15 @@ static void bap_parse_pacs(struct bt_bap *bap, uint8_t type,
 
 		pac = NULL;
 
-		if (!bt_bap_debug_caps(iov.iov_base, p->cc_len, bap->debug_func,
-					bap->debug_data))
-			return;
-
 		cc = util_iov_pull_mem(&iov, p->cc_len);
 		if (!cc) {
 			DBG(bap, "Unable to parse PAC codec capabilities");
+			return;
+		}
+
+		if (!bt_bap_debug_caps(cc, p->cc_len, bap->debug_func,
+					bap->debug_data)) {
+			DBG(bap, "Invalid PAC codec capabilities LTV");
 			return;
 		}
 
@@ -4741,13 +4760,23 @@ static void bap_parse_pacs(struct bt_bap *bap, uint8_t type,
 			return;
 		}
 
+		m = util_iov_pull_mem(&iov, meta->len);
+		if (!m) {
+			DBG(bap, "Unable to parse PAC metadata");
+			return;
+		}
+
+		if (!bt_bap_debug_metadata(meta->data, meta->len,
+					bap->debug_func, bap->debug_data)) {
+			DBG(bap, "Invalid PAC metadata LTV");
+			return;
+		}
+
 		data.iov_len = p->cc_len;
 		data.iov_base = cc;
 
 		metadata.iov_len = meta->len;
-		metadata.iov_base = meta->data;
-
-		util_iov_pull_mem(&iov, meta->len);
+		metadata.iov_base = m;
 
 		DBG(bap, "PAC #%u: type %u codec 0x%02x cc_len %u meta_len %u",
 			i, type, p->codec.id, p->cc_len, meta->len);
@@ -5654,6 +5683,8 @@ bool bt_bap_attach_broadcast(struct bt_bap *bap)
 		sessions = queue_new();
 
 	queue_push_tail(sessions, bap);
+
+	queue_foreach(bap_cbs, bap_attached, bap);
 
 	ep = bap_get_endpoint_bcast(bap->remote_eps, bap->ldb,
 				BT_BAP_BCAST_SOURCE);
@@ -6769,6 +6800,36 @@ static void bap_stream_get_out_qos(void *data, void *user_data)
 	*qos = &stream->qos;
 }
 
+static void bap_stream_bcast_get_out_qos(void *data, void *user_data)
+{
+	struct bt_bap_stream *stream = data;
+	struct bt_bap_qos **qos = user_data;
+
+	if (!stream)
+		return;
+
+	if (!qos || *qos || stream->ep->dir != BT_BAP_BCAST_SINK ||
+				!stream->qos.bcast.io_qos.sdu)
+		return;
+
+	*qos = &stream->qos;
+}
+
+static void bap_stream_bcast_get_in_qos(void *data, void *user_data)
+{
+	struct bt_bap_stream *stream = data;
+	struct bt_bap_qos **qos = user_data;
+
+	if (!stream)
+		return;
+
+	if (!qos || *qos || stream->ep->dir != BT_BAP_BCAST_SOURCE ||
+				!stream->qos.bcast.io_qos.sdu)
+		return;
+
+	*qos = &stream->qos;
+}
+
 bool bt_bap_stream_io_get_qos(struct bt_bap_stream *stream,
 					struct bt_bap_qos **in,
 					struct bt_bap_qos **out)
@@ -6785,13 +6846,19 @@ bool bt_bap_stream_io_get_qos(struct bt_bap_stream *stream,
 		bap_stream_get_out_qos(stream, out);
 		queue_foreach(stream->links, bap_stream_get_in_qos, in);
 		break;
+	case BT_BAP_BCAST_SOURCE:
+		bap_stream_bcast_get_in_qos(stream, in);
+		break;
+	case BT_BAP_BCAST_SINK:
+		bap_stream_bcast_get_out_qos(stream, out);
+		break;
 	default:
 		return false;
 	}
 
 	DBG(stream->bap, "in %p out %p", in ? *in : NULL, out ? *out : NULL);
 
-	return in && out;
+	return (in && *in) || (out && *out);
 }
 
 static void bap_stream_get_dir(void *data, void *user_data)

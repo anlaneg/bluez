@@ -4,4 +4,6 @@ y
 a
 3
 4
-scan on
+transport.select auto
+transport.acquire auto
+advertise on

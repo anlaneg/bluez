@@ -184,6 +184,8 @@ struct l2conn {
 	uint16_t scid;
 	uint16_t dcid;
 	uint16_t psm;
+	uint16_t rx_credits;
+	uint16_t tx_credits;
 	enum l2cap_mode mode;
 	uint16_t data_len;
 	uint16_t recv_len;
@@ -401,6 +403,25 @@ static struct l2conn *bthost_add_l2cap_conn(struct bthost *bthost,
 	conn->l2conns = l2conn;
 
 	return l2conn;
+}
+
+static void btconn_detach_l2cap_conn(struct btconn *conn, struct l2conn *l2conn)
+{
+	struct l2conn *c;
+
+	if (conn->l2conns == l2conn) {
+		conn->l2conns = l2conn->next;
+		l2conn->next = NULL;
+		return;
+	}
+
+	for (c = conn->l2conns; c != NULL; c = c->next) {
+		if (c->next == l2conn) {
+			c->next = l2conn->next;
+			l2conn->next = NULL;
+			return;
+		}
+	}
 }
 
 static struct rcconn *bthost_add_rfcomm_conn(struct bthost *bthost,
@@ -1834,6 +1855,24 @@ static void evt_le_big_sync_established(struct bthost *bthost,
 	}
 }
 
+static void evt_le_big_info_adv_report(struct bthost *bthost,
+						const void *data, uint8_t size)
+{
+	const struct bt_hci_evt_le_big_info_adv_report *ev = data;
+	struct {
+		struct bt_hci_cmd_le_big_create_sync cp;
+		struct bt_hci_bis_sync index[1];
+	} cmd;
+
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.cp.handle = 0x01;
+	cmd.cp.sync_handle = ev->sync_handle;
+	cmd.cp.encryption = ev->encryption;
+	cmd.cp.num_bis = 1;
+
+	send_command(bthost, BT_HCI_CMD_LE_BIG_CREATE_SYNC, &cmd, sizeof(cmd));
+}
+
 static void evt_le_meta_event(struct bthost *bthost, const void *data,
 								uint8_t len)
 {
@@ -1875,6 +1914,9 @@ static void evt_le_meta_event(struct bthost *bthost, const void *data,
 		break;
 	case BT_HCI_EVT_LE_BIG_SYNC_ESTABILISHED:
 		evt_le_big_sync_established(bthost, evt_data, len - 1);
+		break;
+	case BT_HCI_EVT_LE_BIG_INFO_ADV_REPORT:
+		evt_le_big_info_adv_report(bthost, evt_data, len - 1);
 		break;
 	default:
 		bthost_debug(bthost, "Unsupported LE Meta event 0x%2.2x",
@@ -2142,11 +2184,41 @@ static bool l2cap_disconn_req(struct bthost *bthost, struct btconn *conn,
 	if (!l2conn)
 		return true;
 
+	btconn_detach_l2cap_conn(conn, l2conn);
+
 	cb_data = bthost_find_l2cap_cb_by_psm(bthost, l2conn->psm);
 
 	if (cb_data && cb_data->disconn_func)
-		cb_data->disconn_func(cb_data->user_data);
+		cb_data->disconn_func(conn->handle, l2conn->dcid,
+							cb_data->user_data);
 
+	l2conn_free(l2conn);
+	return true;
+}
+
+static bool l2cap_disconn_rsp(struct bthost *bthost, struct btconn *conn,
+				uint8_t ident, const void *data, uint16_t len)
+{
+	const struct bt_l2cap_pdu_disconn_rsp *rsp = data;
+	struct l2cap_conn_cb_data *cb_data;
+	struct l2conn *l2conn;
+
+	if (len < sizeof(*rsp))
+		return false;
+
+	l2conn = btconn_find_l2cap_conn_by_scid(conn, rsp->dcid);
+	if (!l2conn)
+		return true;
+
+	btconn_detach_l2cap_conn(conn, l2conn);
+
+	cb_data = bthost_find_l2cap_cb_by_psm(bthost, l2conn->psm);
+
+	if (cb_data && cb_data->disconn_func)
+		cb_data->disconn_func(conn->handle, l2conn->dcid,
+							cb_data->user_data);
+
+	l2conn_free(l2conn);
 	return true;
 }
 
@@ -2302,6 +2374,11 @@ static void l2cap_sig(struct bthost *bthost, struct btconn *conn,
 						data + sizeof(*hdr), hdr_len);
 		break;
 
+	case BT_L2CAP_PDU_DISCONN_RSP:
+		ret = l2cap_disconn_rsp(bthost, conn, hdr->ident,
+						data + sizeof(*hdr), hdr_len);
+		break;
+
 	case BT_L2CAP_PDU_INFO_REQ:
 		ret = l2cap_info_req(bthost, conn, hdr->ident,
 						data + sizeof(*hdr), hdr_len);
@@ -2405,6 +2482,8 @@ static bool l2cap_le_conn_req(struct bthost *bthost, struct btconn *conn,
 							le16_to_cpu(req->scid),
 							le16_to_cpu(psm));
 		l2conn->mode = L2CAP_MODE_LE_CRED;
+		l2conn->rx_credits = le16_to_cpu(rsp.credits);
+		l2conn->tx_credits = le16_to_cpu(req->credits);
 
 		if (cb_data && l2conn->psm == cb_data->psm && cb_data->func)
 			cb_data->func(conn->handle, l2conn->dcid,
@@ -2422,10 +2501,13 @@ static bool l2cap_le_conn_rsp(struct bthost *bthost, struct btconn *conn,
 
 	if (len < sizeof(*rsp))
 		return false;
+
 	/* TODO add L2CAP connection before with proper PSM */
 	l2conn = bthost_add_l2cap_conn(bthost, conn, 0,
 						le16_to_cpu(rsp->dcid), 0);
 	l2conn->mode = L2CAP_MODE_LE_CRED;
+	l2conn->rx_credits = 1;
+	l2conn->tx_credits = le16_to_cpu(rsp->credits);
 
 	return true;
 }
@@ -2474,7 +2556,7 @@ static bool l2cap_ecred_conn_rsp(struct bthost *bthost, struct btconn *conn,
 				uint8_t ident, const void *data, uint16_t len)
 {
 	const struct  {
-		const struct bt_l2cap_pdu_ecred_conn_rsp *pdu;
+		const struct bt_l2cap_pdu_ecred_conn_rsp pdu;
 		uint16_t scid[5];
 	} __attribute__ ((packed)) *rsp = data;
 	int num_scid, i;
@@ -2490,8 +2572,28 @@ static bool l2cap_ecred_conn_rsp(struct bthost *bthost, struct btconn *conn,
 		l2conn = bthost_add_l2cap_conn(bthost, conn, 0,
 				      le16_to_cpu(rsp->scid[i]), 0);
 		l2conn->mode = L2CAP_MODE_LE_ENH_CRED;
+		l2conn->tx_credits = rsp->pdu.credits;
+		l2conn->rx_credits = 1;
 	}
 
+
+	return true;
+}
+
+static bool l2cap_le_flowctl_creds(struct bthost *bthost, struct btconn *conn,
+				uint8_t ident, const void *data, uint16_t len)
+{
+	const struct bt_l2cap_pdu_le_flowctl_creds *ind = data;
+	struct l2conn *l2conn;
+
+	if (len < sizeof(*ind))
+		return false;
+
+	l2conn = btconn_find_l2cap_conn_by_dcid(conn, ind->cid);
+	if (!l2conn)
+		return true;
+
+	l2conn->tx_credits += ind->credits;
 
 	return true;
 }
@@ -2536,6 +2638,11 @@ static void l2cap_le_sig(struct bthost *bthost, struct btconn *conn,
 						data + sizeof(*hdr), hdr_len);
 		break;
 
+	case BT_L2CAP_PDU_DISCONN_RSP:
+		ret = l2cap_disconn_rsp(bthost, conn, hdr->ident,
+						data + sizeof(*hdr), hdr_len);
+		break;
+
 	case BT_L2CAP_PDU_CONN_PARAM_REQ:
 		ret = l2cap_conn_param_req(bthost, conn, hdr->ident,
 						data + sizeof(*hdr), hdr_len);
@@ -2562,6 +2669,11 @@ static void l2cap_le_sig(struct bthost *bthost, struct btconn *conn,
 
 	case BT_L2CAP_PDU_ECRED_CONN_RSP:
 		ret = l2cap_ecred_conn_rsp(bthost, conn, hdr->ident,
+						data + sizeof(*hdr), hdr_len);
+		break;
+
+	case BT_L2CAP_PDU_LE_FLOWCTL_CREDS:
+		ret = l2cap_le_flowctl_creds(bthost, conn, hdr->ident,
 						data + sizeof(*hdr), hdr_len);
 		break;
 
@@ -3622,6 +3734,31 @@ void bthost_set_pa_enable(struct bthost *bthost, uint8_t enable)
 	cp.enable = enable;
 	cp.handle = 0x01;
 	send_command(bthost, BT_HCI_CMD_LE_SET_PA_ENABLE, &cp, sizeof(cp));
+}
+
+void bthost_set_past_mode(struct bthost *bthost, uint16_t handle, uint8_t mode)
+{
+	struct bt_hci_cmd_le_past_params cp;
+
+	memset(&cp, 0, sizeof(cp));
+	cp.handle = cpu_to_le16(handle);
+	cp.mode = mode;
+
+	send_command(bthost, BT_HCI_CMD_LE_PAST_PARAMS, &cp, sizeof(cp));
+}
+
+void bthost_past_set_info(struct bthost *bthost, uint16_t handle)
+{
+	struct bt_hci_cmd_le_past_set_info cp;
+
+	if (!bthost)
+		return;
+
+	memset(&cp, 0, sizeof(cp));
+	cp.handle = cpu_to_le16(handle);
+	cp.adv_handle = 0x01;
+
+	send_command(bthost, BT_HCI_CMD_LE_PAST_SET_INFO, &cp, sizeof(cp));
 }
 
 void bthost_create_big(struct bthost *bthost, uint8_t num_bis,
