@@ -118,7 +118,7 @@ static int init_server(uint16_t mtu, int central, int compat)
 
 	memset(&unaddr, 0, sizeof(unaddr));
 	unaddr.sun_family = AF_UNIX;
-	strcpy(unaddr.sun_path, SDP_UNIX_PATH);
+	strcpy(unaddr.sun_path, SDP_UNIX_PATH);/*设置服务器地址*/
 
 	unlink(unaddr.sun_path);
 
@@ -211,7 +211,7 @@ static gboolean io_accept_event(GIOChannel *chan, GIOCondition cond, gpointer da
 		return TRUE;
 	}
 
-	io = g_io_channel_unix_new(nsk);
+	io = g_io_channel_unix_new(nsk);/*为新的socket创建IN事件处理*/
 	g_io_channel_set_close_on_unref(io, TRUE);
 
 	g_io_add_watch(io, G_IO_IN | G_IO_ERR | G_IO_HUP | G_IO_NVAL,
@@ -224,7 +224,7 @@ static gboolean io_accept_event(GIOChannel *chan, GIOCondition cond, gpointer da
 
 int start_sdp_server(uint16_t mtu, uint32_t flags)
 {
-	int compat = flags & SDP_SERVER_COMPAT;
+	int compat = flags & SDP_SERVER_COMPAT;/*是否开启unix socket方式*/
 	int central = flags & SDP_SERVER_CENTRAL;
 	GIOChannel *io;
 

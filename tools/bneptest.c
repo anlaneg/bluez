@@ -396,7 +396,7 @@ static void disconnected_client_cb(void *data)
 		return;
 	}
 
-	g_main_loop_quit(mloop);
+	g_main_loop_quit(mloop);/*标记不再loop*/
 }
 
 static void connect_client_cb(GIOChannel *chan, GError *err, gpointer user_data)
@@ -580,7 +580,6 @@ int main(int argc, char *argv[])
 	mloop = g_main_loop_new(NULL, FALSE);
 	if (!mloop) {
 		printf("cannot create main loop\n");
-
 		exit(1);
 	}
 

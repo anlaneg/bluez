@@ -629,13 +629,14 @@ static void update_mps(void)
 	}
 }
 
+/*为了搞明白SDP,看到此处了,当前用于搞清楚sdp_record的加入及查询等*/
 int add_record_to_server(const bdaddr_t *src, sdp_record_t *rec)
 {
 	sdp_data_t *data;
 	sdp_list_t *pattern;
 
 	if (rec->handle == 0xffffffff) {
-		rec->handle = sdp_next_handle();
+		rec->handle = sdp_next_handle();/*生成handle*/
 		if (rec->handle < 0x10000)
 			return -ENOSPC;
 	} else {
@@ -645,7 +646,7 @@ int add_record_to_server(const bdaddr_t *src, sdp_record_t *rec)
 
 	DBG("Adding record with handle 0x%05x", rec->handle);
 
-	sdp_record_add(src, rec);
+	sdp_record_add(src, rec);/*添加此record*/
 
 	data = sdp_data_alloc(SDP_UINT32, &rec->handle);
 	sdp_attr_replace(rec, SDP_ATTR_RECORD_HANDLE, data);
@@ -656,6 +657,7 @@ int add_record_to_server(const bdaddr_t *src, sdp_record_t *rec)
 		sdp_pattern_add_uuid(rec, &uuid);
 	}
 
+	/*显示record中记录的pattern uuid*/
 	for (pattern = rec->pattern; pattern; pattern = pattern->next) {
 		char uuid[32];
 
@@ -835,7 +837,7 @@ int service_register_req(sdp_req_t *req, sdp_buf_t *rsp)
 		}
 	}
 
-	sdp_record_add(&req->device, rec);
+	sdp_record_add(&req->device, rec);/*添加记录*/
 	if (!(req->flags & SDP_RECORD_PERSIST))
 		sdp_svcdb_set_collectable(rec, req->sock);
 

@@ -33,6 +33,7 @@
 #include "connection.h"
 #include "server.h"
 
+/*保存自配置文件中读取的DisableSecurity配置,默认为true*/
 static gboolean conf_security = TRUE;
 
 static void read_config(const char *file)
@@ -47,6 +48,7 @@ static void read_config(const char *file)
 		goto done;
 	}
 
+	/*读取DisableSecurity配置*/
 	conf_security = !g_key_file_get_boolean(keyfile, "General",
 						"DisableSecurity", &err);
 	if (err) {
@@ -179,8 +181,10 @@ static int network_init(void)
 {
 	int err;
 
+	/*读取配置文件*/
 	read_config(CONFIGDIR "/network.conf");
 
+	/*创建bnep socket*/
 	err = bnep_init();
 	if (err) {
 		if (err == -EPROTONOSUPPORT)

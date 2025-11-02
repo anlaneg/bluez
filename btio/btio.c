@@ -291,7 +291,7 @@ static void server_add(GIOChannel *io, BtIOConnect connect,
 	server->user_data = user_data;
 	server->destroy = destroy;
 
-	cond = G_IO_IN | G_IO_ERR | G_IO_HUP | G_IO_NVAL;
+	cond = G_IO_IN | G_IO_ERR | G_IO_HUP | G_IO_NVAL;/*有数据进来,则触发*/
 	g_io_add_watch_full(io, G_PRIORITY_HIGH, cond, server_cb/*负责accept新连接*/, server,
 					(GDestroyNotify) server_remove);
 }
@@ -460,7 +460,7 @@ static int rfcomm_set_lm(int sock, int level)
 	return 0;
 }
 
-static gboolean set_sec_level(int sock, BtIOType type, int level, GError **err)
+static gboolean set_sec_level(int sock, BtIOType type, int level/*安全等级*/, GError **err)
 {
 	struct bt_security sec;
 	int ret;
@@ -1996,6 +1996,7 @@ gboolean bt_io_get(GIOChannel *io, GError **err, BtIOOption opt1, ...)
 	return ret;
 }
 
+/*创建非阻塞giochannel*/
 static GIOChannel *create_io(gboolean server/*是否server端*/, struct set_opts *opts,
 								GError **err)
 {
@@ -2073,8 +2074,8 @@ static GIOChannel *create_io(gboolean server/*是否server端*/, struct set_opts
 	/*利用socket创建GIOChannel*/
 	io = g_io_channel_unix_new(sock);
 
-	g_io_channel_set_close_on_unref(io, TRUE);
-	/*设置非阻塞*/
+	g_io_channel_set_close_on_unref(io, TRUE/*此io无引用时需要关闭*/);
+	/*将此io设置为非阻塞*/
 	g_io_channel_set_flags(io, G_IO_FLAG_NONBLOCK, NULL);
 
 	return io;
@@ -2178,6 +2179,7 @@ GIOChannel *bt_io_listen(BtIOConnect connect, BtIOConfirm confirm,
 	if (io == NULL)
 		return NULL;
 
+	/*取得channel对应的fd*/
 	sock = g_io_channel_unix_get_fd(io);
 
 	if (confirm)

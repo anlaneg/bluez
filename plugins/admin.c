@@ -68,7 +68,7 @@ static struct btd_admin_policy *admin_policy_new(struct btd_adapter *adapter)
 
 	admin_policy->adapter = adapter;
 	admin_policy->adapter_id = btd_adapter_get_index(adapter);
-	admin_policy->service_allowlist = queue_new();
+	admin_policy->service_allowlist = queue_new();/*创建空的allowlist*/
 
 	return admin_policy;
 }
@@ -255,6 +255,7 @@ static void store_policy_settings(struct btd_admin_policy *admin_policy)
 
 	key_file = g_key_file_new();
 
+	/*配置内容来源于service_allowlist*/
 	uuid_strs = new_uuid_strings(admin_policy->service_allowlist,
 								&num_uuids);
 
@@ -297,6 +298,7 @@ static void key_file_load_service_allowlist(GKeyFile *key_file,
 	gchar **uuids = NULL;
 	gsize num, i;
 
+	/*读取ServiceAllowlist配置为字符串数组*/
 	uuids = g_key_file_get_string_list(key_file, "General",
 					"ServiceAllowlist", &num, &gerr);
 
@@ -314,6 +316,7 @@ static void key_file_load_service_allowlist(GKeyFile *key_file,
 		if (!uuid)
 			goto failed;
 
+		/*配置转换为uuid*/
 		if (bt_string_to_uuid(uuid, uuids[i])) {
 
 			btd_error(admin_policy->adapter_id,
@@ -324,6 +327,7 @@ static void key_file_load_service_allowlist(GKeyFile *key_file,
 			goto failed;
 		}
 
+		/*产生uuid_list列表*/
 		queue_push_tail(uuid_list, uuid);
 	}
 
@@ -342,10 +346,11 @@ static void load_policy_settings(struct btd_admin_policy *admin_policy)
 {
 	GKeyFile *key_file;
 	GError *gerr = NULL;
-	char *filename = ADMIN_POLICY_STORAGE;
+	char *filename = ADMIN_POLICY_STORAGE;/*来源于Policy setting*/
 	struct stat st;
 
 	if (stat(filename, &st) < 0)
+		/*产生此policy ServiceAllowlist配置*/
 		store_policy_settings(policy_data);
 
 	key_file = g_key_file_new();
@@ -361,6 +366,7 @@ static void load_policy_settings(struct btd_admin_policy *admin_policy)
 	g_key_file_free(key_file);
 }
 
+/*通过dbus消息设置容许的uuid服务列表*/
 static DBusMessage *set_service_allowlist(DBusConnection *conn,
 					DBusMessage *msg, void *user_data)
 {
@@ -509,7 +515,7 @@ static int admin_policy_adapter_probe(struct btd_adapter *adapter)
 	if (!policy_data)
 		return -ENOMEM;
 
-	load_policy_settings(policy_data);
+	load_policy_settings(policy_data);/*加载policy data*/
 	adapter_path = adapter_get_path(adapter);
 
 	if (!g_dbus_register_interface(dbus_conn, adapter_path,

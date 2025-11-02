@@ -370,6 +370,7 @@ done:
 	agent_unref(agent);
 }
 
+/*通过dbus调用授权服务*/
 static int agent_call_authorize_service(struct agent_request *req,
 						const char *uuid)
 {

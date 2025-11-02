@@ -1020,6 +1020,7 @@ int hci_inquiry(int dev_id, int len/*超时时间*/, int nrsp/*最大响应数*/
 		}
 	}
 
+	/*创建hci socket*/
 	dd = socket(AF_BLUETOOTH, SOCK_RAW | SOCK_CLOEXEC, BTPROTO_HCI);
 	if (dd < 0)
 		return dd;

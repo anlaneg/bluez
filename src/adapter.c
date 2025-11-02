@@ -1383,7 +1383,7 @@ int adapter_service_add(struct btd_adapter *adapter, sdp_record_t *rec)
 
 	DBG("%s", adapter->path);
 
-	ret = add_record_to_server(&adapter->bdaddr, rec);
+	ret = add_record_to_server(&adapter->bdaddr, rec);/*将此record添加进server*/
 	if (ret < 0)
 		return ret;
 
@@ -3893,6 +3893,7 @@ static void update_device_allowed_services(void *data, void *user_data)
 	btd_device_update_allowed_services(device);
 }
 
+/*将uuid添加进uuid set*/
 static void add_uuid_to_uuid_set(void *data, void *user_data)
 {
 	bt_uuid_t *uuid = data;
@@ -3930,6 +3931,7 @@ static gboolean bt_uuid_equal(gconstpointer v1, gconstpointer v2)
 	return bt_uuid_cmp(uuid1, uuid2) == 0;
 }
 
+/*设置此adapter容许的uuids*/
 bool btd_adapter_set_allowed_uuids(struct btd_adapter *adapter,
 							struct queue *uuids)
 {
@@ -3937,8 +3939,10 @@ bool btd_adapter_set_allowed_uuids(struct btd_adapter *adapter,
 		return false;
 
 	if (adapter->allowed_uuid_set)
+		/*已存在,则销毁*/
 		g_hash_table_destroy(adapter->allowed_uuid_set);
 
+	/*重新创建*/
 	adapter->allowed_uuid_set = g_hash_table_new(bt_uuid_hash,
 								bt_uuid_equal);
 	if (!adapter->allowed_uuid_set) {
@@ -3947,6 +3951,7 @@ bool btd_adapter_set_allowed_uuids(struct btd_adapter *adapter,
 		return false;
 	}
 
+	/*遍历uuids将其下所有uuid加入到adapter->allowed_uuid_set*/
 	queue_foreach(uuids, add_uuid_to_uuid_set, adapter->allowed_uuid_set);
 	g_slist_foreach(adapter->devices, update_device_allowed_services, NULL);
 
@@ -3959,7 +3964,7 @@ bool btd_adapter_is_uuid_allowed(struct btd_adapter *adapter,
 	bt_uuid_t uuid;
 
 	if (!adapter || !adapter->allowed_uuid_set)
-		return true;
+		return true;/*未设置,返回true*/
 
 	if (bt_string_to_uuid(&uuid, uuid_str)) {
 		btd_error(adapter->dev_id,
@@ -3967,6 +3972,7 @@ bool btd_adapter_is_uuid_allowed(struct btd_adapter *adapter,
 		return false;
 	}
 
+	/*检查此uuid是否在allowed中*/
 	return !g_hash_table_size(adapter->allowed_uuid_set) ||
 		g_hash_table_contains(adapter->allowed_uuid_set, &uuid);
 }
@@ -7838,6 +7844,7 @@ static gboolean process_auth_queue(gpointer user_data)
 			return FALSE;
 
 		if (!btd_adapter_is_uuid_allowed(adapter, auth->uuid)) {
+			/*不容许,调用cb*/
 			auth->cb(&err, auth->user_data);
 			goto next;
 		}
@@ -7859,6 +7866,7 @@ static gboolean process_auth_queue(gpointer user_data)
 			goto next;
 		}
 
+		/*请求授权服务*/
 		if (agent_authorize_service(auth->agent, device, auth->uuid,
 					agent_auth_cb, adapter, NULL) < 0) {
 			auth->cb(&err, auth->user_data);
@@ -7895,7 +7903,7 @@ static void svc_complete(struct btd_device *dev, int err, void *user_data)
 }
 
 static int adapter_authorize(struct btd_adapter *adapter/*本端adapter*/, const bdaddr_t *dst/*远端地址*/,
-					const char *uuid,
+					const char *uuid/*服务UUID*/,
 					adapter_authorize_type check_for_connection,
 					service_auth_cb cb, void *user_data)
 {
@@ -7940,7 +7948,7 @@ static int adapter_authorize(struct btd_adapter *adapter/*本端adapter*/, const
 }
 
 guint btd_request_authorization(const bdaddr_t *src, const bdaddr_t *dst,
-					const char *uuid, service_auth_cb cb,
+					const char *uuid/*服务uuid*/, service_auth_cb cb,
 					void *user_data)
 {
 	struct btd_adapter *adapter;

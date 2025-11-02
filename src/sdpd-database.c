@@ -159,13 +159,14 @@ void sdp_svcdb_set_collectable(sdp_record_t *record, int sock)
 /*
  * Add a service record to the repository
  */
-void sdp_record_add(const bdaddr_t *device, sdp_record_t *rec)
+void sdp_record_add(const bdaddr_t *device, sdp_record_t *rec/*新的服务记录*/)
 {
 	sdp_access_t *dev;
 
 	SDPDBG("Adding rec : 0x%lx", (long) rec);
 	SDPDBG("with handle : 0x%x", rec->handle);
 
+	/*添加record到列表*/
 	service_db = sdp_list_insert_sorted(service_db, rec, record_sort);
 
 	dev = malloc(sizeof(*dev));
@@ -258,7 +259,7 @@ int sdp_record_remove(uint32_t handle)
  */
 sdp_list_t *sdp_get_record_list(void)
 {
-	return service_db;
+	return service_db;/*获得record list*/
 }
 
 int sdp_check_access(uint32_t handle, bdaddr_t *device)

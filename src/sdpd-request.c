@@ -1030,6 +1030,7 @@ static void process_request(sdp_req_t *req)
 	/*依据pdu编号处理*/
 	switch (reqhdr->pdu_id) {
 	case SDP_SVC_SEARCH_REQ:
+		/*收到服务查询请求*/
 		SDPDBG("Got a svc srch req");
 		status = service_search_req(req, &rsp);
 		rsphdr->pdu_id = SDP_SVC_SEARCH_RSP;
@@ -1046,6 +1047,7 @@ static void process_request(sdp_req_t *req)
 		break;
 	/* Following requests are allowed only for local connections */
 	case SDP_SVC_REGISTER_REQ:
+		/*收到服务注册请求*/
 		SDPDBG("Service register request");
 		if (req->local) {
 			status = service_register_req(req, &rsp);
@@ -1053,6 +1055,7 @@ static void process_request(sdp_req_t *req)
 		}
 		break;
 	case SDP_SVC_UPDATE_REQ:
+		/*收到服务更新请求*/
 		SDPDBG("Service update request");
 		if (req->local) {
 			status = service_update_req(req, &rsp);
@@ -1060,6 +1063,7 @@ static void process_request(sdp_req_t *req)
 		}
 		break;
 	case SDP_SVC_REMOVE_REQ:
+		/*移除服务请求*/
 		SDPDBG("Service removal request");
 		if (req->local) {
 			status = service_remove_req(req, &rsp);
@@ -1067,12 +1071,14 @@ static void process_request(sdp_req_t *req)
 		}
 		break;
 	default:
+		/*收到不认识的请求*/
 		error("Unknown PDU ID : 0x%x received", reqhdr->pdu_id);
 		status = SDP_INVALID_SYNTAX;
 		break;
 	}
 
 send_rsp:
+	/*执行响应*/
 	if (status) {
 		/* Cleanup cstates on error */
 		sdp_cstate_cleanup(req->sock);
@@ -1131,6 +1137,7 @@ void handle_request(int sk, uint8_t *data, int len)
 	}
 
 	if (sa.l2_family == AF_BLUETOOTH) {
+		/*采用bluetooth方式通信的*/
 		struct l2cap_options lo;
 
 		memset(&lo, 0, sizeof(lo));
@@ -1155,6 +1162,7 @@ void handle_request(int sk, uint8_t *data, int len)
 
 		bacpy(&req.device, &sa.l2_bdaddr);
 	} else {
+		/*采用unix socket方式通信的*/
 		bacpy(&req.device, BDADDR_ANY);
 		bacpy(&req.bdaddr, BDADDR_LOCAL);
 		req.mtu = 2048;
@@ -1165,7 +1173,7 @@ void handle_request(int sk, uint8_t *data, int len)
 	req.buf  = data;
 	req.len  = len;
 
-	process_request(&req);
+	process_request(&req);/*处理sdp请求*/
 }
 
 void sdp_cstate_cleanup(int sock)

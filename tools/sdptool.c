@@ -3886,6 +3886,7 @@ static int do_search(bdaddr_t *bdaddr, struct search_context *context)
 	sdp_session_t *sess;
 
 	if (!bdaddr) {
+		/*查询本机*/
 		inquiry(do_search, context);
 		return 0;
 	}
@@ -4020,11 +4021,11 @@ static int cmd_browse(int argc, char **argv)
 
 	if (argc >= 1) {
 		bdaddr_t bdaddr;
-		estr2ba(argv[0], &bdaddr);
+		estr2ba(argv[0], &bdaddr);/*指定目的地址*/
 		return do_search(&bdaddr, &context);
 	}
 
-	return do_search(NULL, &context);
+	return do_search(NULL/*本机*/, &context);
 }
 
 static struct option search_options[] = {

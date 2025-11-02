@@ -473,6 +473,7 @@ static void confirm_event(GIOChannel *chan, gpointer user_data)
 	bacpy(&na->setup->dst, &dst);/*填写目的地址*/
 	na->setup->io = g_io_channel_ref(chan);
 
+	/*请求授权*/
 	ret = btd_request_authorization(&src/*本端地址*/, &dst/*远端地址*/, BNEP_SVC_UUID,
 					auth_cb, na);
 	if (ret == 0) {
@@ -498,6 +499,7 @@ static uint32_t register_server_record(struct network_server *ns)
 {
 	sdp_record_t *record;
 
+	/*产生sdp record*/
 	record = server_record_new(ns->name, ns->id);
 	if (!record) {
 		error("Unable to allocate new service record");
@@ -678,6 +680,7 @@ static struct network_adapter *create_adapter(struct btd_adapter *adapter)
 	na = g_new0(struct network_adapter, 1);
 	na->adapter = btd_adapter_ref(adapter);
 
+	/*监听BNEP PSM*/
 	na->io = bt_io_listen(NULL/*无connect回调*/, confirm_event/*此io接入新的client后调用此回调*/, na/*函数参数*/, NULL/*无destory处理*/, &err,
 				BT_IO_OPT_SOURCE_BDADDR,
 				btd_adapter_get_address(adapter),/*指为源地址*/
@@ -685,7 +688,7 @@ static struct network_adapter *create_adapter(struct btd_adapter *adapter)
 				BT_IO_OPT_OMTU, BNEP_MTU,
 				BT_IO_OPT_IMTU, BNEP_MTU,
 				BT_IO_OPT_SEC_LEVEL,
-				security ? BT_IO_SEC_MEDIUM : BT_IO_SEC_LOW,
+				security/*依据配置取安全等级*/ ? BT_IO_SEC_MEDIUM : BT_IO_SEC_LOW,
 				BT_IO_OPT_INVALID);
 	if (!na->io) {
 		error("%s", err->message);

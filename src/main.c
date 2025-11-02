@@ -1435,7 +1435,7 @@ static GOptionEntry options[] = {
 	{ "configfile", 'f', 0, G_OPTION_ARG_STRING, &option_configfile,
 			"Specify an explicit path to the config file", "FILE"},
 	{ "compat", 'C', 0, G_OPTION_ARG_NONE, &option_compat,
-				"Provide deprecated command line interfaces" },
+				"Provide deprecated command line interfaces" },/*提供兼容方式的SDP SERVER*/
 	{ "experimental", 'E', 0, G_OPTION_ARG_NONE, &btd_opts.experimental,
 				"Enable experimental D-Bus interfaces" },
 	{ "testing", 'T', 0, G_OPTION_ARG_NONE, &btd_opts.testing,
@@ -1535,7 +1535,7 @@ int main(int argc, char *argv[])
 
 	if (btd_opts.mode != BT_MODE_LE) {
 		if (option_compat == TRUE)
-			sdp_flags |= SDP_SERVER_COMPAT;
+			sdp_flags |= SDP_SERVER_COMPAT;/*SDP SERVER开启兼容*/
 
 		start_sdp_server(sdp_mtu, sdp_flags);/*启动sdp server*/
 
