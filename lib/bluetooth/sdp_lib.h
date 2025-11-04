@@ -43,10 +43,11 @@ static inline int sdp_list_len(const sdp_list_t *list)
 	return n;
 }
 
+/*遍历链表，针对每个链表项调用f函数，如果f函数返回0，则返回链表项*/
 static inline sdp_list_t *sdp_list_find(sdp_list_t *list, void *u, sdp_comp_func_t f)
 {
 	for (; list; list = list->next)
-		if (f(list->data, u) == 0)
+		if (f(list->data, u/*函数参数*/) == 0)
 			return list;
 	return NULL;
 }

@@ -25,7 +25,7 @@
 #include "sdpd.h"
 #include "log.h"
 
-static sdp_list_t *service_db;
+static sdp_list_t *service_db;/*链表，串连所有已知服务，sdp_record_t类型*/
 static sdp_list_t *access_db;
 
 typedef struct {

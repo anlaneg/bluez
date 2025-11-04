@@ -1123,6 +1123,7 @@ void handle_internal_request(int sk, int mtu, void *data, int len)
 	process_request(&req);
 }
 
+/*SDP请求消息处理*/
 void handle_request(int sk, uint8_t *data, int len)
 {
 	struct sockaddr_l2 sa;

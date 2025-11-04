@@ -66,7 +66,7 @@ static int init_server(uint16_t mtu, int central, int compat)
 	bacpy(&l2addr.l2_bdaddr, BDADDR_ANY);
 	l2addr.l2_psm = htobs(SDP_PSM);
 
-	/*绑定到SDP_PSM*/
+	/*server绑定到SDP_PSM*/
 	if (bind(l2cap_sock, (struct sockaddr *) &l2addr, sizeof(l2addr)) < 0) {
 		error("binding L2CAP socket: %s", strerror(errno));
 		return -1;
@@ -215,7 +215,7 @@ static gboolean io_accept_event(GIOChannel *chan, GIOCondition cond, gpointer da
 	g_io_channel_set_close_on_unref(io, TRUE);
 
 	g_io_add_watch(io, G_IO_IN | G_IO_ERR | G_IO_HUP | G_IO_NVAL,
-					io_session_event, data);
+					io_session_event/*消息处理*/, data);
 
 	g_io_channel_unref(io);
 

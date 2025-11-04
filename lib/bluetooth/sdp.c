@@ -576,16 +576,18 @@ static void extract_svclass_uuid(sdp_data_t *data, uuid_t *uuid)
 	*uuid = d->val.uuid;
 }
 
-int sdp_attr_add(sdp_record_t *rec, uint16_t attr, sdp_data_t *d)
+/*添加属性*/
+int sdp_attr_add(sdp_record_t *rec, uint16_t attr/*属性编号*/, sdp_data_t *d/*属性值*/)
 {
 	sdp_data_t *p = sdp_data_get(rec, attr);
 
 	if (p)
+		/*已存在*/
 		return -1;
 	if (!d)
 		return -1;
 
-	d->attrId = attr;
+	d->attrId = attr;/*指明属性id*/
 	rec->attrlist = sdp_list_insert_sorted(rec->attrlist, d, sdp_attrid_comp_func);
 
 	if (attr == SDP_ATTR_SVCLASS_ID_LIST)
@@ -943,6 +945,7 @@ void sdp_attr_replace(sdp_record_t *rec, uint16_t attr, sdp_data_t *d)
 		extract_svclass_uuid(d, &rec->svclass);
 }
 
+/*如attrID相等，则返回0*/
 int sdp_attrid_comp_func(const void *key1, const void *key2)
 {
 	const sdp_data_t *d1 = (const sdp_data_t *)key1;
@@ -3427,7 +3430,7 @@ int sdp_service_search_req(sdp_session_t *session, const sdp_list_t *search,
 		goto end;
 	}
 	reqhdr = (sdp_pdu_hdr_t *) reqbuf;
-	reqhdr->pdu_id = SDP_SVC_SEARCH_REQ;
+	reqhdr->pdu_id = SDP_SVC_SEARCH_REQ;/*发送服务查询请求*/
 	pdata = reqbuf + sizeof(sdp_pdu_hdr_t);
 	reqsize = sizeof(sdp_pdu_hdr_t);
 
@@ -3461,9 +3464,9 @@ int sdp_service_search_req(sdp_session_t *session, const sdp_list_t *search,
 					SDP_REQ_BUFFER_SIZE - _reqsize, cstate);
 
 		/* Set the request header's param length */
-		reqhdr->plen = htons(reqsize - sizeof(sdp_pdu_hdr_t));
+		reqhdr->plen = htons(reqsize - sizeof(sdp_pdu_hdr_t));/*指明参数长度*/
 
-		reqhdr->tid  = htons(sdp_gen_tid(session));
+		reqhdr->tid  = htons(sdp_gen_tid(session));/*填充事务id*/
 		/*
 		 * Send the request, wait for response and if
 		 * no error, set the appropriate values and return
@@ -3851,8 +3854,8 @@ int sdp_service_search_async(sdp_session_t *session, const sdp_list_t *search, u
 	memset(t->reqbuf, 0, SDP_REQ_BUFFER_SIZE);
 
 	reqhdr = (sdp_pdu_hdr_t *) t->reqbuf;
-	reqhdr->tid = htons(sdp_gen_tid(session));
-	reqhdr->pdu_id = SDP_SVC_SEARCH_REQ;
+	reqhdr->tid = htons(sdp_gen_tid(session));/*填充事务id*/
+	reqhdr->pdu_id = SDP_SVC_SEARCH_REQ;/*服务查询请求*/
 
 	/* generate PDU */
 	pdata = t->reqbuf + sizeof(sdp_pdu_hdr_t);
@@ -4722,9 +4725,10 @@ static int sdp_connect_l2cap(const bdaddr_t *src,
 	memset(&sa, 0, sizeof(sa));
 
 	sa.l2_family = AF_BLUETOOTH;
-	sa.l2_psm = 0;
+	sa.l2_psm = 0;/*使用动态psm*/
 
 	if (bacmp(src, BDADDR_ANY)) {
+		/*未指定源地址，本端绑定psm为0*/
 		sa.l2_bdaddr = *src;
 		if (bind(sk, (struct sockaddr *) &sa, sizeof(sa)) < 0)
 			return -1;
@@ -4740,6 +4744,7 @@ static int sdp_connect_l2cap(const bdaddr_t *src,
 				set_l2cap_mtu(sk, SDP_LARGE_L2CAP_MTU) < 0)
 		return -1;
 
+	/*指定目的地址，连接到远端*/
 	sa.l2_psm = htobs(SDP_PSM);
 	sa.l2_bdaddr = *dst;
 
@@ -4776,7 +4781,7 @@ sdp_session_t *sdp_connect(const bdaddr_t *src/*源地址*/,
 		if (sdp_connect_local(session) < 0)
 			goto fail;
 	} else {
-		/*连接到远端*/
+		/*dst不在本机，连接到远端*/
 		if (sdp_connect_l2cap(src, dst, session) < 0)
 			goto fail;
 	}
@@ -4799,6 +4804,7 @@ int sdp_get_socket(const sdp_session_t *session)
 	return session->sock;
 }
 
+/*产生事务id*/
 uint16_t sdp_gen_tid(sdp_session_t *session)
 {
 	return session->tid++;

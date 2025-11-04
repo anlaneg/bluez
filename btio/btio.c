@@ -66,7 +66,7 @@ struct set_opts {
 	int imtu;
 	uint16_t omtu;
 	int central;
-	uint8_t mode;
+	uint8_t mode;/*用于设置channel mode*/
 	int flushable;
 	uint32_t priority;
 	uint16_t voice;
@@ -611,6 +611,7 @@ static gboolean get_key_size(int sock, int *size, GError **err)
 	return FALSE;
 }
 
+/*mode值转换*/
 static uint8_t mode_l2mode(uint8_t mode)
 {
 	switch (mode) {
@@ -639,7 +640,7 @@ static gboolean set_l2opts(int sock, int imtu, uint16_t omtu, uint8_t mode,
 		return FALSE;
 	}
 
-	/*按需更新*/
+	/*按需更新l2o*/
 	if (imtu != -1)
 		l2o.imtu = imtu;
 	if (omtu)
@@ -674,6 +675,7 @@ static gboolean set_le_imtu(int sock, uint16_t imtu, GError **err)
 	return TRUE;
 }
 
+/*设置bt mode*/
 static gboolean set_le_mode(int sock, uint8_t mode, GError **err)
 {
 	if (setsockopt(sock, SOL_BLUETOOTH, BT_MODE, &mode,
@@ -685,8 +687,8 @@ static gboolean set_le_mode(int sock, uint8_t mode, GError **err)
 	return TRUE;
 }
 
-static gboolean l2cap_set(int sock, uint8_t src_type, int sec_level,
-				int imtu, uint16_t omtu, uint8_t mode,
+static gboolean l2cap_set(int sock, uint8_t src_type/*源地址类型*/, int sec_level,
+				int imtu, uint16_t omtu, uint8_t mode/*要设置的channel mode,为零时不设置*/,
 				int central, int flushable, uint32_t priority,
 				GError **err)
 {
@@ -1178,6 +1180,7 @@ static int get_le_imtu(int sock, uint16_t *mtu)
 	return 0;
 }
 
+/*取bt mode*/
 static int get_le_mode(int sock, uint8_t *mode)
 {
 	socklen_t len;

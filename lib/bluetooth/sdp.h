@@ -418,9 +418,9 @@ extern "C" {
  * SDP PDU
  */
 typedef struct {
-	uint8_t  pdu_id;
-	uint16_t tid;
-	uint16_t plen;
+	uint8_t  pdu_id;/*命令code*/
+	uint16_t tid;/*事务id*/
+	uint16_t plen;/*参数长度，其后为参数*/
 } __attribute__ ((packed)) sdp_pdu_hdr_t;
 
 /*
@@ -489,20 +489,20 @@ typedef struct {
 } sdp_buf_t;
 
 typedef struct {
-	uint32_t handle;
+	uint32_t handle;/*唯一指代一个服务*/
 
 	/* Search pattern: a sequence of all UUIDs seen in this record */
 	sdp_list_t *pattern;/*一组uuids*/
 	sdp_list_t *attrlist;
 
 	/* Main service class for Extended Inquiry Response */
-	uuid_t svclass;
+	uuid_t svclass;/*服务类型*/
 } sdp_record_t;
 
 typedef struct sdp_data_struct sdp_data_t;
 struct sdp_data_struct {
 	uint8_t dtd;
-	uint16_t attrId;
+	uint16_t attrId;/*属性标识*/
 	union {
 		int8_t    int8;
 		int16_t   int16;
@@ -517,8 +517,8 @@ struct sdp_data_struct {
 		uuid_t    uuid;
 		char     *str;
 		sdp_data_t *dataseq;
-	} val;
-	sdp_data_t *next;
+	} val;/*属性值*/
+	sdp_data_t *next;/*用于串连*/
 	int unitSize;
 };
 
