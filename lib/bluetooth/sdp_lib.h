@@ -193,7 +193,7 @@ void sdp_set_info_attr(sdp_record_t *rec, const char *name, const char *prov, co
  */
 static inline int sdp_set_service_classes(sdp_record_t *rec, sdp_list_t *seq)
 {
-	return sdp_set_uuidseq_attr(rec, SDP_ATTR_SVCLASS_ID_LIST, seq);
+	return sdp_set_uuidseq_attr(rec, SDP_ATTR_SVCLASS_ID_LIST, seq);/*设置svclass id list*/
 }
 
 /*

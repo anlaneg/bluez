@@ -629,7 +629,7 @@ static void update_mps(void)
 	}
 }
 
-/*为了搞明白SDP,看到此处了,当前用于搞清楚sdp_record的加入及查询等*/
+/*添加sdp record到sdp server*/
 int add_record_to_server(const bdaddr_t *src, sdp_record_t *rec)
 {
 	sdp_data_t *data;

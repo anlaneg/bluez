@@ -343,8 +343,9 @@ void sdp_uuid_print(const uuid_t *uuid)
 }
 #endif
 
+/*利用dtd,value创建并填充sdp_data*/
 sdp_data_t *sdp_data_alloc_with_length(uint8_t dtd, const void *value,
-							uint32_t length)
+							uint32_t length/*字符串类型时表示字符串长度*/)
 {
 	sdp_data_t *seq;
 	sdp_data_t *d = bt_malloc0(sizeof(sdp_data_t));
@@ -352,7 +353,7 @@ sdp_data_t *sdp_data_alloc_with_length(uint8_t dtd, const void *value,
 	if (!d)
 		return NULL;
 
-	d->dtd = dtd;
+	d->dtd = dtd;/*指明数据类型*/
 	d->unitSize = sizeof(uint8_t);
 
 	switch (dtd) {
@@ -422,6 +423,7 @@ sdp_data_t *sdp_data_alloc_with_length(uint8_t dtd, const void *value,
 
 		d->unitSize += length;
 		if (length <= USHRT_MAX) {
+			/*复制其内容*/
 			d->val.str = bt_malloc0(length + 1);
 			if (!d->val.str) {
 				free(d);
@@ -464,6 +466,7 @@ sdp_data_t *sdp_data_alloc_with_length(uint8_t dtd, const void *value,
 	return d;
 }
 
+/*利用dtd,value构造sdp_data_t*/
 sdp_data_t *sdp_data_alloc(uint8_t dtd, const void *value)
 {
 	uint32_t length;
@@ -476,7 +479,7 @@ sdp_data_t *sdp_data_alloc(uint8_t dtd, const void *value)
 		if (!value)
 			return NULL;
 
-		length = strlen((char *) value);
+		length = strlen((char *) value);/*对字符串类型,取字符串长度*/
 		break;
 	default:
 		length = 0;
@@ -529,6 +532,7 @@ sdp_data_t *sdp_seq_alloc_with_length(void **dtds, void **values, int *length,
 	return sdp_data_alloc(SDP_SEQ8, seq);
 }
 
+/*dtds,values两个数组长度为len,且dtds用于标注values中UUID的类型,构造SDP_SEQ8型sdp_data_t*/
 sdp_data_t *sdp_seq_alloc(void **dtds, void **values, int len)
 {
 	sdp_data_t *curr = NULL, *seq = NULL;
@@ -536,12 +540,12 @@ sdp_data_t *sdp_seq_alloc(void **dtds, void **values, int len)
 
 	for (i = 0; i < len; i++) {
 		sdp_data_t *data;
-		uint8_t dtd = *(uint8_t *) dtds[i];
+		uint8_t dtd = *(uint8_t *) dtds[i];/*UUID类型*/
 
 		if (dtd >= SDP_SEQ8 && dtd <= SDP_ALT32)
-			data = (sdp_data_t *) values[i];
+			data = (sdp_data_t *) values[i];/*sdp_data_t指针类型*/
 		else
-			data = sdp_data_alloc(dtd, values[i]);
+			data = sdp_data_alloc(dtd, values[i]);/*基它基本类型构造sdp_data_t*/
 
 		if (!data) {
 			sdp_data_free(seq);
@@ -549,13 +553,14 @@ sdp_data_t *sdp_seq_alloc(void **dtds, void **values, int len)
 		}
 
 		if (curr)
-			curr->next = data;
+			curr->next = data;/*非首个,采用next串起来*/
 		else
-			seq = data;
+			seq = data;/*首个*/
 
 		curr = data;
 	}
 
+	/*构造sdp_seq8构造并填入此链表*/
 	return sdp_data_alloc(SDP_SEQ8, seq);
 }
 
@@ -564,16 +569,16 @@ static void extract_svclass_uuid(sdp_data_t *data, uuid_t *uuid)
 	sdp_data_t *d;
 
 	if (!data || !SDP_IS_SEQ(data->dtd))
-		return;
+		return;/*svclass必须是SEQ类型*/
 
 	d = data->val.dataseq;
 	if (!d)
-		return;
+		return;/*属性值不得为空*/
 
 	if (d->dtd < SDP_UUID16 || d->dtd > SDP_UUID128)
-		return;
+		return;/*间接的DTD类型有误*/
 
-	*uuid = d->val.uuid;
+	*uuid = d->val.uuid;/*设置uuid*/
 }
 
 /*添加属性*/
@@ -925,7 +930,7 @@ int sdp_gen_record_pdu(const sdp_record_t *rec, sdp_buf_t *buf)
 	return 0;
 }
 
-void sdp_attr_replace(sdp_record_t *rec, uint16_t attr, sdp_data_t *d)
+void sdp_attr_replace(sdp_record_t *rec, uint16_t attr/*属性*/, sdp_data_t *d/*属性值*/)
 {
 	sdp_data_t *p;
 
@@ -934,14 +939,17 @@ void sdp_attr_replace(sdp_record_t *rec, uint16_t attr, sdp_data_t *d)
 
 	p = sdp_data_get(rec, attr);
 	if (p) {
+		/*如果存在,先移除旧的属性值*/
 		rec->attrlist = sdp_list_remove(rec->attrlist, p);
 		sdp_data_free(p);
 	}
 
+	/*再加入新的此属性值*/
 	d->attrId = attr;
 	rec->attrlist = sdp_list_insert_sorted(rec->attrlist, d, sdp_attrid_comp_func);
 
 	if (attr == SDP_ATTR_SVCLASS_ID_LIST)
+		/*当属性为svclass id时填充rec->svclass*/
 		extract_svclass_uuid(d, &rec->svclass);
 }
 
@@ -1667,6 +1675,7 @@ void sdp_data_print(sdp_data_t *d)
 }
 #endif
 
+/*在rec中查询rec->attrlist,检查其是否包含有属性为attrid的项*/
 sdp_data_t *sdp_data_get(const sdp_record_t *rec, uint16_t attrId)
 {
 	if (rec && rec->attrlist) {
@@ -1956,7 +1965,8 @@ fail:
 	return -1;
 }
 
-int sdp_set_uuidseq_attr(sdp_record_t *rec, uint16_t aid, sdp_list_t *seq)
+/*添加uuid序列,设置rec->svclass*/
+int sdp_set_uuidseq_attr(sdp_record_t *rec, uint16_t aid/*属性id*/, sdp_list_t *seq/*此属性对应的value*/)
 {
 	int status = 0, i, len;
 	void **dtds, **values;
@@ -1965,9 +1975,9 @@ int sdp_set_uuidseq_attr(sdp_record_t *rec, uint16_t aid, sdp_list_t *seq)
 	uint8_t uuid128 = SDP_UUID128;
 	sdp_list_t *p;
 
-	len = sdp_list_len(seq);/*链表长度*/
+	len = sdp_list_len(seq);/*取链表长度*/
 	if (!seq || len == 0)
-		return -1;
+		return -1;/*链表长度不得为0*/
 	dtds = malloc(len * sizeof(void *));
 	if (!dtds)
 		return -1;
@@ -1978,10 +1988,11 @@ int sdp_set_uuidseq_attr(sdp_record_t *rec, uint16_t aid, sdp_list_t *seq)
 		return -1;
 	}
 
+	/*遍历seq链表*/
 	for (p = seq, i = 0; i < len; i++, p = p->next) {
 		uuid_t *uuid = p->data;
 		if (uuid)
-			switch (uuid->type) {
+			switch (uuid->type) {/*依据uuid不同类型,转换dtds,values两个数组*/
 			case SDP_UUID16:
 				dtds[i] = &uuid16;
 				values[i] = &uuid->value.uuid16;
@@ -2003,10 +2014,11 @@ int sdp_set_uuidseq_attr(sdp_record_t *rec, uint16_t aid, sdp_list_t *seq)
 			break;
 		}
 	}
-	if (status == 0/*未发生错误*/) {
-		sdp_data_t *data = sdp_seq_alloc(dtds, values, len);
-		sdp_attr_replace(rec, aid, data);
-		sdp_pattern_add_uuidseq(rec, seq);
+	if (status == 0/*数据有效*/) {
+		/*产生SDP_SEQ8类型的sdp_data_t结构*/
+		sdp_data_t *data = sdp_seq_alloc(dtds/*指明uuid类型*/, values/*指明uuid值*/, len/*指明数组长度*/);
+		sdp_attr_replace(rec, aid, data);/*替换此属性*/
+		sdp_pattern_add_uuidseq(rec, seq);/*添加uuid序列*/
 	}
 	free(dtds);
 	free(values);
@@ -2264,12 +2276,12 @@ int sdp_get_database_state(const sdp_record_t *rec, uint32_t *svcDBState)
  * {register, update}sdp_record_t() function is invoked.
  */
 
-int sdp_attr_add_new(sdp_record_t *rec, uint16_t attr, uint8_t dtd,
+int sdp_attr_add_new(sdp_record_t *rec, uint16_t attr/*属性编号*/, uint8_t dtd,
 							const void *value)
 {
-	sdp_data_t *d = sdp_data_alloc(dtd, value);
+	sdp_data_t *d = sdp_data_alloc(dtd, value);/*给定dtd及VALUE,产生sdp_data*/
 	if (d) {
-		sdp_attr_replace(rec, attr, d);
+		sdp_attr_replace(rec, attr, d);/*添加相应属性*/
 		return 0;
 	}
 	return -1;
@@ -2299,12 +2311,12 @@ void sdp_set_info_attr(sdp_record_t *rec, const char *name, const char *prov,
 {
 	if (name)
 		sdp_attr_add_new(rec, SDP_ATTR_SVCNAME_PRIMARY,
-							SDP_TEXT_STR8, name);
+							SDP_TEXT_STR8, name);/*服务名称*/
 	if (prov)
 		sdp_attr_add_new(rec, SDP_ATTR_PROVNAME_PRIMARY,
-							SDP_TEXT_STR8, prov);
+							SDP_TEXT_STR8, prov);/*provider名称*/
 	if (desc)
-		sdp_attr_add_new(rec, SDP_ATTR_SVCDESC_PRIMARY,
+		sdp_attr_add_new(rec, SDP_ATTR_SVCDESC_PRIMARY,/*描述信息*/
 							SDP_TEXT_STR8, desc);
 }
 
@@ -2571,10 +2583,11 @@ int sdp_set_profile_descs(sdp_record_t *rec, const sdp_list_t *profiles)
 		return -1;
 	}
 
+	/*遍历列表*/
 	for (p = profiles; p; p = p->next) {
 		sdp_data_t *seq;
 		void *dtds[2], *values[2];
-		sdp_profile_desc_t *profile = p->data;
+		sdp_profile_desc_t *profile = p->data;/*列表每个成员均需要是sdp_profile_desc_t*/
 		if (!profile) {
 			status = -1;
 			goto end;
@@ -2643,6 +2656,7 @@ void sdp_set_url_attr(sdp_record_t *rec, const char *client, const char *doc,
 	sdp_attr_add_new(rec, SDP_ATTR_ICON_URL, SDP_URL_STR8, icon);
 }
 
+/*利用val初始化uuid_t*/
 uuid_t *sdp_uuid16_create(uuid_t *u, uint16_t val)
 {
 	memset(u, 0, sizeof(uuid_t));
@@ -2736,6 +2750,7 @@ void sdp_uuid16_to_uuid128(uuid_t *uuid128, const uuid_t *uuid16)
 	memcpy(&uuid128->value.uuid128.data[2], &data1, 2);
 }
 
+/*uuid32转uuid128方法*/
 void sdp_uuid32_to_uuid128(uuid_t *uuid128, const uuid_t *uuid32)
 {
 	/*
@@ -2773,7 +2788,7 @@ uuid_t *sdp_uuid_to_uuid128(const uuid_t *uuid)
 		sdp_uuid32_to_uuid128(uuid128, uuid);
 		break;
 	case SDP_UUID16:
-		sdp_uuid16_to_uuid128(uuid128, uuid);
+		sdp_uuid16_to_uuid128(uuid128, uuid);/*uuid16转uuid128方法*/
 		break;
 	}
 	return uuid128;
@@ -3208,6 +3223,7 @@ int sdp_record_update(sdp_session_t *session, const sdp_record_t *rec)
 	return sdp_device_record_update(session, BDADDR_ANY, rec);
 }
 
+/*创建空的sdp record*/
 sdp_record_t *sdp_record_alloc(void)
 {
 	sdp_record_t *rec = bt_malloc0(sizeof(sdp_record_t));
@@ -3231,15 +3247,16 @@ void sdp_record_free(sdp_record_t *rec)
 
 void sdp_pattern_add_uuid(sdp_record_t *rec, uuid_t *uuid)
 {
-	uuid_t *uuid128 = sdp_uuid_to_uuid128(uuid);
+	uuid_t *uuid128 = sdp_uuid_to_uuid128(uuid);/*转uuid128*/
 
 	SDPDBG("Elements in target pattern : %d", sdp_list_len(rec->pattern));
 	SDPDBG("Trying to add : 0x%lx", (unsigned long) uuid128);
 
 	if (sdp_list_find(rec->pattern, uuid128, sdp_uuid128_cmp) == NULL)
+		/*此uuid在pattern中不存在,添加它*/
 		rec->pattern = sdp_list_insert_sorted(rec->pattern, uuid128, sdp_uuid128_cmp);
 	else
-		bt_free(uuid128);
+		bt_free(uuid128);/*已存在,释放此uuid*/
 
 	SDPDBG("Elements in target pattern : %d", sdp_list_len(rec->pattern));
 }

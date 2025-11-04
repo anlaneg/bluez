@@ -152,7 +152,8 @@ static struct network_server *find_server_by_uuid(GSList *list,
 	return NULL;
 }
 
-static sdp_record_t *server_record_new(const char *name, uint16_t id/*服务编号*/)
+/*产生record*/
+static sdp_record_t *server_record_new(const char *name/*服务名称*/, uint16_t id/*服务编号*/)
 {
 	sdp_list_t *svclass, *pfseq, *apseq, *root, *aproto;
 	uuid_t root_uuid, pan, l2cap, bnep;
@@ -177,43 +178,43 @@ static sdp_record_t *server_record_new(const char *name, uint16_t id/*服务编�
 	case BNEP_SVC_NAP:
 		sdp_uuid16_create(&pan, NAP_SVCLASS_ID);
 		svclass = sdp_list_append(NULL, &pan);/*将pan串进到svclass中*/
-		sdp_set_service_classes(record, svclass);
+		sdp_set_service_classes(record, svclass);/*设置svclass*/
 
 		sdp_uuid16_create(&profile[0].uuid, NAP_PROFILE_ID);
 		profile[0].version = 0x0100;
 		pfseq = sdp_list_append(NULL, &profile[0]);/*将profile[0]串到pfseq中*/
-		sdp_set_profile_descs(record, pfseq);
+		sdp_set_profile_descs(record, pfseq);/*添加SDP_ATTR_PFILE_DESC_LIST属性*/
 
-		sdp_set_info_attr(record, name, NULL, desc);
+		sdp_set_info_attr(record, name, NULL, desc);/*添加服务名及描述*/
 
 		sdp_attr_add_new(record, SDP_ATTR_NET_ACCESS_TYPE,
-					SDP_UINT16, &net_access_type);
+					SDP_UINT16, &net_access_type);/*添加网络访问类型*/
 		sdp_attr_add_new(record, SDP_ATTR_MAX_NET_ACCESSRATE,
-					SDP_UINT32, &max_net_access_rate);
+					SDP_UINT32, &max_net_access_rate);/*最大访问速率*/
 		break;
 	case BNEP_SVC_GN:
 		sdp_uuid16_create(&pan, GN_SVCLASS_ID);
 		svclass = sdp_list_append(NULL, &pan);
-		sdp_set_service_classes(record, svclass);
+		sdp_set_service_classes(record, svclass);/*设置svclass*/
 
 		sdp_uuid16_create(&profile[0].uuid, GN_PROFILE_ID);
 		profile[0].version = 0x0100;
 		pfseq = sdp_list_append(NULL, &profile[0]);
-		sdp_set_profile_descs(record, pfseq);
+		sdp_set_profile_descs(record, pfseq);/*添加SDP_ATTR_PFILE_DESC_LIST属性*/
 
-		sdp_set_info_attr(record, name, NULL, desc);
+		sdp_set_info_attr(record, name, NULL, desc);/*添加服务名及描述*/
 		break;
 	case BNEP_SVC_PANU:
 		sdp_uuid16_create(&pan, PANU_SVCLASS_ID);
 		svclass = sdp_list_append(NULL, &pan);
-		sdp_set_service_classes(record, svclass);
+		sdp_set_service_classes(record, svclass);/*设置svclass*/
 
 		sdp_uuid16_create(&profile[0].uuid, PANU_PROFILE_ID);
 		profile[0].version = 0x0100;
 		pfseq = sdp_list_append(NULL, &profile[0]);
-		sdp_set_profile_descs(record, pfseq);
+		sdp_set_profile_descs(record, pfseq);/*添加SDP_ATTR_PFILE_DESC_LIST属性*/
 
-		sdp_set_info_attr(record, name, NULL, desc);
+		sdp_set_info_attr(record, name, NULL, desc);/*添加服务名及描述*/
 		break;
 	default:
 		sdp_record_free(record);
@@ -222,17 +223,17 @@ static sdp_record_t *server_record_new(const char *name, uint16_t id/*服务编�
 
 	sdp_uuid16_create(&root_uuid, PUBLIC_BROWSE_GROUP);
 	root = sdp_list_append(NULL, &root_uuid);
-	sdp_set_browse_groups(record, root);
+	sdp_set_browse_groups(record, root);/*设置SDP_ATTR_BROWSE_GRP_LIST*/
 
 	sdp_uuid16_create(&l2cap, L2CAP_UUID);
-	proto[0] = sdp_list_append(NULL, &l2cap);
-	p = sdp_data_alloc(SDP_UINT16, &psm);
+	proto[0] = sdp_list_append(NULL, &l2cap);/*设置协议l2cap*/
+	p = sdp_data_alloc(SDP_UINT16, &psm);/*设置PSM*/
 	proto[0] = sdp_list_append(proto[0], p);
 	apseq    = sdp_list_append(NULL, proto[0]);
 
 	sdp_uuid16_create(&bnep, BNEP_UUID);
-	proto[1] = sdp_list_append(NULL, &bnep);
-	v = sdp_data_alloc(SDP_UINT16, &version);
+	proto[1] = sdp_list_append(NULL, &bnep);/*设置协议bnep*/
+	v = sdp_data_alloc(SDP_UINT16, &version);/*设置版本号*/
 	proto[1] = sdp_list_append(proto[1], v);
 
 	/* Supported protocols */
@@ -252,13 +253,13 @@ static sdp_record_t *server_record_new(const char *name, uint16_t id/*服务编�
 				head = data;
 		}
 		pseq = sdp_data_alloc(SDP_SEQ16, head);
-		proto[1] = sdp_list_append(proto[1], pseq);
+		proto[1] = sdp_list_append(proto[1], pseq);/*添加支持的协议*/
 	}
 
 	apseq = sdp_list_append(apseq, proto[1]);
 
 	aproto = sdp_list_append(NULL, apseq);
-	sdp_set_access_protos(record, aproto);
+	sdp_set_access_protos(record, aproto);/*添加SDP_ATTR_PROTO_DESC_LIST*/
 
 	sdp_add_lang_attr(record);
 

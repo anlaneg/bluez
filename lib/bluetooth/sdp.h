@@ -89,6 +89,7 @@ extern "C" {
 #define WAP_SVCLASS_ID			0x1113
 #define WAP_CLIENT_SVCLASS_ID		0x1114
 #define PANU_SVCLASS_ID			0x1115
+/*nap服务的class id*/
 #define NAP_SVCLASS_ID			0x1116
 #define GN_SVCLASS_ID			0x1117
 #define DIRECT_PRINTING_SVCLASS_ID	0x1118
@@ -362,8 +363,11 @@ extern "C" {
 #define SDP_INT64		0x13
 #define SDP_INT128		0x14
 #define SDP_UUID_UNSPEC		0x18
+/*指明由uint16表示uuid*/
 #define SDP_UUID16		0x19
+/*指明由uint32表示uuid*/
 #define SDP_UUID32		0x1A
+/*指明由uint128表示uuid*/
 #define SDP_UUID128		0x1C
 #define SDP_TEXT_STR_UNSPEC	0x20
 #define SDP_TEXT_STR8		0x25
@@ -429,12 +433,12 @@ typedef struct {
  */
 
 typedef struct {
-	uint8_t type;
+	uint8_t type;/*uuid类型*/
 	union {
 		uint16_t  uuid16;
 		uint32_t  uuid32;
 		uint128_t uuid128;
-	} value;
+	} value;/*UUID数值*/
 } uuid_t;
 
 #define SDP_IS_UUID(x) ((x) == SDP_UUID16 || (x) == SDP_UUID32 || \
@@ -446,8 +450,8 @@ typedef struct {
 
 typedef struct _sdp_list sdp_list_t;
 struct _sdp_list {
-	sdp_list_t *next;
-	void *data;
+	sdp_list_t *next;/*指向下一个*/
+	void *data;/*保存元素*/
 };
 
 /*
@@ -492,7 +496,7 @@ typedef struct {
 	uint32_t handle;/*唯一指代一个服务*/
 
 	/* Search pattern: a sequence of all UUIDs seen in this record */
-	sdp_list_t *pattern;/*一组uuids*/
+	sdp_list_t *pattern;/*存储一组uuids*/
 	sdp_list_t *attrlist;
 
 	/* Main service class for Extended Inquiry Response */
@@ -501,7 +505,7 @@ typedef struct {
 
 typedef struct sdp_data_struct sdp_data_t;
 struct sdp_data_struct {
-	uint8_t dtd;
+	uint8_t dtd;/*指明数据类型*/
 	uint16_t attrId;/*属性标识*/
 	union {
 		int8_t    int8;

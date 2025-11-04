@@ -1355,7 +1355,7 @@ static void adapter_service_insert(struct btd_adapter *adapter, sdp_record_t *re
 	if (sdp_list_find(adapter->services, &rec->svclass, uuid_cmp) == NULL)
 		new_uuid = TRUE;
 	else
-		new_uuid = FALSE;
+		new_uuid = FALSE;/*已存在此svclass*/
 
 	/*添加service*/
 	adapter->services = sdp_list_insert_sorted(adapter->services, rec,
