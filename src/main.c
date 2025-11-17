@@ -1397,6 +1397,7 @@ static int connect_dbus(void)
 	/*初始化dbus err*/
 	dbus_error_init(&err);
 
+	/*连接system*/
 	conn = g_dbus_setup_bus(DBUS_BUS_SYSTEM, BLUEZ_NAME, &err);
 	if (!conn) {
 		if (dbus_error_is_set(&err)) {
@@ -1440,9 +1441,9 @@ static GOptionEntry options[] = {
 	{ "compat", 'C', 0, G_OPTION_ARG_NONE, &option_compat,
 				"Provide deprecated command line interfaces" },/*提供兼容方式的SDP SERVER*/
 	{ "experimental", 'E', 0, G_OPTION_ARG_NONE, &btd_opts.experimental,
-				"Enable experimental D-Bus interfaces" },
+				"Enable experimental D-Bus interfaces" },/*开启实验性功能*/
 	{ "testing", 'T', 0, G_OPTION_ARG_NONE, &btd_opts.testing,
-				"Enable testing D-Bus interfaces" },
+				"Enable testing D-Bus interfaces" },/*开启测试性功能*/
 	{ "kernel", 'K', G_OPTION_FLAG_OPTIONAL_ARG, G_OPTION_ARG_CALLBACK,
 				parse_kernel_experimental,/*指明开启的uuid列表*/
 				"Enable kernel experimental features" },
@@ -1524,6 +1525,7 @@ int main(int argc, char *argv[])
 	if (btd_opts.testing)
 		gdbus_flags |= G_DBUS_FLAG_ENABLE_TESTING;
 
+	/*依据参数设置是否开启"实验性功能“，”测试性功能“*/
 	g_dbus_set_flags(gdbus_flags);
 
 	/*初始化adapter*/

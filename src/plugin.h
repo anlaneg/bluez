@@ -23,7 +23,7 @@ struct bluetooth_plugin_desc {
 };
 
 #ifdef BLUETOOTH_PLUGIN_BUILTIN
-#define BLUETOOTH_PLUGIN_DEFINE(name, version, priority, init, exit) \
+#define BLUETOOTH_PLUGIN_DEFINE(name/*插件名称*/, version, priority, init, exit) \
 		const struct bluetooth_plugin_desc \
 		__bluetooth_builtin_ ## name = { \
 			#name, version, priority, init, exit \

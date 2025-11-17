@@ -420,7 +420,7 @@ void btd_service_connecting_complete(struct btd_service *service, int err)
 		return;
 
 	if (err == 0)
-		/*状诚变更为CONNECTED*/
+		/*状态变更为CONNECTED*/
 		change_state(service, BTD_SERVICE_STATE_CONNECTED, 0);
 	else
 		change_state(service, BTD_SERVICE_STATE_DISCONNECTED, err);

@@ -739,6 +739,7 @@ guint g_dbus_add_disconnect_watch(DBusConnection *connection, const char *name,
 							user_data, destroy);
 }
 
+/*订阅和监控D-Bus信号*/
 guint g_dbus_add_signal_watch(DBusConnection *connection,
 				const char *sender, const char *path,
 				const char *interface, const char *member,

@@ -15,8 +15,8 @@
 struct btd_service;
 
 struct btd_profile {
-	const char *name;
-	int priority;
+	const char *name;/*名称*/
+	int priority;/*优先级*/
 
 	const char *local_uuid;/*本端uuid*/
 	const char *remote_uuid;
@@ -31,12 +31,12 @@ struct btd_profile {
 	/* Indicates the profile is experimental and shall only be registered
 	 * when experimental has been enabled (see: main.conf:Experimental).
 	 */
-	bool experimental;
+	bool experimental;/*是否实验性功能*/
 
 	/* Indicates the profile for testing only and shall only be registered
 	 * when testing has been enabled (see: main.conf:Testing).
 	 */
-	bool testing;
+	bool testing;/*是否测试性功能*/
 
 	int (*device_probe) (struct btd_service *service);
 	void (*device_remove) (struct btd_service *service);

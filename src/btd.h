@@ -140,8 +140,8 @@ struct btd_opts {
 	bool		debug_keys;
 	bool		fast_conn;
 	bool		refresh_discovery;
-	bool		experimental;
-	bool		testing;
+	bool		experimental;/*是否开启实验功能*/
+	bool		testing;/*是否开启测试功能*/
 	bool		filter_discoverable;
 	struct queue	*kernel;
 

@@ -1982,7 +1982,7 @@ static void cmd_pair(int argc, char *argv[])
 	if (!proxy)
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
-	/*通过dbus代码调用pair*/
+	/*通过dbus代码调用pair方法*/
 	if (g_dbus_proxy_method_call(proxy, "Pair", NULL, pair_reply,
 							NULL, NULL) == FALSE) {
 		bt_shell_printf("Failed to pair\n");

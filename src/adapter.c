@@ -323,6 +323,7 @@ struct btd_adapter {
 
 	unsigned int pairable_timeout_id;	/* pairable timeout id */
 	guint auth_idle_id;		/* Pending authorization dequeue */
+	/*记录待决的授权请求*/
 	GQueue *auths;			/* Ongoing and pending auths */
 	bool pincode_requested;		/* PIN requested during last bonding */
 	GSList *connections;		/* Connected devices */
@@ -3965,13 +3966,14 @@ bool btd_adapter_set_allowed_uuids(struct btd_adapter *adapter,
 	return true;
 }
 
+/*检查此adapter是否容许此uuid服务*/
 bool btd_adapter_is_uuid_allowed(struct btd_adapter *adapter,
 							const char *uuid_str)
 {
 	bt_uuid_t uuid;
 
 	if (!adapter || !adapter->allowed_uuid_set)
-		return true;/*未设置,返回true*/
+		return true;/*未设置白名单,默认返回true*/
 
 	if (bt_string_to_uuid(&uuid, uuid_str)) {
 		btd_error(adapter->dev_id,
@@ -5186,6 +5188,7 @@ free:
 	load_conn_params(adapter, params);
 	g_slist_free_full(params, g_free);
 
+	/*遍历所有设备，并释放其在added_devices中的元素*/
 	g_slist_free_full(added_devices, probe_devices);
 }
 
@@ -5266,7 +5269,7 @@ static void load_drivers(struct btd_adapter *adapter)
 		probe_driver(adapter, l->data);
 }
 
-static void probe_profile(struct btd_profile *profile, void *data)
+static void probe_profile(struct btd_profile *profile, void *data/*btd_adapter类型*/)
 {
 	struct btd_adapter *adapter = data;/*参数为adapter*/
 	int err;
@@ -5287,7 +5290,7 @@ static void probe_profile(struct btd_profile *profile, void *data)
 	adapter->profiles = g_slist_prepend(adapter->profiles, profile);
 }
 
-void adapter_add_profile(struct btd_adapter *adapter, gpointer p)
+void adapter_add_profile(struct btd_adapter *adapter, gpointer p/*btd_profile结构体类型*/)
 {
 	struct btd_profile *profile = p;
 
@@ -7194,6 +7197,7 @@ const char *adapter_get_path(struct btd_adapter *adapter)
 	return adapter->path;
 }
 
+/*取adapter的地址*/
 const bdaddr_t *btd_adapter_get_address(struct btd_adapter *adapter)
 {
 	return &adapter->bdaddr;
@@ -7853,6 +7857,7 @@ static gboolean process_auth_queue(gpointer user_data)
 	dbus_error_init(&err);
 	dbus_set_error_const(&err, ERROR_INTERFACE ".Rejected", NULL);
 
+	/*遍历待决的授权请求*/
 	while (!g_queue_is_empty(adapter->auths)) {
 		struct service_auth *auth = adapter->auths->head->data;
 		struct btd_device *device = auth->device;
@@ -7868,6 +7873,7 @@ static gboolean process_auth_queue(gpointer user_data)
 		}
 
 		if (btd_device_is_trusted(device) == TRUE) {
+			/*此设备被标记为trusted,容许，调用cb*/
 			auth->cb(NULL, auth->user_data);
 			goto next;
 		}
@@ -7878,13 +7884,14 @@ static gboolean process_auth_queue(gpointer user_data)
 
 		auth->agent = agent_get(NULL);
 		if (auth->agent == NULL) {
+			/*无法获得agent,不容许，调用cb*/
 			btd_warn(adapter->dev_id,
 					"Authentication attempt without agent");
 			auth->cb(&err, auth->user_data);
 			goto next;
 		}
 
-		/*请求授权服务*/
+		/*向此agent请求授权服务*/
 		if (agent_authorize_service(auth->agent, device, auth->uuid,
 					agent_auth_cb, adapter, NULL) < 0) {
 			auth->cb(&err, auth->user_data);
@@ -7931,7 +7938,7 @@ static int adapter_authorize(struct btd_adapter *adapter/*本端adapter*/, const
 
 	device = btd_adapter_find_device(adapter, dst, BDADDR_BREDR/*地址类型指明为BR/EDR*/);
 	if (!device)
-		return 0;
+		return 0;/*此adapter不能找到设备，授权失败*/
 
 	if (device_is_disconnecting(device)) {
 		DBG("Authorization request while disconnecting");
@@ -7940,6 +7947,7 @@ static int adapter_authorize(struct btd_adapter *adapter/*本端adapter*/, const
 
 	/* Device connected? */
 	if (check_for_connection && !g_slist_find(adapter->connections, device))
+		/*无到此设备的连接*/
 		btd_error(adapter->dev_id,
 			"Authorization request for non-connected device!?");
 
@@ -7950,9 +7958,9 @@ static int adapter_authorize(struct btd_adapter *adapter/*本端adapter*/, const
 	auth->cb = cb;
 	auth->user_data = user_data;
 	auth->uuid = uuid;
-	auth->device = device;
-	auth->adapter = adapter;
-	auth->id = ++id;
+	auth->device = device;/*取对端设备*/
+	auth->adapter = adapter;/*本端设备*/
+	auth->id = ++id;/*分配唯一id*/
 	if (check_for_connection)
 		auth->svc_id = device_wait_for_svc_complete(device, svc_complete, auth);
 	else {
@@ -7960,7 +7968,7 @@ static int adapter_authorize(struct btd_adapter *adapter/*本端adapter*/, const
 			adapter->auth_idle_id = g_idle_add(process_auth_queue, adapter);
 	}
 
-	g_queue_push_tail(adapter->auths, auth);
+	g_queue_push_tail(adapter->auths, auth);/*授权请求入队*/
 
 	return auth->id;
 }
@@ -7978,10 +7986,12 @@ guint btd_request_authorization(const bdaddr_t *src, const bdaddr_t *dst,
 		if (!adapter)
 			return 0;/*未查找到adapter,失败返回0*/
 
+		/*找到adapter,由此adapter创建授权请求*/
 		return adapter_authorize(adapter, dst, uuid,
 				ADAPTER_AUTHORIZE_CHECK_CONNECTED, cb, user_data);
 	}
 
+	/*adapter未知，逐个遍历尝试创建授权请求，直接创建成功*/
 	for (l = adapters; l != NULL; l = g_slist_next(l)) {
 		guint id;
 

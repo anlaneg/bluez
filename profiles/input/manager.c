@@ -59,7 +59,8 @@ static struct btd_profile input_profile = {
 	.adapter_remove = hid_server_remove,
 };
 
-static GKeyFile *load_config_file(const char *file)
+/*加载配置文件*/
+static GKeyFile *load_config_file(const char *file/*配置文件路径*/)
 {
 	GKeyFile *keyfile;
 	GError *err = NULL;

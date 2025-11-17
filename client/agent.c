@@ -241,7 +241,7 @@ static DBusMessage *authorize_service(DBusConnection *conn,
 				DBUS_TYPE_STRING, &uuid, DBUS_TYPE_INVALID);
 
 	str = g_strdup_printf("Authorize service %s (yes/no):", uuid);
-	bt_shell_prompt_input("agent", str, confirm_response, conn);
+	bt_shell_prompt_input("agent", str, confirm_response, conn);/*依据交互结果确认是否授权*/
 	g_free(str);
 
 	pending_message = dbus_message_ref(msg);
@@ -284,7 +284,7 @@ static const GDBusMethodTable agent_methods[] = {
 			NULL, request_authorization) },
 	{ GDBUS_ASYNC_METHOD("AuthorizeService",
 			GDBUS_ARGS({ "device", "o" }, { "uuid", "s" }),
-			NULL,  authorize_service) },
+			NULL,  authorize_service) },/*手工授权服务*/
 	{ GDBUS_METHOD("Cancel", NULL, NULL, cancel_request) },
 	{ }
 };
@@ -379,8 +379,9 @@ static void register_agent_reply(DBusMessage *message, void *user_data)
 
 	if (dbus_set_error_from_message(&error, message) == FALSE) {
 		agent_registered = TRUE;
-		bt_shell_printf("Agent registered\n");
+		bt_shell_printf("Agent registered\n");/*注册成功*/
 	} else {
+		/*注册失败*/
 		bt_shell_printf("Failed to register agent: %s\n", error.name);
 		dbus_error_free(&error);
 
@@ -412,6 +413,7 @@ void agent_register(DBusConnection *conn, GDBusProxy *manager,
 		methods = auto_methods;
 	}
 
+	/*为agent注册接口*/
 	if (g_dbus_register_interface(conn, AGENT_PATH,
 					AGENT_INTERFACE, methods,
 					NULL, NULL, NULL, NULL) == FALSE) {
@@ -419,6 +421,7 @@ void agent_register(DBusConnection *conn, GDBusProxy *manager,
 		return;
 	}
 
+	/*调用远程RegisterAgent接口*/
 	if (g_dbus_proxy_method_call(manager, "RegisterAgent",
 						register_agent_setup,
 						register_agent_reply,

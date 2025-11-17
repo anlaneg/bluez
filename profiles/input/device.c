@@ -105,7 +105,7 @@ void input_set_userspace_hid(char *state)
 {
 	if (!strcasecmp(state, "false") || !strcasecmp(state, "no") ||
 			!strcasecmp(state, "off"))
-		uhid_state = UHID_DISABLED;
+		uhid_state = UHID_DISABLED;/*禁止uhid*/
 	else if (!strcasecmp(state, "true") || !strcasecmp(state, "yes") ||
 			!strcasecmp(state, "on"))
 		uhid_state = UHID_ENABLED;
@@ -361,6 +361,7 @@ static bool uhid_send_input_report(struct input_device *idev,
 	return true;
 }
 
+/*收取自中断 socket收到的event消息,这些消息会按input传递给kernel*/
 static bool hidp_recv_intr_data(GIOChannel *chan, struct input_device *idev)
 {
 	int fd;
@@ -381,7 +382,7 @@ static bool hidp_recv_intr_data(GIOChannel *chan, struct input_device *idev)
 		return true;
 	}
 
-	input_device_idle_reset(idev);
+	input_device_idle_reset(idev);/*重置idle定时器*/
 
 	hdr = data[0];
 	if (hdr != (HIDP_TRANS_DATA | HIDP_DATA_RTYPE_INPUT)) {
@@ -400,6 +401,7 @@ static bool hidp_recv_intr_data(GIOChannel *chan, struct input_device *idev)
 	return true;
 }
 
+/*处理intr socket的读事件*/
 static gboolean intr_watch_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 {
 	struct input_device *idev = data;
@@ -622,6 +624,7 @@ static bool hidp_recv_ctrl_message(GIOChannel *chan, struct input_device *idev)
 	return true;
 }
 
+/*处理ctrl socket的读事件*/
 static gboolean ctrl_watch_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 {
 	struct input_device *idev = data;
@@ -633,6 +636,7 @@ static gboolean ctrl_watch_cb(GIOChannel *chan, GIOCondition cond, gpointer data
 			return TRUE;
 	}
 
+	/*发生了其它非读事件（即错误事件）*/
 	ba2str(&idev->dst, address);
 
 	DBG("Device %s disconnected", address);
@@ -1111,7 +1115,7 @@ static int hidp_add_connection(struct input_device *idev)
 	req->ctrl_sock = g_io_channel_unix_get_fd(idev->ctrl_io);/*取得ctrl socket*/
 	req->intr_sock = g_io_channel_unix_get_fd(idev->intr_io);/*取得intr socket*/
 	req->flags     = 0;
-	req->idle_to   = idle_timeout;
+	req->idle_to   = idle_timeout;/*设置请求idle超时时间*/
 
 	err = extract_hid_record(idev, req);/*填充req其它字段*/
 	if (err < 0) {
@@ -1288,7 +1292,7 @@ static int input_device_connected(struct input_device *idev)
 	/* Attempt to update SDP record if it had changed */
 	input_device_update_rec(idev);
 
-	err = hidp_add_connection(idev);/*添加hid设备*/
+	err = hidp_add_connection(idev);/*创建并添加hid设备*/
 	if (err < 0)
 		return err;
 
@@ -1306,6 +1310,7 @@ static void interrupt_connect_cb(GIOChannel *chan, GError *conn_err,
 	int err;
 
 	if (conn_err) {
+		/*intr socket连接失败*/
 		err = -EIO;
 		goto failed;
 	}
@@ -1315,7 +1320,7 @@ static void interrupt_connect_cb(GIOChannel *chan, GError *conn_err,
 		goto failed;
 
 	if (idev->uhid)
-		cond |= G_IO_IN;/*可读*/
+		cond |= G_IO_IN;/*关注intr socket可读*/
 
 	idev->intr_watch = g_io_add_watch(idev->intr_io, cond, intr_watch_cb,
 									idev);
@@ -1340,6 +1345,7 @@ failed:
 	}
 }
 
+/*创建control socket,再创建intr socket*/
 static void control_connect_cb(GIOChannel *chan, GError *conn_err,
 							gpointer user_data)
 {
@@ -1349,12 +1355,13 @@ static void control_connect_cb(GIOChannel *chan, GError *conn_err,
 	GError *err = NULL;
 
 	if (conn_err) {
+		/*连接control socket失败*/
 		error("%s", conn_err->message);
 		goto failed;
 	}
 
 	/* Connect to the HID interrupt channel */
-	/*采用src到dst建立连接，目的PSM为HIDP_INTR*/
+	/*采用src到dst建立连接intr socket，目的PSM为HIDP_INTR*/
 	io = bt_io_connect(interrupt_connect_cb, idev,
 				NULL, &err,
 				BT_IO_OPT_SOURCE_BDADDR, &idev->src,
@@ -1368,10 +1375,10 @@ static void control_connect_cb(GIOChannel *chan, GError *conn_err,
 		goto failed;
 	}
 
-	idev->intr_io = io;
+	idev->intr_io = io;/*设置中断 socket*/
 
 	if (idev->uhid)
-		cond |= G_IO_IN;
+		cond |= G_IO_IN;/*关注ctrl读事件*/
 
 	idev->ctrl_watch = g_io_add_watch(idev->ctrl_io, cond, ctrl_watch_cb,
 									idev);
@@ -1399,7 +1406,7 @@ static int dev_connect(struct input_device *idev)
 	else
 		sec_level = BT_IO_SEC_LOW;
 
-	/*采用src到dst建立连接，目的PSM为HIDP_CTRL*/
+	/*采用src到dst建立control socket连接，目的PSM为HIDP_CTRL*/
 	io = bt_io_connect(control_connect_cb, idev,
 				NULL, &err,
 				BT_IO_OPT_SOURCE_BDADDR, &idev->src,
@@ -1407,7 +1414,7 @@ static int dev_connect(struct input_device *idev)
 				BT_IO_OPT_PSM, L2CAP_PSM_HIDP_CTRL,
 				BT_IO_OPT_SEC_LEVEL, sec_level,
 				BT_IO_OPT_INVALID);
-	idev->ctrl_io = io;
+	idev->ctrl_io = io;/*设置ctrl socket*/
 
 	if (err == NULL)
 		return 0;

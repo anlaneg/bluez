@@ -49,6 +49,7 @@ struct network_session {
 	/*远端bd地址*/
 	bdaddr_t	dst;		/* Remote Bluetooth Address */
 	char		dev[16];	/* Interface name */
+	/*client连接*/
 	GIOChannel	*io;		/* Pending connect channel */
 	guint		watch;		/* BNEP socket watch */
 };
@@ -440,7 +441,7 @@ reject:
 	setup_destroy(na);
 }
 
-/*收到新的连接chan*/
+/*收到新的连接请求，获取对端信息,请求授权*/
 static void confirm_event(GIOChannel *chan, gpointer user_data)
 {
 	struct network_adapter *na = user_data;
@@ -450,9 +451,9 @@ static void confirm_event(GIOChannel *chan, gpointer user_data)
 	guint ret;
 
 	bt_io_get(chan, &err,
-			BT_IO_OPT_SOURCE_BDADDR, &src,/*取连接源地址*/
-			BT_IO_OPT_DEST_BDADDR, &dst,/*取连接目的地址*/
-			BT_IO_OPT_DEST, address,/*取连接目的地址并将其转换为字符串形式*/
+			BT_IO_OPT_SOURCE_BDADDR, &src,/*取连接源地址,填充src*/
+			BT_IO_OPT_DEST_BDADDR, &dst,/*取连接目的地址,填充dst*/
+			BT_IO_OPT_DEST, address,/*取连接目的地址并将其转换为字符串形式,填充address*/
 			BT_IO_OPT_INVALID);
 	if (err) {
 		error("%s", err->message);
@@ -463,6 +464,7 @@ static void confirm_event(GIOChannel *chan, gpointer user_data)
 	DBG("BNEP: incoming connect from %s", address);
 
 	if (na->setup) {
+		/*setup必须未初始化*/
 		error("Refusing connect from %s: setup in progress", address);
 		goto drop;
 	}
@@ -471,7 +473,7 @@ static void confirm_event(GIOChannel *chan, gpointer user_data)
 		goto drop;
 
 	na->setup = g_new0(struct network_session, 1);
-	bacpy(&na->setup->dst, &dst);/*填写目的地址*/
+	bacpy(&na->setup->dst, &dst);/*填写目的地址到na->setup->dst*/
 	na->setup->io = g_io_channel_ref(chan);
 
 	/*请求授权*/

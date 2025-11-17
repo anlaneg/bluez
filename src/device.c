@@ -202,7 +202,7 @@ struct btd_device {
 
 	bdaddr_t	conn_bdaddr;
 	uint8_t		conn_bdaddr_type;
-	bdaddr_t	bdaddr;
+	bdaddr_t	bdaddr;/*设备地址*/
 	uint8_t		bdaddr_type;
 	bool		privacy;
 	uint8_t		*irk;
@@ -241,7 +241,7 @@ struct btd_device {
 	uint16_t	version;
 	uint16_t	appearance;
 	char		*modalias;
-	struct btd_adapter	*adapter;
+	struct btd_adapter	*adapter;/*设备所属的adapter*/
 	GSList		*uuids;/*用于记录此设备上的UUID*/
 	GSList		*primaries;		/* List of primary services */
 	/*可应用于此设备的服务？？*/
@@ -292,7 +292,7 @@ struct btd_device {
 	sdp_list_t	*tmp_records;
 
 	bool		trusted;
-	gboolean	blocked;
+	gboolean	blocked;/*是否阻止此设备*/
 	gboolean	auto_connect;
 	gboolean	disable_auto_connect;
 	gboolean	general_connect;
@@ -342,7 +342,7 @@ bool btd_device_is_initiator(struct btd_device *dev)
 }
 
 /*遍历list上所有service,检查这些service上是否有存在service->profile与p相等*/
-static GSList *find_service_with_profile(GSList *list, struct btd_profile *p)
+static GSList *find_service_with_profile(GSList *list/*一组service*/, struct btd_profile *p)
 {
 	GSList *l;
 
@@ -2622,6 +2622,7 @@ static GSList *create_pending_list(struct btd_device *dev, const char *uuid)
 						BTD_SERVICE_STATE_DISCONNECTED)
 			continue;
 
+		/*按serivce对应的profile优先级进行排序*/
 		dev->pending = g_slist_insert_sorted(dev->pending, service,
 							service_prio_cmp);
 	}
@@ -4587,9 +4588,10 @@ static void device_add_uuids(struct btd_device *device, GSList *uuids)
 						DEVICE_INTERFACE, "UUIDs");
 }
 
+/*profile->remote_uuid是否在集合uuids中（remote_uuid为NULL时返回NULL)*/
 static bool device_match_profile(struct btd_device *device,
 					struct btd_profile *profile,
-					GSList *uuids)
+					GSList *uuids/*一组uuid(链表)*/)
 {
 	GSList *l;
 
@@ -5647,10 +5649,10 @@ void device_probe_profiles(struct btd_device *device, GSList *uuids)
 
 	if (device->blocked) {
 		DBG("Skipping profiles for blocked device %s", addr);
-		goto add_uuids;
+		goto add_uuids;/*跳过block设备*/
 	}
 
-	btd_profile_foreach(dev_probe, &d);/*设备probe profile*/
+	btd_profile_foreach(dev_probe, &d);/*遍历所有profile,设备probe profile*/
 
 add_uuids:
 	device_add_uuids(device, uuids);
@@ -6671,6 +6673,7 @@ int device_discover_services(struct btd_device *device)
 	return err;
 }
 
+/*取此device所属的adapter*/
 struct btd_adapter *device_get_adapter(struct btd_device *device)
 {
 	if (!device)
@@ -6679,6 +6682,7 @@ struct btd_adapter *device_get_adapter(struct btd_device *device)
 	return device->adapter;
 }
 
+/*取此device对应的地址*/
 const bdaddr_t *device_get_address(struct btd_device *device)
 {
 	return &device->bdaddr;

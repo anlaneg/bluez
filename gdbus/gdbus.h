@@ -77,9 +77,13 @@ enum GDBusFlags {
 };
 
 enum GDBusMethodFlags {
+	/*标记此D-Bus方法为“已弃用”*/
 	G_DBUS_METHOD_FLAG_DEPRECATED   = (1 << 0),
+	/*客户端调用该方法后，服务器不需要发送回复消息。*/
 	G_DBUS_METHOD_FLAG_NOREPLY      = (1 << 1),
+	/*以异步方式处理请求*/
 	G_DBUS_METHOD_FLAG_ASYNC        = (1 << 2),
+	/*将该 D-Bus 方法标记为“实验性”（Experimental）功能*/
 	G_DBUS_METHOD_FLAG_EXPERIMENTAL = (1 << 3),
 	G_DBUS_METHOD_FLAG_TESTING      = (1 << 4),
 };
@@ -118,7 +122,7 @@ struct GDBusArgInfo {
 };
 
 struct GDBusMethodTable {
-	const char *name;
+	const char *name;/*方法名称*/
 	GDBusMethodFunction function;
 	GDBusMethodFlags flags;
 	unsigned int privilege;
@@ -156,7 +160,7 @@ struct GDBusSecurityTable {
 	.out_args = _out_args, \
 	.function = _function
 
-#define GDBUS_ASYNC_METHOD(_name, _in_args, _out_args, _function) \
+#define GDBUS_ASYNC_METHOD(_name/*方法名称*/, _in_args, _out_args, _function) \
 	.name = _name, \
 	.in_args = _in_args, \
 	.out_args = _out_args, \

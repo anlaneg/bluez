@@ -92,7 +92,7 @@ struct accept {
 
 struct server {
 	BtIOConnect connect;/*如果server未提供confirm,则触发connect确认接收新的client*/
-	BtIOConfirm confirm;/*如果server提供了confirm，则触发confirma确认接收新的client*/
+	BtIOConfirm confirm;/*如果server提供了confirm，则触发confirm确认接收新的client*/
 	gpointer user_data;/*函数参数*/
 	GDestroyNotify destroy;
 };
@@ -241,6 +241,7 @@ static gboolean connect_cb(GIOChannel *io, GIOCondition cond,
 	return FALSE;
 }
 
+/*当io 可读取时此函数被调用（当有新的client需要被接入时）*/
 static gboolean server_cb(GIOChannel *io, GIOCondition cond,
 							gpointer user_data)
 {
@@ -250,7 +251,7 @@ static gboolean server_cb(GIOChannel *io, GIOCondition cond,
 
 	/* If the user closed the server */
 	if ((cond & G_IO_NVAL) || check_nval(io))
-		return FALSE;
+		return FALSE;/*出错*/
 
 	/*取得server socket*/
 	srv_sock = g_io_channel_unix_get_fd(io);
@@ -267,7 +268,7 @@ static gboolean server_cb(GIOChannel *io, GIOCondition cond,
 	g_io_channel_set_flags(cli_io, G_IO_FLAG_NONBLOCK, NULL);
 
 	if (server->confirm)
-		/*如果server提供了confirm，则触发confirma确认接收新的client*/
+		/*如果server提供了confirm回调，则触发confirma确认接收新的client*/
 		server->confirm(cli_io, server->user_data);
 	else
 		/*如果server未提供confirm,则触发connect确认接收新的client*/
@@ -278,8 +279,8 @@ static gboolean server_cb(GIOChannel *io, GIOCondition cond,
 	return TRUE;
 }
 
-static void server_add(GIOChannel *io, BtIOConnect connect,
-				BtIOConfirm confirm, gpointer user_data/*回调参数*/,
+static void server_add(GIOChannel *io, BtIOConnect connect/*当新的client被accept时，如果confirm回调不为NULL,则调用*/,
+				BtIOConfirm confirm/*当新的client被accept时，如果此回调不为NULL,则调用*/, gpointer user_data/*回调参数*/,
 				GDestroyNotify destroy)
 {
 	struct server *server;
@@ -291,13 +292,13 @@ static void server_add(GIOChannel *io, BtIOConnect connect,
 	server->user_data = user_data;
 	server->destroy = destroy;
 
-	cond = G_IO_IN | G_IO_ERR | G_IO_HUP | G_IO_NVAL;/*有数据进来,则触发*/
-	g_io_add_watch_full(io, G_PRIORITY_HIGH, cond, server_cb/*负责accept新连接*/, server,
+	cond = G_IO_IN/*有数据进来,则触发*/ | G_IO_ERR | G_IO_HUP | G_IO_NVAL;
+	g_io_add_watch_full(io, G_PRIORITY_HIGH, cond, server_cb/*负责accept新连接*/, server/*accept回调参数*/,
 					(GDestroyNotify) server_remove);
 }
 
-static void connect_add(GIOChannel *io, BtIOConnect connect, bdaddr_t dst,
-				gpointer user_data, GDestroyNotify destroy)
+static void connect_add(GIOChannel *io, BtIOConnect connect/*可写事件处理函数*/, bdaddr_t dst,
+				gpointer user_data/*处理函数叁数*/, GDestroyNotify destroy/*连接销毁回调*/)
 {
 	struct connect *conn;
 	GIOCondition cond;
@@ -308,9 +309,9 @@ static void connect_add(GIOChannel *io, BtIOConnect connect, bdaddr_t dst,
 	conn->destroy = destroy;
 	conn->dst = dst;
 
-	cond = G_IO_OUT | G_IO_ERR | G_IO_HUP | G_IO_NVAL;
-	g_io_add_watch_full(io, G_PRIORITY_HIGH, cond, connect_cb, conn,
-					(GDestroyNotify) connect_remove);
+	cond = G_IO_OUT/*可写*/ | G_IO_ERR | G_IO_HUP | G_IO_NVAL;
+	g_io_add_watch_full(io, G_PRIORITY_HIGH, cond, connect_cb/*可写事件处理函数*/, conn/*处理函数叁数*/,
+					(GDestroyNotify) connect_remove/*连接销毁回调*/);
 }
 
 static void accept_add(GIOChannel *io, BtIOConnect connect, gpointer user_data,
@@ -959,7 +960,7 @@ static gboolean parse_set_opts(struct set_opts *opts, GError **err,
 	memset(opts, 0, sizeof(*opts));
 
 	/* Set defaults */
-	opts->type = BT_IO_SCO;
+	opts->type = BT_IO_SCO;/*默认socket类型*/
 	opts->defer = DEFAULT_DEFER_TIMEOUT;
 	opts->central = -1;
 	opts->mode = L2CAP_MODE_BASIC;
@@ -973,28 +974,28 @@ static gboolean parse_set_opts(struct set_opts *opts, GError **err,
 		switch (opt) {
 		case BT_IO_OPT_SOURCE:
 			str = va_arg(args, const char *);
-			str2ba(str, &opts->src);/*参数转换为源地址*/
+			str2ba(str, &opts->src);/*填充opts->src地址，参数为字符串*/
 			break;
 		case BT_IO_OPT_SOURCE_BDADDR:
-			bacpy(&opts->src, va_arg(args, const bdaddr_t *));/*参数转换为源地址*/
+			bacpy(&opts->src, va_arg(args, const bdaddr_t *));/*填充opts->src地址，参数为bdaddr_t*/
 			break;
 		case BT_IO_OPT_SOURCE_TYPE:
-			opts->src_type = va_arg(args, int);
+			opts->src_type = va_arg(args, int);/*填充opts->src_type*/
 			break;
 		case BT_IO_OPT_DEST:
-			str2ba(va_arg(args, const char *), &opts->dst);
+			str2ba(va_arg(args, const char *), &opts->dst);/*填充opts->dst地址，参数为字符串*/
 			break;
 		case BT_IO_OPT_DEST_BDADDR:
-			bacpy(&opts->dst, va_arg(args, const bdaddr_t *));
+			bacpy(&opts->dst, va_arg(args, const bdaddr_t *));/*填充opts->dst地址，参数为bdaddr_t*/
 			break;
 		case BT_IO_OPT_DEST_TYPE:
-			opts->dst_type = va_arg(args, int);
+			opts->dst_type = va_arg(args, int);/*填充opts->dst_type*/
 			break;
 		case BT_IO_OPT_DEFER_TIMEOUT:
 			opts->defer = va_arg(args, int);
 			break;
-		case BT_IO_OPT_SEC_LEVEL:/*利用参数设置sec_level*/
-			opts->sec_level = va_arg(args, int);
+		case BT_IO_OPT_SEC_LEVEL:
+			opts->sec_level = va_arg(args, int);/*填充opts->sec_level*/
 			break;
 		case BT_IO_OPT_CHANNEL:
 			opts->type = BT_IO_RFCOMM;
@@ -2089,8 +2090,8 @@ failed:
 	return NULL;
 }
 
-GIOChannel *bt_io_connect(BtIOConnect connect/*执行到对端的连接*/, gpointer user_data,
-				GDestroyNotify destroy, GError **gerr,
+GIOChannel *bt_io_connect(BtIOConnect connect/*执行到对端的连接成功，即可写事件处理函数*/, gpointer user_data/*处理函数叁数*/,
+				GDestroyNotify destroy/*连接销毁回调*/, GError **gerr,
 				BtIOOption opt1, ...)
 {
 	GIOChannel *io;
@@ -2124,7 +2125,7 @@ GIOChannel *bt_io_connect(BtIOConnect connect/*执行到对端的连接*/, gpoin
 		}
 	}
 
-	/*执行连接*/
+	/*创建连接，执行connect调用*/
 	switch (opts.type) {
 	case BT_IO_L2CAP:
 		err = l2cap_connect(sock, &opts.dst/*对端地址*/, opts.dst_type,
@@ -2141,12 +2142,14 @@ GIOChannel *bt_io_connect(BtIOConnect connect/*执行到对端的连接*/, gpoin
 		break;
 	case BT_IO_INVALID:
 	default:
+		/*类型未知，报错*/
 		g_set_error(gerr, BT_IO_ERROR, EINVAL,
 					"Unknown BtIO type %d", opts.type);
 		return NULL;
 	}
 
 	if (err < 0) {
+		/*连接失败，报错*/
 		ba2str(&opts.dst, addr);
 		g_set_error(gerr, BT_IO_ERROR, -err,
 				"connect to %s: %s (%d)", addr, strerror(-err),
@@ -2160,8 +2163,12 @@ GIOChannel *bt_io_connect(BtIOConnect connect/*执行到对端的连接*/, gpoin
 	return io;
 }
 
+/*执行监听
+ * 当新的client被accept时，如果confirm回调不为NULL,则调用connect
+ * 当新的client被accept时，如果confirm回调不为NULL,则调用confirm
+ * */
 GIOChannel *bt_io_listen(BtIOConnect connect, BtIOConfirm confirm,
-				gpointer user_data, GDestroyNotify destroy,
+				gpointer user_data/*处理函数叁数*/, GDestroyNotify destroy,
 				GError **err, BtIOOption opt1, ...)
 {
 	GIOChannel *io;

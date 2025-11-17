@@ -231,12 +231,14 @@ failed:
 	cancel_connection(nc, -EIO);
 }
 
+/*连接建立成功/失败时，此回调将被调用*/
 static void connect_cb(GIOChannel *chan, GError *err, gpointer data)
 {
 	struct network_conn *nc = data;
 	int sk, perr;
 
 	if (err) {
+		/*建连失败*/
 		error("%s", err->message);
 		goto failed;
 	}
@@ -319,11 +321,13 @@ int connection_connect(struct btd_service *svc)
 	if (nc->state != DISCONNECTED)
 		return -EALREADY;
 
+	/*源地址*/
 	src = btd_adapter_get_address(device_get_adapter(peer->device));
+	/*目的地址*/
 	dst = device_get_address(peer->device);
 
 	nc->io = bt_io_connect(connect_cb, nc,
-				NULL, &err,
+				NULL/*无连接destroy处理*/, &err,
 				BT_IO_OPT_SOURCE_BDADDR, src,
 				BT_IO_OPT_DEST_BDADDR, dst,
 				BT_IO_OPT_PSM, BNEP_PSM,

@@ -127,6 +127,7 @@ static gboolean check_experimental(int flags, int flag)
 	if (!(flags & flag))
 		return FALSE;
 
+	/*是否开启实验用功能*/
 	return !(global_flags & G_DBUS_FLAG_ENABLE_EXPERIMENTAL);
 }
 
@@ -135,6 +136,7 @@ static bool check_testing(int flags, int flag)
 	if (!(flags & flag))
 		return false;
 
+	/*是否开启测试用功能*/
 	return !(global_flags & G_DBUS_FLAG_ENABLE_TESTING);
 }
 
@@ -1286,7 +1288,7 @@ static gboolean add_interface(struct generic_data *data,
 	for (method = methods; method && method->name; method++) {
 		if (!check_experimental(method->flags,
 					G_DBUS_METHOD_FLAG_EXPERIMENTAL))
-			goto done;
+			goto done;/*跳过实验性方法*/
 
 		if (!check_testing(method->flags, G_DBUS_METHOD_FLAG_TESTING))
 			goto done;
@@ -1434,6 +1436,8 @@ static gboolean check_signal(DBusConnection *conn, const char *path,
 	return FALSE;
 }
 
+/*在 D-Bus 连接上注册一个特定的对象路径（Object Path）下的指定接口（Interface），
+ * 从而使该接口提供的功能（方法、信号和属性）能够被其他 D-Bus 客户端访问和调用。*/
 gboolean g_dbus_register_interface(DBusConnection *connection,
 					const char *path, const char *name,
 					const GDBusMethodTable *methods,
@@ -1665,6 +1669,7 @@ out:
 	return result;
 }
 
+/*将一个 D-Bus 消息（GDBusMessage 对象）发送到总线，并异步等待服务器返回一个回复消息。*/
 gboolean g_dbus_send_message_with_reply(DBusConnection *connection,
 					DBusMessage *message,
 					DBusPendingCall **call, int timeout)

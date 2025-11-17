@@ -254,6 +254,7 @@ struct agent *agent_get(const char *owner)
 			return agent_ref(agent);
 	}
 
+	/*default_agents不为空，取首个agent*/
 	if (!queue_isempty(default_agents))
 		return agent_ref(queue_peek_head(default_agents));
 
@@ -283,6 +284,7 @@ static struct agent *agent_create( const char *name, const char *path,
 	return agent_ref(agent);
 }
 
+/*创建agent request*/
 static struct agent_request *agent_request_new(struct agent *agent,
 						struct btd_device *device,
 						agent_request_type_t type,
@@ -361,7 +363,7 @@ static void simple_agent_reply(DBusPendingCall *call, void *user_data)
 		goto done;
 	}
 
-	cb(agent, NULL, req->user_data);
+	cb(agent, NULL, req->user_data);/*触发回调*/
 done:
 	dbus_message_unref(message);
 
@@ -377,6 +379,7 @@ static int agent_call_authorize_service(struct agent_request *req,
 	struct agent *agent = req->agent;
 	const char *path;
 
+	/*调用AuthorizeService*/
 	req->msg = dbus_message_new_method_call(agent->owner, agent->path,
 					AGENT_INTERFACE, "AuthorizeService");
 	if (!req->msg) {
@@ -391,6 +394,7 @@ static int agent_call_authorize_service(struct agent_request *req,
 				DBUS_TYPE_STRING, &uuid,
 				DBUS_TYPE_INVALID);
 
+	/*请求并等待异步响应*/
 	if (g_dbus_send_message_with_reply(btd_get_dbus_connection(),
 						req->msg, &req->call,
 						REQUEST_TIMEOUT) == FALSE) {
@@ -398,6 +402,7 @@ static int agent_call_authorize_service(struct agent_request *req,
 		return -EIO;
 	}
 
+	/*设置异步响应处理函数*/
 	dbus_pending_call_set_notify(req->call, simple_agent_reply, req, NULL);
 
 	DBG("authorize service request was sent for %s", path);

@@ -1087,7 +1087,8 @@ static void method_call_reply(DBusPendingCall *call, void *user_data)
 	dbus_message_unref(reply);
 }
 
-gboolean g_dbus_proxy_method_call(GDBusProxy *proxy, const char *method,
+/*本地应用程序向远程 D-Bus 服务发起一个方法调用（Method Call）*/
+gboolean g_dbus_proxy_method_call(GDBusProxy *proxy, const char *method/*方法名称*/,
 				GDBusSetupFunction setup,
 				GDBusReturnFunction function, void *user_data,
 				GDBusDestroyFunction destroy)
@@ -1117,8 +1118,10 @@ gboolean g_dbus_proxy_method_call(GDBusProxy *proxy, const char *method,
 	}
 
 	if (!function)
+		/*无响应处理函数，仅发送消息*/
 		return g_dbus_send_message(client->dbus_conn, msg);
 
+	/*有响应处理函数，发送消息并等待响应*/
 	data = g_try_new0(struct method_call_data, 1);
 	if (data == NULL)
 		return FALSE;
@@ -1135,7 +1138,7 @@ gboolean g_dbus_proxy_method_call(GDBusProxy *proxy, const char *method,
 		return FALSE;
 	}
 
-	dbus_pending_call_set_notify(call, method_call_reply, data, g_free);
+	dbus_pending_call_set_notify(call, method_call_reply/*触发响应处理函数*/, data, g_free);
 	dbus_pending_call_unref(call);
 
 	dbus_message_unref(msg);
