@@ -139,15 +139,16 @@ static void set_io_cap(struct btd_adapter *adapter, gpointer user_data)
 static bool add_default_agent(struct agent *agent)
 {
 	if (queue_peek_head(default_agents) == agent)
-		return true;
+		return true;/*此agent为默认agent*/
 
-	queue_remove(default_agents, agent);
+	queue_remove(default_agents, agent);/*自列表中移除此agent*/
 
-	if (!queue_push_head(default_agents, agent))
+	if (!queue_push_head(default_agents, agent))/*将其添加至队首*/
 		return false;
 
 	DBG("Default agent set to %s %s", agent->owner, agent->path);
 
+	/*遍历每个adapter的io capbility*/
 	adapter_foreach(set_io_cap, agent);
 
 	return true;
@@ -184,7 +185,7 @@ static void agent_disconnect(DBusConnection *conn, void *user_data)
 
 	remove_default_agent(agent);
 
-	g_hash_table_remove(agent_list, agent->owner);
+	g_hash_table_remove(agent_list, agent->owner);/*自list中移除此agent*/
 }
 
 struct agent *agent_ref(struct agent *agent)
@@ -244,6 +245,7 @@ void agent_unref(struct agent *agent)
 	g_free(agent);
 }
 
+/*通过owner查询agent*/
 struct agent *agent_get(const char *owner)
 {
 	struct agent *agent;
@@ -254,7 +256,7 @@ struct agent *agent_get(const char *owner)
 			return agent_ref(agent);
 	}
 
-	/*default_agents不为空，取首个agent*/
+	/*owner为空时,default_agents不为空，取首个agent*/
 	if (!queue_isempty(default_agents))
 		return agent_ref(queue_peek_head(default_agents));
 
@@ -967,6 +969,7 @@ static uint8_t parse_io_capability(const char *capability)
 	return IO_CAPABILITY_INVALID;
 }
 
+/*注册agent*/
 static DBusMessage *register_agent(DBusConnection *conn,
 					DBusMessage *msg, void *user_data)
 {
@@ -974,10 +977,11 @@ static DBusMessage *register_agent(DBusConnection *conn,
 	const char *sender, *path, *capability;
 	uint8_t cap;
 
-	sender = dbus_message_get_sender(msg);
+	sender = dbus_message_get_sender(msg);/*取发送方*/
 
 	agent = g_hash_table_lookup(agent_list, sender);
 	if (agent)
+		/*发送方对应的agent已存在*/
 		return btd_error_already_exists(msg);
 
 	if (dbus_message_get_args(msg, NULL, DBUS_TYPE_OBJECT_PATH, &path,
@@ -987,15 +991,17 @@ static DBusMessage *register_agent(DBusConnection *conn,
 
 	cap = parse_io_capability(capability);
 	if (cap == IO_CAPABILITY_INVALID)
+		/*取得的capability有误*/
 		return btd_error_invalid_args(msg);
 
+	/*创建agent*/
 	agent = agent_create(sender, path, cap);
 	if (!agent)
 		return btd_error_invalid_args(msg);
 
 	DBG("agent %s", agent->owner);
 
-	g_hash_table_replace(agent_list, agent->owner, agent);
+	g_hash_table_replace(agent_list, agent->owner, agent);/*记录此agent*/
 
 	return dbus_message_new_method_return(msg);
 }
@@ -1026,6 +1032,7 @@ static DBusMessage *unregister_agent(DBusConnection *conn,
 	return dbus_message_new_method_return(msg);
 }
 
+/*设置默认agent*/
 static DBusMessage *request_default(DBusConnection *conn, DBusMessage *msg,
 							void *user_data)
 {
@@ -1056,9 +1063,9 @@ static const GDBusMethodTable methods[] = {
 			GDBUS_ARGS({ "agent", "o"}, { "capability", "s" }),
 			NULL, register_agent/*注册agent*/) },
 	{ GDBUS_METHOD("UnregisterAgent", GDBUS_ARGS({ "agent", "o" }),
-			NULL, unregister_agent) },
+			NULL, unregister_agent/*解注册agent*/) },
 	{ GDBUS_METHOD("RequestDefaultAgent", GDBUS_ARGS({ "agent", "o" }),
-			NULL, request_default ) },
+			NULL, request_default/*设置默认agent*/ ) },
 	{ }
 };
 
@@ -1069,7 +1076,7 @@ void btd_agent_init(void)
 
 	default_agents = queue_new();
 
-	/*注册interface*/
+	/*注册interface,用于agent注册,解注册及默认agent设置*/
 	g_dbus_register_interface(btd_get_dbus_connection(),
 				"/org/bluez", "org.bluez.AgentManager1",
 				methods/*要注册的方法名*/, NULL, NULL, NULL, NULL);

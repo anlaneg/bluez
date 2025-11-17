@@ -696,9 +696,10 @@ static void reconnect_remove(struct btd_service *service)
 	g_free(reconnect);
 }
 
+/*用于关注service状态变更*/
 static void service_cb(struct btd_service *service,
-						btd_service_state_t old_state,
-						btd_service_state_t new_state,
+						btd_service_state_t old_state/*旧状态*/,
+						btd_service_state_t new_state/*新状态*/,
 						void *user_data)
 {
 	struct btd_profile *profile = btd_service_get_profile(service);

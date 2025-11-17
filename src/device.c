@@ -8037,6 +8037,7 @@ void btd_device_flags_changed(struct btd_device *dev, uint32_t supported_flags,
 	}
 }
 
+/*用于关注service状态变更*/
 static void service_state_changed(struct btd_service *service,
 						btd_service_state_t old_state/*旧状态*/,
 						btd_service_state_t new_state/*新状态*/,
@@ -8051,8 +8052,10 @@ static void service_state_changed(struct btd_service *service,
 		return;
 
 	if (old_state == BTD_SERVICE_STATE_CONNECTING)
+		/*上一个状态为connecting*/
 		device_profile_connected(device, profile, err);
 	else if (old_state == BTD_SERVICE_STATE_DISCONNECTING)
+		/*上一个状态为disconnecting*/
 		device_profile_disconnected(device, profile, err);
 }
 

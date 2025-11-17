@@ -48,7 +48,7 @@ struct btd_service {
 struct service_state_callback {
 	btd_service_state_cb	cb;
 	void			*user_data;
-	unsigned int		id;
+	unsigned int		id;/*唯一编号*/
 };
 
 /*添加系统所有state_cb*/
@@ -72,7 +72,8 @@ static const char *state2str(btd_service_state_t state)
 	return NULL;
 }
 
-static void change_state(struct btd_service *service, btd_service_state_t state,
+/*变更service状态*/
+static void change_state(struct btd_service *service, btd_service_state_t state/*新状态*/,
 									int err)
 {
 	btd_service_state_t old = service->state;
@@ -361,7 +362,7 @@ bool btd_service_is_initiator(const struct btd_service *service)
 	return service->initiator;
 }
 
-/*添加state_cb,返回添加的cb的编号*/
+/*为state_callbacks添加state_cb,返回添加的cb的编号,用于关注service状态变化*/
 unsigned int btd_service_add_state_cb(btd_service_state_cb cb, void *user_data)
 {
 	struct service_state_callback *state_cb;
@@ -377,14 +378,15 @@ unsigned int btd_service_add_state_cb(btd_service_state_cb cb, void *user_data)
 	return state_cb->id;
 }
 
-bool btd_service_remove_state_cb(unsigned int id)
+/*为state_callbacks移除state_cb*/
+bool btd_service_remove_state_cb(unsigned int id/*要移除的编号*/)
 {
 	GSList *l;
 
 	for (l = state_callbacks; l != NULL; l = g_slist_next(l)) {
 		struct service_state_callback *cb = l->data;
 
-		if (cb && cb->id == id) {
+		if (cb && cb->id == id) {/*找到此id的移除*/
 			state_callbacks = g_slist_remove(state_callbacks, cb);
 			g_free(cb);
 			return true;

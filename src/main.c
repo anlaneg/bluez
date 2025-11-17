@@ -1534,9 +1534,9 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	btd_device_init();
-	btd_agent_init();/*dbus agent接口注册*/
-	btd_profile_init();/*dbus profile接口注册*/
+	btd_device_init();/*注册service状态变更cb*/
+	btd_agent_init();/*dbus agent管理接口注册*/
+	btd_profile_init();/*dbus profile管理接口注册*/
 
 	if (btd_opts.mode != BT_MODE_LE) {
 		if (option_compat == TRUE)

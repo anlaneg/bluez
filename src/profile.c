@@ -1341,6 +1341,7 @@ static uint32_t ext_register_record(struct ext_profile *ext,
 	const char *record = ext->record;
 
 	if (!record && ext->get_record) {
+		/*没有填充record,且有get_record回调,调用get_record回调产生动态record*/
 		dyn_record = ext->get_record(ext, l2cap, rfcomm);
 		record = dyn_record;
 	}
@@ -1348,6 +1349,7 @@ static uint32_t ext_register_record(struct ext_profile *ext,
 	if (!record)
 		return 0;
 
+	/*解析record xml产生sdp_record*/
 	rec = sdp_xml_parse_record(record, strlen(record));
 
 	g_free(dyn_record);
@@ -1901,6 +1903,7 @@ static char *get_spp_record(struct ext_profile *ext, struct ext_io *l2cap,
 	return rec;
 }
 
+/*返回dun_record*/
 static char *get_dun_record(struct ext_profile *ext, struct ext_io *l2cap,
 							struct ext_io *rfcomm)
 {
@@ -1908,6 +1911,7 @@ static char *get_dun_record(struct ext_profile *ext, struct ext_io *l2cap,
 								ext->name);
 }
 
+/*返回格式化后的pce record*/
 static char *get_pce_record(struct ext_profile *ext, struct ext_io *l2cap,
 							struct ext_io *rfcomm)
 {
@@ -2060,6 +2064,7 @@ static struct default_settings {
 	BtIOSecLevel	sec_level;
 	bool		authorize;
 	bool		auto_connect;
+	/*产生动态record*/
 	char *		(*get_record)(struct ext_profile *ext,
 					struct ext_io *l2cap,
 					struct ext_io *rfcomm);
@@ -2497,7 +2502,7 @@ static DBusMessage *register_profile(DBusConnection *conn,
 	DBusMessageIter args, opts;
 	struct ext_profile *ext;
 
-	sender = dbus_message_get_sender(msg);
+	sender = dbus_message_get_sender(msg);/*取得发送方*/
 
 	DBG("sender %s", sender);
 

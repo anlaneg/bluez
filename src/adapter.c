@@ -7690,6 +7690,7 @@ static void device_found_callback(uint16_t index, uint16_t length,
 					eir, eir_len, false);
 }
 
+/*取adapter对应的agent*/
 struct agent *adapter_get_agent(struct btd_adapter *adapter)
 {
 	return agent_get(NULL);
@@ -7891,7 +7892,7 @@ static gboolean process_auth_queue(gpointer user_data)
 			goto next;
 		}
 
-		/*向此agent请求授权服务*/
+		/*向agent请求授权服务*/
 		if (agent_authorize_service(auth->agent, device, auth->uuid,
 					agent_auth_cb, adapter, NULL) < 0) {
 			auth->cb(&err, auth->user_data);
@@ -9266,6 +9267,7 @@ int adapter_set_io_capability(struct btd_adapter *adapter, uint8_t io_cap)
 	memset(&cp, 0, sizeof(cp));
 	cp.io_capability = io_cap;
 
+	/*设置此adapter的io capability*/
 	if (mgmt_send(adapter->mgmt, MGMT_OP_SET_IO_CAPABILITY,
 				adapter->dev_id, sizeof(cp), &cp,
 				NULL, NULL, NULL) > 0)

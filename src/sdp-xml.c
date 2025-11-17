@@ -37,11 +37,13 @@
 #define MAXINDENT 64
 
 struct sdp_xml_data {
+	/*设置value值*/
 	char *text;			/* Pointer to the current buffer */
 	int size;			/* Size of the current buffer */
 	sdp_data_t *data;		/* The current item being built */
 	struct sdp_xml_data *next;	/* Next item on the stack */
 	char type;			/* 0 = Text or Hexadecimal */
+	/*NAME属性值*/
 	char *name;			/* Name, optional in the dtd */
 	/* TODO: What is it used for? */
 };
@@ -441,6 +443,8 @@ static sdp_data_t *sdp_xml_parse_datatype(const char *el,
 
 	return NULL;
 }
+
+/*XML标记起始时调用*/
 static void element_start(GMarkupParseContext *context,
 		const char *element_name, const char **attribute_names,
 		const char **attribute_values, gpointer user_data, GError **err)
@@ -448,25 +452,28 @@ static void element_start(GMarkupParseContext *context,
 	struct context_data *ctx_data = user_data;
 
 	if (!strcmp(element_name, "record"))
-		return;/*跳过record*/
+		return;/*跳过record标记*/
 
 	if (!strcmp(element_name, "attribute")) {
 		int i;
 		for (i = 0; attribute_names[i]; i++) {
 			if (!strcmp(attribute_names[i], "id")) {
+				/*遇到attribute标记且属性为id时,按整数解析attr_id*/
 				ctx_data->attr_id = strtol(attribute_values[i], 0, 0);
 				break;
 			}
 		}
 		DBG("New attribute 0x%04x", ctx_data->attr_id);
-		return;
+		return;/*设置属性ID*/
 	}
 
 	if (ctx_data->stack_head) {
+		/*利用newelem更替stack_head*/
 		struct sdp_xml_data *newelem = sdp_xml_data_alloc();
 		newelem->next = ctx_data->stack_head;
 		ctx_data->stack_head = newelem;
 	} else {
+		/*首次设置 stack_head*/
 		ctx_data->stack_head = sdp_xml_data_alloc();
 		ctx_data->stack_head->next = NULL;
 	}
@@ -481,14 +488,14 @@ static void element_start(GMarkupParseContext *context,
 		for (i = 0; attribute_names[i]; i++) {
 			if (!strcmp(attribute_names[i], "value")) {
 				int curlen = strlen(ctx_data->stack_head->text);
-				int attrlen = strlen(attribute_values[i]);
+				int attrlen = strlen(attribute_values[i]);/*取value属性值*/
 
 				/* Ensure we're big enough */
 				while ((curlen + 1 + attrlen) > ctx_data->stack_head->size)
-					sdp_xml_data_expand(ctx_data->stack_head);
+					sdp_xml_data_expand(ctx_data->stack_head);/*扩大buf*/
 
 				memcpy(ctx_data->stack_head->text + curlen,
-						attribute_values[i], attrlen);
+						attribute_values[i], attrlen);/*填写VALUE属性值到buffer*/
 				ctx_data->stack_head->text[curlen + attrlen] = '\0';
 			}
 
@@ -519,6 +526,7 @@ static void sdp_xml_data_free(struct sdp_xml_data *elem)
 	free(elem);
 }
 
+/*当xml elem结束时调用*/
 static void element_end(GMarkupParseContext *context,
 		const char *element_name, gpointer user_data, GError **err)
 {
@@ -526,9 +534,10 @@ static void element_end(GMarkupParseContext *context,
 	struct sdp_xml_data *elem;
 
 	if (!strcmp(element_name, "record"))
-		return;
+		return;/*跳过record标记*/
 
 	if (!strcmp(element_name, "attribute")) {
+		/*attribute标记结束时调用*/
 		if (ctx_data->stack_head && ctx_data->stack_head->data) {
 			int ret = sdp_attr_add(ctx_data->record, ctx_data->attr_id,
 							ctx_data->stack_head->data);
@@ -620,6 +629,7 @@ sdp_record_t *sdp_xml_parse_record(const char *data/*xml内容*/, int size)
 	if (!ctx_data)
 		return NULL;
 
+	/*先申请record*/
 	record = sdp_record_alloc();
 	if (!record) {
 		free(ctx_data);
@@ -629,6 +639,7 @@ sdp_record_t *sdp_xml_parse_record(const char *data/*xml内容*/, int size)
 	memset(ctx_data, 0, sizeof(*ctx_data));
 	ctx_data->record = record;
 
+	/*利用parse解析产生record*/
 	ctx = g_markup_parse_context_new(&parser, 0, ctx_data, NULL);
 
 	if (g_markup_parse_context_parse(ctx, data, size, NULL) == FALSE) {
@@ -643,7 +654,7 @@ sdp_record_t *sdp_xml_parse_record(const char *data/*xml内容*/, int size)
 
 	free(ctx_data);
 
-	return record;
+	return record;/*返回解析获得的record*/
 }
 
 
