@@ -19,7 +19,7 @@
 #endif
 
 typedef struct request {
-	bdaddr_t device;
+	bdaddr_t device;/*请求方地址*/
 	bdaddr_t bdaddr;
 	int      local;
 	int      sock;

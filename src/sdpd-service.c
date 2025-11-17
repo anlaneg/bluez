@@ -323,7 +323,7 @@ void register_public_browse_group(void)
 
 	sdp_record_add(BDADDR_ANY, browse);
 	sdpdata = sdp_data_alloc(SDP_UINT32, &browse->handle);
-	sdp_attr_add(browse, SDP_ATTR_RECORD_HANDLE, sdpdata);
+	sdp_attr_add(browse, SDP_ATTR_RECORD_HANDLE, sdpdata);/*添加record handle*/
 
 	sdp_uuid16_create(&bgscid, BROWSE_GRP_DESC_SVCLASS_ID);
 	browselist = sdp_list_append(0, &bgscid);
@@ -358,7 +358,7 @@ void register_server_service(void)
 
 	sdp_record_add(BDADDR_ANY, server);
 	sdp_attr_add(server, SDP_ATTR_RECORD_HANDLE,
-				sdp_data_alloc(SDP_UINT32, &server->handle));
+				sdp_data_alloc(SDP_UINT32, &server->handle));/*添加record handle*/
 
 	sdp_uuid16_create(&classID, SDP_SERVER_SVCLASS_ID);
 	classIDList = sdp_list_append(0, &classID);
@@ -406,11 +406,11 @@ void register_device_id(uint16_t source, uint16_t vendor,
 	DBG("Adding device id record for %04x:%04x:%04x:%04x",
 					source, vendor, product, version);
 
-	record->handle = sdp_next_handle();
+	record->handle = sdp_next_handle();/*设置record编号*/
 
 	sdp_record_add(BDADDR_ANY, record);
 	sdp_data = sdp_data_alloc(SDP_UINT32, &record->handle);
-	sdp_attr_add(record, SDP_ATTR_RECORD_HANDLE, sdp_data);
+	sdp_attr_add(record, SDP_ATTR_RECORD_HANDLE, sdp_data);/*添加record handle*/
 
 	sdp_uuid16_create(&class_uuid, PNP_INFO_SVCLASS_ID);
 	class_list = sdp_list_append(0, &class_uuid);
@@ -649,7 +649,7 @@ int add_record_to_server(const bdaddr_t *src, sdp_record_t *rec)
 	sdp_record_add(src, rec);/*添加此record*/
 
 	data = sdp_data_alloc(SDP_UINT32, &rec->handle);
-	sdp_attr_replace(rec, SDP_ATTR_RECORD_HANDLE, data);
+	sdp_attr_replace(rec, SDP_ATTR_RECORD_HANDLE, data);/*替换record handle*/
 
 	if (sdp_data_get(rec, SDP_ATTR_BROWSE_GRP_LIST) == NULL) {
 		uuid_t uuid;
@@ -733,21 +733,23 @@ static sdp_record_t *extract_pdu_server(bdaddr_t *device, uint8_t *p,
 		handle = get_be32(p + sizeof(uint8_t) + sizeof(uint16_t) +
 							sizeof(uint8_t));
 		SDPDBG("SvcRecHandle : 0x%x", handle);
-		rec = sdp_record_find(handle);
+		rec = sdp_record_find(handle);/*利用handle查询record*/
 	} else if (handleExpected != 0xffffffff)
-		rec = sdp_record_find(handleExpected);
+		rec = sdp_record_find(handleExpected);/*利用handleExpected查询record*/
 
 	if (!rec) {
+		/*没有找到，创建此record*/
 		rec = sdp_record_alloc();
 		rec->attrlist = NULL;
 		if (lookAheadAttrId == SDP_ATTR_RECORD_HANDLE) {
 			rec->handle = handle;
 			sdp_record_add(device, rec);
 		} else if (handleExpected != 0xffffffff) {
-			rec->handle = handleExpected;
+			rec->handle = handleExpected;/*使用handleExpected做为handle*/
 			sdp_record_add(device, rec);
 		}
 	} else {
+		/*找到了，删除此record*/
 		sdp_list_free(rec->attrlist, (sdp_free_func_t) sdp_data_free);
 		rec->attrlist = NULL;
 	}
@@ -837,12 +839,12 @@ int service_register_req(sdp_req_t *req, sdp_buf_t *rsp)
 		}
 	}
 
-	sdp_record_add(&req->device, rec);/*添加记录*/
+	sdp_record_add(&req->device, rec);/*添加sdp记录*/
 	if (!(req->flags & SDP_RECORD_PERSIST))
 		sdp_svcdb_set_collectable(rec, req->sock);
 
 	handle = sdp_data_alloc(SDP_UINT32, &rec->handle);
-	sdp_attr_replace(rec, SDP_ATTR_RECORD_HANDLE, handle);
+	sdp_attr_replace(rec, SDP_ATTR_RECORD_HANDLE, handle);/*添加record handle属性*/
 
 success:
 	/* if the browse group descriptor is NULL,

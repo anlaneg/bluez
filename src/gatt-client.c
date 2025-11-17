@@ -2247,7 +2247,7 @@ struct btd_gatt_client *btd_gatt_client_new(struct btd_device *device)
 	client->services = queue_new();
 	client->all_notify_clients = queue_new();
 	client->ios = queue_new();
-	client->device = device;
+	client->device = device;/*对应client*/
 	ba2str(device_get_address(device), client->devaddr);
 
 	client->db = gatt_db_ref(db);

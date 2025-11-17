@@ -131,7 +131,7 @@ static GIOChannel *transport_connect(const bdaddr_t *src, const bdaddr_t *dst,
 }
 
 static void search_callback(uint8_t type, uint16_t status,
-			uint8_t *rsp, size_t size, void *user_data)
+			uint8_t *rsp/*响应内容*/, size_t size, void *user_data)
 {
 	struct bluetooth_session *session = user_data;
 	unsigned int scanned, bytesleft = size;
@@ -140,7 +140,7 @@ static void search_callback(uint8_t type, uint16_t status,
 	uint16_t port = 0;
 	GError *gerr = NULL;
 
-	if (status || type != SDP_SVC_SEARCH_ATTR_RSP)
+	if (status || type != SDP_SVC_SEARCH_ATTR_RSP/*只接收service attr响应*/)
 		goto failed;
 
 	scanned = sdp_extract_seqtype(rsp, bytesleft, &dataType, &seqlen);
@@ -236,9 +236,9 @@ static gboolean process_callback(GIOChannel *io, GIOCondition cond,
 		return FALSE;
 
 	if (sdp_process(session->sdp) < 0)
-		return FALSE;
+		return FALSE;/*事务失败或者事务处理完成*/
 
-	return TRUE;
+	return TRUE;/*事务未完成，还需要继续处理*/
 }
 
 static int bt_string2uuid(uuid_t *uuid, const char *string)

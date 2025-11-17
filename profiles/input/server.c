@@ -39,9 +39,10 @@ struct confirm_data {
 	GIOChannel *io;
 };
 
+/*记录所有input server*/
 static GSList *servers = NULL;
 struct input_server {
-	bdaddr_t src;
+	bdaddr_t src;/*源地址*/
 	GIOChannel *ctrl;
 	GIOChannel *intr;
 	struct confirm_data *confirm;
@@ -285,11 +286,13 @@ int server_start(const bdaddr_t *src, bool device_sixaxis_cable_pairing)
 	GError *err = NULL;
 	BtIOSecLevel sec_level;
 
+	/*取安全level*/
 	sec_level = get_necessary_sec_level(device_sixaxis_cable_pairing);
 
 	server = g_new0(struct input_server, 1);
 	bacpy(&server->src, src);
 
+	/*监听L2CAP_PSM_HIDP_CTRL,用于响应创建ctrl socket*/
 	server->ctrl = bt_io_listen(connect_event_cb, NULL,
 				server, NULL, &err,
 				BT_IO_OPT_SOURCE_BDADDR, src,
@@ -303,6 +306,7 @@ int server_start(const bdaddr_t *src, bool device_sixaxis_cable_pairing)
 		return -1;
 	}
 
+	/*监听L2CAP_PSM_HIDP_INTR,用于响应创建intr socket*/
 	server->intr = bt_io_listen(NULL, confirm_event_cb,
 				server, NULL, &err,
 				BT_IO_OPT_SOURCE_BDADDR, src,

@@ -18,8 +18,8 @@
 struct queue {
 	int ref_count;
 	struct queue_entry *head;/*队首*/
-	struct queue_entry *tail;
-	unsigned int entries;
+	struct queue_entry *tail;/*队尾*/
+	unsigned int entries;/*队列长度*/
 };
 
 static struct queue *queue_ref(struct queue *queue)
@@ -58,11 +58,13 @@ void queue_destroy(struct queue *queue, queue_destroy_func_t destroy)
 	if (!queue)
 		return;
 
+	/*清空此queue*/
 	queue_remove_all(queue, NULL, NULL, destroy);
 
 	queue_unref(queue);
 }
 
+/*利用data创建queue_entry*/
 static struct queue_entry *queue_entry_new(void *data)
 {
 	struct queue_entry *entry;
@@ -73,6 +75,7 @@ static struct queue_entry *queue_entry_new(void *data)
 	return entry;
 }
 
+/*利用data创建queue_entry,并将其置于队尾*/
 bool queue_push_tail(struct queue *queue, void *data)
 {
 	struct queue_entry *entry;
@@ -83,14 +86,14 @@ bool queue_push_tail(struct queue *queue, void *data)
 	entry = queue_entry_new(data);
 
 	if (queue->tail)
-		queue->tail->next = entry;
+		queue->tail->next = entry;/*存在队尾*/
 
-	queue->tail = entry;
+	queue->tail = entry;/*更新tail指向队尾*/
 
 	if (!queue->head)
-		queue->head = entry;
+		queue->head = entry;/*之前没有设置head，为首个,更新head*/
 
-	queue->entries++;
+	queue->entries++;/*队列长度增加*/
 
 	return true;
 }
@@ -188,17 +191,18 @@ void *queue_peek_tail(struct queue *queue)
 	return queue->tail->data;
 }
 
-void queue_foreach(struct queue *queue/*要检查的队列*/, queue_foreach_func_t function,
-							void *user_data)
+/*遍历queue上所有元素，执行function*/
+void queue_foreach(struct queue *queue/*要检查的队列*/, queue_foreach_func_t function/*要触发的回调*/,
+							void *user_data/*回调第二个参数*/)
 {
 	struct queue_entry *entry;
 
 	if (!queue || !function)
-		return;
+		return;/*参数有误*/
 
 	entry = queue->head;
 	if (!entry)
-		return;
+		return;/*队列为空*/
 
 	queue_ref(queue);
 	/*针对所有元素，执行function*/
@@ -217,6 +221,7 @@ static bool direct_match(const void *a, const void *b)
 	return a == b;
 }
 
+/*利用function遍历queue中每个元素，一旦命中，返回entry->data*/
 void *queue_find(struct queue *queue, queue_match_func_t function,
 							const void *match_data)
 {
@@ -299,7 +304,7 @@ void *queue_remove_if(struct queue *queue, queue_match_func_t function,
 			free(entry);
 			queue->entries--;
 
-			return data;
+			return data;/*返回节点数据*/
 		} else {
 			/*未匹配，尝试下一个entry*/
 			prev = entry;
@@ -311,7 +316,7 @@ void *queue_remove_if(struct queue *queue, queue_match_func_t function,
 }
 
 unsigned int queue_remove_all(struct queue *queue, queue_match_func_t function,
-				void *user_data, queue_destroy_func_t destroy)
+				void *user_data, queue_destroy_func_t destroy/*销毁函数*/)
 {
 	struct queue_entry *entry;
 	unsigned int count = 0;
@@ -319,23 +324,25 @@ unsigned int queue_remove_all(struct queue *queue, queue_match_func_t function,
 	if (!queue)
 		return 0;
 
-	entry = queue->head;
+	entry = queue->head;/*遍历queue*/
 
 	if (function) {
 		while (entry) {
 			void *data;
 			unsigned int entries = queue->entries;
 
+			/*按function移除指定元素，返回对应的data并释放*/
 			data = queue_remove_if(queue, function, user_data);
 			if (entries == queue->entries)
 				break;
 
 			if (destroy)
-				destroy(data);
+				destroy(data);/*释放节点数据*/
 
 			count++;
 		}
 	} else {
+		/*未提供function,队列初始化为空，释放队列中所有元素*/
 		queue->head = NULL;
 		queue->tail = NULL;
 		queue->entries = 0;
@@ -353,7 +360,7 @@ unsigned int queue_remove_all(struct queue *queue, queue_match_func_t function,
 		}
 	}
 
-	return count;
+	return count;/*返回释放数*/
 }
 
 const struct queue_entry *queue_get_entries(struct queue *queue)

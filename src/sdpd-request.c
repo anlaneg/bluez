@@ -134,7 +134,7 @@ struct attrid {
  * sequence. The data type of elements found in the
  * sequence is returned in the reference pDataType
  */
-static int extract_des(uint8_t *buf, int len, sdp_list_t **svcReqSeq, uint8_t *pDataType, uint8_t expectedType)
+static int extract_des(uint8_t *buf, int len, sdp_list_t **svcReqSeq/*出叁，返回一组序列*/, uint8_t *pDataType/*出参，元素类型*/, uint8_t expectedType)
 {
 	uint8_t seqType;
 	int scanned, data_size = 0;
@@ -150,11 +150,11 @@ static int extract_des(uint8_t *buf, int len, sdp_list_t **svcReqSeq, uint8_t *p
 
 	SDPDBG("Seq type : %d", seqType);
 	if (!scanned || (seqType != SDP_SEQ8 && seqType != SDP_SEQ16)) {
-		error("Unknown seq type");
+		error("Unknown seq type");/*只能是seq8,seq16两种类型*/
 		return -1;
 	}
 	p = buf + scanned;
-	bufsize = len - scanned;
+	bufsize = len - scanned;/*剩余长度*/
 
 	SDPDBG("Data size : %d", data_size);
 
@@ -168,11 +168,12 @@ static int extract_des(uint8_t *buf, int len, sdp_list_t **svcReqSeq, uint8_t *p
 			goto failed;
 		}
 
-		dataType = *p;
+		dataType = *p;/*取元素类型*/
 
 		SDPDBG("Data type: 0x%02x", dataType);
 
 		if (expectedType == SDP_TYPE_UUID) {
+			/*期待的数据为uuid，则必须是以下几种类型，否则报错*/
 			if (dataType != SDP_UUID16 && dataType != SDP_UUID32 && dataType != SDP_UUID128) {
 				SDPDBG("->Unexpected Data type (expected UUID_ANY)");
 				goto failed;
@@ -246,8 +247,9 @@ static int extract_des(uint8_t *buf, int len, sdp_list_t **svcReqSeq, uint8_t *p
 		case SDP_UUID16:
 		case SDP_UUID32:
 		case SDP_UUID128:
+			/*uuid类型时*/
 			puuid = malloc(sizeof(uuid_t));
-			status = sdp_uuid_extract(p, bufsize, puuid, &localSeqLength);
+			status = sdp_uuid_extract(p, bufsize, puuid/*出参*/, &localSeqLength);
 			if (status < 0) {
 				free(puuid);
 				goto failed;
@@ -262,20 +264,20 @@ static int extract_des(uint8_t *buf, int len, sdp_list_t **svcReqSeq, uint8_t *p
 			return -1;
 		}
 		if (status == 0) {
-			pSeq = sdp_list_append(pSeq, pElem);
+			pSeq = sdp_list_append(pSeq, pElem);/*存入解析的值*/
 			numberOfElements++;
 			SDPDBG("No of elements : %d", numberOfElements);
 
 			if (seqlen == data_size)
-				break;
+				break;/*数据长度恰好消费完，跳出*/
 			else if (seqlen > data_size || seqlen > len)
-				goto failed;
+				goto failed;/*数据长度有误*/
 		} else
-			free(pElem);
+			free(pElem);/*解析出错，释放elem*/
 	}
 	*svcReqSeq = pSeq;
 	scanned += seqlen;
-	*pDataType = dataType;
+	*pDataType = dataType;/*数据类型*/
 	return scanned;
 
 failed:
@@ -307,11 +309,13 @@ static int sdp_set_cstate_pdu(sdp_buf_t *buf, sdp_cont_state_t *cstate)
 static int sdp_cstate_get(sdp_req_t *req, uint8_t *buffer, size_t len,
 			sdp_cont_state_t **cstate, sdp_cont_info_t **cinfo)
 {
+	/*取长度，ContinuationState consists of an 8-bit count*/
 	uint8_t cStateSize = *buffer;
 
 	SDPDBG("Continuation State size : %d", cStateSize);
 
 	if (cStateSize == 0) {
+		/*长度为零*/
 		/* Cleanup cstates if request doesn't contain a cstate */
 		sdp_cstate_cleanup(req->sock);
 		*cstate = NULL;
@@ -354,7 +358,7 @@ static int sdp_cstate_get(sdp_req_t *req, uint8_t *buffer, size_t len,
  * pattern exists in the target pattern, 0 if the
  * match succeeds and -1 on error.
  */
-static int sdp_match_uuid(sdp_list_t *search, sdp_list_t *pattern)
+static int sdp_match_uuid(sdp_list_t *search/*一组查询用uuid*/, sdp_list_t *pattern/*被查列表*/)
 {
 	/*
 	 * The target is a sorted list, so we need not look
@@ -364,22 +368,22 @@ static int sdp_match_uuid(sdp_list_t *search, sdp_list_t *pattern)
 	int patlen = sdp_list_len(pattern);
 
 	if (patlen < sdp_list_len(search))
-		return -1;
+		return -1;/*search的长度大于pattern长度，报错*/
 	for (; search; search = search->next) {
 		uuid_t *uuid128;
-		void *data = search->data;
+		void *data = search->data;/*采用uuid查询*/
 		sdp_list_t *list;
 		if (data == NULL)
 			return -1;
 
 		/* create 128-bit form of the search UUID */
-		uuid128 = sdp_uuid_to_uuid128((uuid_t *)data);
-		list = sdp_list_find(pattern, uuid128, sdp_uuid128_cmp);
+		uuid128 = sdp_uuid_to_uuid128((uuid_t *)data);/*转换为uuid128*/
+		list = sdp_list_find(pattern, uuid128, sdp_uuid128_cmp);/*在pattern列表中查询uuid128*/
 		bt_free(uuid128);
 		if (!list)
-			return 0;
+			return 0;/*没有查询到或者部分匹配*/
 	}
-	return 1;
+	return 1;/*完全匹配*/
 }
 
 /*
@@ -399,10 +403,11 @@ static int service_search_req(sdp_req_t *req, sdp_buf_t *buf)
 	int handleSize = 0;
 	uint32_t cStateId = 0;
 	uint8_t *pTotalRecordCount, *pCurrentRecordCount;
-	uint8_t *pdata = req->buf + sizeof(sdp_pdu_hdr_t);
+	uint8_t *pdata = req->buf + sizeof(sdp_pdu_hdr_t);/*参数指针*/
 	size_t data_left = req->len - sizeof(sdp_pdu_hdr_t);
 
-	scanned = extract_des(pdata, data_left, &pattern, &dtd, SDP_TYPE_UUID);
+	/*取出ServiceSearchPattern*/
+	scanned = extract_des(pdata, data_left, &pattern, &dtd, SDP_TYPE_UUID/*这种必须是uuid*/);
 
 	if (scanned == -1) {
 		status = SDP_INVALID_SYNTAX;
@@ -411,7 +416,7 @@ static int service_search_req(sdp_req_t *req, sdp_buf_t *buf)
 	pdata += scanned;
 	data_left -= scanned;
 
-	plen = ntohs(((sdp_pdu_hdr_t *)(req->buf))->plen);
+	plen = ntohs(((sdp_pdu_hdr_t *)(req->buf))->plen);/*请求参数长度*/
 	mlen = scanned + sizeof(uint16_t) + 1;
 	/* ensure we don't read past buffer */
 	if (plen < mlen || plen != mlen + *(uint8_t *)(pdata+sizeof(uint16_t))) {
@@ -424,7 +429,7 @@ static int service_search_req(sdp_req_t *req, sdp_buf_t *buf)
 		goto done;
 	}
 
-	expected = get_be16(pdata);
+	expected = get_be16(pdata);/*取MaximumServiceRecordCount，响应的数目不得超过此值*/
 
 	SDPDBG("Expected count: %d", expected);
 	SDPDBG("Bytes scanned : %d", scanned);
@@ -437,6 +442,7 @@ static int service_search_req(sdp_req_t *req, sdp_buf_t *buf)
 	 * to get rsp remainder from continuation info, else send error
 	 */
 	if (sdp_cstate_get(req, pdata, data_left, &cstate, &cinfo) < 0) {
+		/*取ContinuationState失败*/
 		status = SDP_INVALID_SYNTAX;
 		goto done;
 	}
@@ -464,15 +470,16 @@ static int service_search_req(sdp_req_t *req, sdp_buf_t *buf)
 		sdp_list_t *list = sdp_get_record_list();
 
 		handleSize = 0;
+		/*遍历所有record_list*/
 		for (; list && rsp_count < expected; list = list->next) {
 			sdp_record_t *rec = list->data;
 
 			SDPDBG("Checking svcRec : 0x%x", rec->handle);
 
-			if (sdp_match_uuid(pattern, rec->pattern) > 0 &&
-					sdp_check_access(rec->handle, &req->device)) {
-				rsp_count++;
-				put_be32(rec->handle, pdata);
+			if (sdp_match_uuid(pattern, rec->pattern) > 0/*匹配，即pattern是rec->pattern子集*/ &&
+					sdp_check_access(rec->handle, &req->device)/*匹配*/) {
+				rsp_count++;/*响应数增加*/
+				put_be32(rec->handle, pdata);/*存入pdata*/
 				pdata += sizeof(uint32_t);
 				handleSize += sizeof(uint32_t);
 			}

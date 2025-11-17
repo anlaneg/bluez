@@ -31,7 +31,7 @@ bool mgmt_set_debug(struct mgmt *mgmt, mgmt_debug_func_t callback,
 
 bool mgmt_set_close_on_unref(struct mgmt *mgmt, bool do_close);
 
-typedef void (*mgmt_request_func_t)(uint8_t status, uint16_t length,
+typedef void (*mgmt_request_func_t)(uint8_t status/*结果状态，例如timeout/failed/0*/, uint16_t length,
 					const void *param, void *user_data);
 
 struct mgmt_tlv_list *mgmt_tlv_list_new(void);

@@ -40,15 +40,15 @@ struct uhid_replay {
 
 struct bt_uhid {
 	int ref_count;
-	struct io *io;
-	unsigned int notify_id;
-	bool notifying;
-	struct queue *notify_list;
+	struct io *io;/*对应文件"/dev/uhid"*/
+	unsigned int notify_id;/*负责分配notify id*/
+	bool notifying;/*标记是否正在执行notify*/
+	struct queue *notify_list;/*用于存放结构体uhid_notify，处理uhid事件*/
 	struct queue *input;
 	uint8_t type;
-	bool created;
+	bool created;/*是否已创建*/
 	unsigned int start_id;
-	bool started;
+	bool started;/*标记uhid设备是否已启动*/
 	struct uhid_replay *replay;
 };
 
@@ -94,8 +94,9 @@ static void notify_handler(void *data, void *user_data)
 	struct uhid_event *ev = user_data;
 
 	if (notify->event != ev->type)
-		return;
+		return;/*两者event不相同，不触发*/
 
+	/*触发notify回调*/
 	if (notify->func)
 		notify->func(ev, notify->user_data);
 }
@@ -123,13 +124,16 @@ static int bt_uhid_record(struct bt_uhid *uhid, bool input,
 		return -EALREADY;
 	}
 
+	/*初始化replay*/
 	if (!uhid->replay)
 		uhid->replay = uhid_replay_new();
 
 	if (input)
+		/*将这个事件复制一份，添加到replay->in链表上*/
 		queue_push_tail(uhid->replay->in,
 					util_memdup(ev, sizeof(*ev)));
 	else
+		/*将这个事件复制一份，添加到replay->out链表上*/
 		queue_push_tail(uhid->replay->out,
 					util_memdup(ev, sizeof(*ev)));
 
@@ -140,9 +144,10 @@ static bool match_removed(const void *a, const void *b)
 {
 	const struct uhid_notify *notify = a;
 
-	return notify->removed;
+	return notify->removed;/*是否是指明要删除的*/
 }
 
+/*针对uhid触发uhid event事件对应的处理函数*/
 static void uhid_notify(struct bt_uhid *uhid, struct uhid_event *ev)
 {
 	/* Add a reference to the uhid to ensure it doesn't get freed while at
@@ -150,14 +155,15 @@ static void uhid_notify(struct bt_uhid *uhid, struct uhid_event *ev)
 	 */
 	bt_uhid_ref(uhid);
 
-	uhid->notifying = true;
-	queue_foreach(uhid->notify_list, notify_handler, ev);
-	uhid->notifying = false;
+	uhid->notifying = true;/*标记正在执行notify*/
+	queue_foreach(uhid->notify_list, notify_handler, ev);/*逐个执行通知函数*/
+	uhid->notifying = false;/*标记执行notify结束*/
 	queue_remove_all(uhid->notify_list, match_removed, NULL, free);
 
 	bt_uhid_unref(uhid);
 }
 
+/*处理读取到的所有uhid_event*/
 static bool uhid_read_handler(struct io *io, void *user_data)
 {
 	struct bt_uhid *uhid = user_data;
@@ -178,28 +184,32 @@ static bool uhid_read_handler(struct io *io, void *user_data)
 	if ((size_t) len < sizeof(ev.type))
 		return false;
 
+	/*读取event,并处理report*/
 	switch (ev.type) {
 	case UHID_GET_REPORT:
 	case UHID_SET_REPORT:
+		/*set/get report事件在replay上保存一份*/
 		bt_uhid_record(uhid, false, &ev);
 		break;
 	}
 
-	uhid_notify(uhid, &ev);
+	uhid_notify(uhid, &ev);/*处理读取到的事件ev*/
 
 	return true;
 }
 
+/*打开"/dev/uhid"文件(创建新的uhid设备),创建对应的bt_uhid结构体*/
 struct bt_uhid *bt_uhid_new_default(void)
 {
 	struct bt_uhid *uhid;
 	int fd;
 
+	/*打开uhid文件，使此文件关联一个结构体uhid_device*/
 	fd = open(UHID_DEVICE_FILE, O_RDWR | O_CLOEXEC);
 	if (fd < 0)
 		return NULL;
 
-	uhid = bt_uhid_new(fd);
+	uhid = bt_uhid_new(fd);/*创建bt_uhid*/
 	if (!uhid) {
 		close(fd);
 		return NULL;
@@ -210,6 +220,7 @@ struct bt_uhid *bt_uhid_new_default(void)
 	return uhid;
 }
 
+/*利用fd创建bt_uhid,并设置此fd的读回调为uhid_read_handler*/
 struct bt_uhid *bt_uhid_new(int fd)
 {
 	struct bt_uhid *uhid;
@@ -221,6 +232,7 @@ struct bt_uhid *bt_uhid_new(int fd)
 
 	uhid->notify_list = queue_new();
 
+	/*设置此io的读回调函数*/
 	if (!io_set_read_handler(uhid->io, uhid_read_handler, uhid, NULL))
 		goto failed;
 
@@ -231,6 +243,7 @@ failed:
 	return NULL;
 }
 
+/*增加引用*/
 struct bt_uhid *bt_uhid_ref(struct bt_uhid *uhid)
 {
 	if (!uhid)
@@ -241,6 +254,7 @@ struct bt_uhid *bt_uhid_ref(struct bt_uhid *uhid)
 	return uhid;
 }
 
+/*减少引用计数*/
 void bt_uhid_unref(struct bt_uhid *uhid)
 {
 	if (!uhid)
@@ -262,8 +276,9 @@ bool bt_uhid_set_close_on_unref(struct bt_uhid *uhid, bool do_close)
 	return true;
 }
 
+/*为uhid注册处理event事件的回调func*/
 unsigned int bt_uhid_register(struct bt_uhid *uhid, uint32_t event,
-				bt_uhid_callback_t func, void *user_data)
+				bt_uhid_callback_t func/*回调函数*/, void *user_data)
 {
 	struct uhid_notify *notify;
 
@@ -271,11 +286,12 @@ unsigned int bt_uhid_register(struct bt_uhid *uhid, uint32_t event,
 		return 0;
 
 	notify = new0(struct uhid_notify, 1);
-	notify->id = ++uhid->notify_id ? uhid->notify_id : ++uhid->notify_id;
+	notify->id = ++uhid->notify_id ? uhid->notify_id/*非零可用*/ : ++uhid->notify_id/*跳过零*/;
 	notify->event = event;
 	notify->func = func;
 	notify->user_data = user_data;
 
+	/*按注册顺序放入*/
 	if (!queue_push_tail(uhid->notify_list, notify)) {
 		free(notify);
 		return 0;
@@ -325,7 +341,7 @@ static void uhid_notify_removed(void *data, void *user_data)
 	 * unregister all.
 	 */
 	if (notify->id == uhid->start_id)
-		return;
+		return;/*不得移除start_id*/
 
 	notify->removed = true;
 }
@@ -344,6 +360,7 @@ bool bt_uhid_unregister_all(struct bt_uhid *uhid)
 	return true;
 }
 
+/*写uhid_event*/
 static int uhid_send(struct bt_uhid *uhid, const struct uhid_event *ev)
 {
 	ssize_t len;
@@ -366,9 +383,9 @@ int bt_uhid_send(struct bt_uhid *uhid, const struct uhid_event *ev)
 		return -EINVAL;
 
 	if (!uhid->io)
-		return -ENOTCONN;
+		return -ENOTCONN;/*io未初始化，失败*/
 
-	return uhid_send(uhid, ev);
+	return uhid_send(uhid, ev);/*发送event给kernel*/
 }
 
 static bool input_dequeue(const void *data, const void *match_data)
@@ -376,35 +393,38 @@ static bool input_dequeue(const void *data, const void *match_data)
 	struct uhid_event *ev = (void *)data;
 	struct bt_uhid *uhid = (void *)match_data;
 
-	return bt_uhid_send(uhid, ev) == 0;
+	return bt_uhid_send(uhid, ev) == 0;/*如果向kernel发送此event成功，则删除*/
 }
 
+/*标记设备启动，并将input上所有event发送给kernel*/
 static void uhid_start(struct uhid_event *ev, void *user_data)
 {
 	struct bt_uhid *uhid = user_data;
 
-	uhid->started = true;
+	uhid->started = true;/*标记设备已启动*/
 
 	/* dequeue input events send while UHID_CREATE2 was in progress */
 	queue_remove_all(uhid->input, input_dequeue, uhid, free);
 }
 
-int bt_uhid_create(struct bt_uhid *uhid, const char *name, bdaddr_t *src,
-			bdaddr_t *dst, uint32_t vendor, uint32_t product,
+/*创建uhid设备*/
+int bt_uhid_create(struct bt_uhid *uhid, const char *name/*设备名称*/, bdaddr_t *src,
+			bdaddr_t *dst, uint32_t vendor/*设备vendor*/, uint32_t product,
 			uint32_t version, uint32_t country, uint8_t type,
-			void *rd_data, size_t rd_size)
+			void *rd_data, size_t rd_size/*rd_data数组长度*/)
 {
 	struct uhid_event ev;
 	int err;
 
 	if (!uhid || !name || rd_size > sizeof(ev.u.create2.rd_data))
-		return -EINVAL;
+		return -EINVAL;/*参数有效性检查*/
 
 	if (uhid->created)
-		return 0;
+		return 0;/*已创建，直接返回*/
 
 	/* Register callback for UHID_START if not registered yet */
 	if (!uhid->start_id) {
+		/*注册收到UHID_START事件处理函数*/
 		uhid->start_id = bt_uhid_register(uhid, UHID_START, uhid_start,
 									uhid);
 		if (!uhid->start_id)
@@ -414,13 +434,15 @@ int bt_uhid_create(struct bt_uhid *uhid, const char *name, bdaddr_t *src,
 	memset(&ev, 0, sizeof(ev));
 	ev.type = UHID_CREATE2;
 	strncpy((char *) ev.u.create2.name, name,
-			sizeof(ev.u.create2.name) - 1);
+			sizeof(ev.u.create2.name) - 1);/*设置设备名称*/
 	if (src)
+		/*利用源地址填充phys*/
 		sprintf((char *)ev.u.create2.phys,
 			"%2.2x:%2.2x:%2.2x:%2.2x:%2.2x:%2.2x",
 			src->b[5], src->b[4], src->b[3], src->b[2], src->b[1],
 			src->b[0]);
 	if (dst)
+		/*利用目地地址填充uniq*/
 		sprintf((char *)ev.u.create2.uniq,
 			"%2.2x:%2.2x:%2.2x:%2.2x:%2.2x:%2.2x",
 			dst->b[5], dst->b[4], dst->b[3], dst->b[2], dst->b[1],
@@ -432,19 +454,22 @@ int bt_uhid_create(struct bt_uhid *uhid, const char *name, bdaddr_t *src,
 	ev.u.create2.bus = BUS_BLUETOOTH;
 	if (rd_size)
 		memcpy(ev.u.create2.rd_data, rd_data, rd_size);
-	ev.u.create2.rd_size = rd_size;
+	ev.u.create2.rd_size = rd_size;/*指明rd_data的数据长度*/
 
 	err = bt_uhid_send(uhid, &ev);
 	if (err)
 		return err;
 
+	/*创建成功，标记uhid设备已创建*/
 	uhid->created = true;
+	/*标记uhid设备未启动*/
 	uhid->started = false;
 	uhid->type = type;
 
 	return 0;
 }
 
+/*检查uhid设备是否已创建*/
 bool bt_uhid_created(struct bt_uhid *uhid)
 {
 	if (!uhid)
@@ -472,7 +497,7 @@ int bt_uhid_input(struct bt_uhid *uhid, uint8_t number, const void *data,
 		return -EINVAL;
 
 	memset(&ev, 0, sizeof(ev));
-	ev.type = UHID_INPUT2;
+	ev.type = UHID_INPUT2;/*指明input消息*/
 
 	if (number) {
 		req->data[len++] = number;
@@ -488,11 +513,12 @@ int bt_uhid_input(struct bt_uhid *uhid, uint8_t number, const void *data,
 		if (!uhid->input)
 			uhid->input = queue_new();
 
+		/*此时uhid还未启动，将event暂存在input链上*/
 		queue_push_tail(uhid->input, util_memdup(&ev, sizeof(ev)));
 		return 0;
 	}
 
-	return bt_uhid_send(uhid, &ev);
+	return bt_uhid_send(uhid, &ev);/*将event消息发给kernel*/
 }
 
 int bt_uhid_set_report_reply(struct bt_uhid *uhid, uint32_t id, uint8_t status)
@@ -504,14 +530,14 @@ int bt_uhid_set_report_reply(struct bt_uhid *uhid, uint32_t id, uint8_t status)
 		return false;
 
 	memset(&ev, 0, sizeof(ev));
-	ev.type = UHID_SET_REPORT_REPLY;
+	ev.type = UHID_SET_REPORT_REPLY;/*指明为reply*/
 	rsp->id = id;
-	rsp->err = status;
+	rsp->err = status;/*指明错误原因*/
 
-	if (bt_uhid_record(uhid, true, &ev) == -EALREADY)
+	if (bt_uhid_record(uhid, true, &ev) == -EALREADY)/*记录*/
 		return 0;
 
-	return bt_uhid_send(uhid, &ev);
+	return bt_uhid_send(uhid, &ev);/*发送给kernel*/
 }
 
 int bt_uhid_get_report_reply(struct bt_uhid *uhid, uint32_t id, uint8_t number,
@@ -525,7 +551,7 @@ int bt_uhid_get_report_reply(struct bt_uhid *uhid, uint32_t id, uint8_t number,
 		return false;
 
 	memset(&ev, 0, sizeof(ev));
-	ev.type = UHID_GET_REPORT_REPLY;
+	ev.type = UHID_GET_REPORT_REPLY;/*指明为get report的reply*/
 	rsp->id = id;
 	rsp->err = status;
 
@@ -541,10 +567,11 @@ int bt_uhid_get_report_reply(struct bt_uhid *uhid, uint32_t id, uint8_t number,
 	memcpy(&rsp->data[len], data, rsp->size - len);
 
 done:
+	/*记录*/
 	if (bt_uhid_record(uhid, true, &ev) == -EALREADY)
 		return 0;
 
-	return bt_uhid_send(uhid, &ev);
+	return bt_uhid_send(uhid, &ev);/*再发送*/
 }
 
 int bt_uhid_destroy(struct bt_uhid *uhid, bool force)

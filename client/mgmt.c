@@ -3275,6 +3275,7 @@ static void cmd_pair(int argc, char **argv)
 	ba2str(&cp.addr.bdaddr, addr);
 	print("Pairing with %s (%s)", addr, typestr(cp.addr.type));
 
+	/*发送pair device命令*/
 	if (mgmt_send(mgmt, MGMT_OP_PAIR_DEVICE, index, sizeof(cp), &cp,
 						pair_rsp, NULL, NULL) == 0) {
 		error("Unable to send pair_device cmd");

@@ -244,6 +244,7 @@ struct btd_device {
 	struct btd_adapter	*adapter;
 	GSList		*uuids;/*用于记录此设备上的UUID*/
 	GSList		*primaries;		/* List of primary services */
+	/*可应用于此设备的服务？？*/
 	GSList		*services;		/* List of btd_service */
 	GSList		*pending;		/* Pending services */
 	GSList		*watches;		/* List of disconnect_data */
@@ -280,8 +281,8 @@ struct btd_device {
 	struct btd_gatt_client *client_dbus;
 
 	uint8_t prefer_bearer;
-	struct bearer_state bredr_state;
-	struct bearer_state le_state;
+	struct bearer_state bredr_state;/*br/edr模式状态*/
+	struct bearer_state le_state;/*le模式状态*/
 
 	struct csrk_info *local_csrk;
 	struct csrk_info *remote_csrk;
@@ -318,6 +319,7 @@ static const uint16_t uuid_list[] = {
 static int device_browse_gatt(struct btd_device *device, DBusMessage *msg);
 static int device_browse_sdp(struct btd_device *device, DBusMessage *msg);
 
+/*按地址类型，获取state*/
 static struct bearer_state *get_state(struct btd_device *dev,
 							uint8_t bdaddr_type)
 {
@@ -339,6 +341,7 @@ bool btd_device_is_initiator(struct btd_device *dev)
 	return dev->att_io ? true : false;
 }
 
+/*遍历list上所有service,检查这些service上是否有存在service->profile与p相等*/
 static GSList *find_service_with_profile(GSList *list, struct btd_profile *p)
 {
 	GSList *l;
@@ -984,7 +987,7 @@ bool btd_device_is_trusted(struct btd_device *device)
 
 bool device_is_cable_pairing(struct btd_device *device)
 {
-	return device->cable_pairing;
+	return device->cable_pairing;/*是否开启有线配对（默认为no)*/
 }
 
 static gboolean dev_property_get_address(const GDBusPropertyTable *property,
@@ -3299,7 +3302,7 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 	uint8_t io_cap;
 	int err;
 
-	btd_device_set_temporary(device, false);
+	btd_device_set_temporary(device, false);/*添加此设备到accept_list*/
 
 	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_INVALID))
 		return btd_error_invalid_args(msg);
@@ -3506,6 +3509,7 @@ static DBusMessage *get_service_records(DBusConnection *conn, DBusMessage *msg,
 
 		result = sdp_gen_record_pdu(rec, &buf);
 		if (result) {
+			/*生成失败*/
 			dbus_message_iter_abandon_container(&records_arr,
 							    &record);
 			dbus_message_unref(reply);
@@ -4025,6 +4029,7 @@ static char *load_cached_name(struct btd_device *device, const char *local,
 	if (!g_key_file_load_from_file(key_file, filename, 0, NULL))
 		goto failed;
 
+	/*取设备名称*/
 	str = g_key_file_get_string(key_file, "General", "Name", NULL);
 	if (str) {
 		len = strlen(str);
@@ -4333,7 +4338,7 @@ next:
 		device_block(device, FALSE);
 
 	device->cable_pairing = g_key_file_get_boolean(key_file, "General",
-							"CablePairing", NULL);
+							"CablePairing", NULL);/*加载*/
 
 	/* Load device profile list */
 	uuids = g_key_file_get_string_list(key_file, "General", "Services",
@@ -4589,8 +4594,9 @@ static bool device_match_profile(struct btd_device *device,
 	GSList *l;
 
 	if (profile->remote_uuid == NULL)
-		return false;
+		return false;/*没有remote_uuid,不匹配*/
 
+	/*在uuids集合中检查是否有与profile->remote_uuid相同的元素*/
 	l = g_slist_find_custom(uuids, profile->remote_uuid, bt_uuid_strcmp);
 	if (!l)
 		return false;
@@ -4846,12 +4852,12 @@ static struct btd_device *device_new(struct btd_adapter *adapter,
 		return NULL;
 	}
 
-	address_up = g_ascii_strup(address, -1);
-	device->path = g_strdup_printf("%s/dev_%s", adapter_path, address_up);/*设置设备path*/
-	g_strdelimit(device->path, ":", '_');
+	address_up = g_ascii_strup(address, -1);/*地址字符串转大写字母*/
+	device->path = g_strdup_printf("%s/dev_%s", adapter_path, address_up);/*设置设备path（含设备地址）*/
+	g_strdelimit(device->path, ":", '_');/*地址格式':'转换为'_'*/
 	g_free(address_up);
 
-	str2ba(address, &device->bdaddr);
+	str2ba(address, &device->bdaddr);/*设置设备地址*/
 
 	device->client_dbus = btd_gatt_client_new(device);
 	if (!device->client_dbus) {
@@ -4908,19 +4914,19 @@ struct btd_device *device_create_from_storage(struct btd_adapter *adapter,
 }
 
 struct btd_device *device_create(struct btd_adapter *adapter,
-				const bdaddr_t *bdaddr, uint8_t bdaddr_type)
+				const bdaddr_t *bdaddr/*设备地址*/, uint8_t bdaddr_type)
 {
 	struct btd_device *device;
 	char dst[18];
 	char *str;
 	const char *storage_dir;
 
-	ba2str(bdaddr, dst);
+	ba2str(bdaddr, dst);/*地址转字符串*/
 	DBG("dst %s", dst);
 
 	device = device_new(adapter, dst);
 	if (device == NULL)
-		return NULL;
+		return NULL;/*创建device失败*/
 
 	device->bdaddr_type = bdaddr_type;
 
@@ -4930,8 +4936,9 @@ struct btd_device *device_create(struct btd_adapter *adapter,
 		device->le = btd_bearer_new(device, BDADDR_LE_PUBLIC);
 
 	storage_dir = btd_adapter_get_storage_dir(adapter);
-	str = load_cached_name(device, storage_dir, dst);
+	str = load_cached_name(device, storage_dir, dst/*对端设备地址*/);
 	if (str) {
+		/*设置设备名称*/
 		strcpy(device->name, str);
 		g_free(str);
 	}
@@ -5216,6 +5223,7 @@ uint32_t btd_device_get_class(struct btd_device *device)
 	return device->class;
 }
 
+/*取设备vendor*/
 uint16_t btd_device_get_vendor(struct btd_device *device)
 {
 	return device->vendor;
@@ -5542,6 +5550,7 @@ static struct btd_service *probe_service(struct btd_device *device,
 	if (profile->device_probe == NULL)
 		return NULL;/*无此回调,返回NULL*/
 
+	/*在uuids集合中无与profile->remote_uuid相同的元素，返回NULL*/
 	if (!device_match_profile(device, profile, uuids))
 		return NULL;
 
@@ -5550,7 +5559,7 @@ static struct btd_service *probe_service(struct btd_device *device,
 	 * to the device->services.
 	 */
 	if (l)
-		return NULL;
+		return NULL;/*此service已存在*/
 
 	service = service_create(device, profile);
 
@@ -5647,6 +5656,7 @@ add_uuids:
 	device_add_uuids(device, uuids);
 }
 
+/*record写入文件key_file*/
 static void store_sdp_record(GKeyFile *key_file, sdp_record_t *rec)
 {
 	char handle_str[11];
@@ -5656,6 +5666,7 @@ static void store_sdp_record(GKeyFile *key_file, sdp_record_t *rec)
 
 	sprintf(handle_str, "0x%8.8X", rec->handle);
 
+	/*产生record记录为tlv/tv格式*/
 	if (sdp_gen_record_pdu(rec, &buf) < 0)
 		return;
 
@@ -5663,9 +5674,11 @@ static void store_sdp_record(GKeyFile *key_file, sdp_record_t *rec)
 
 	str = g_malloc0(size*2+1);
 
+	/*格式化record内容为字符串形式*/
 	for (i = 0; i < size; i++)
 		sprintf(str + (i * 2), "%02X", buf.data[i]);
 
+	/*写record记录*/
 	g_key_file_set_string(key_file, "ServiceRecords", handle_str, str);
 
 	free(buf.data);
@@ -6704,6 +6717,7 @@ void btd_device_set_temporary(struct btd_device *device, bool temporary)
 	device->temporary = temporary;
 
 	if (temporary) {
+		/*此设备为临时的，删除*/
 		if (device->bredr)
 			adapter_accept_list_remove(device->adapter, device);
 		adapter_connect_list_remove(device->adapter, device);
@@ -6717,6 +6731,7 @@ void btd_device_set_temporary(struct btd_device *device, bool temporary)
 		clear_temporary_timer(device);
 
 	if (device->bredr)
+		/*添加此设备到accept_list上（以便连接请求时容许接收）*/
 		adapter_accept_list_add(device->adapter, device);
 
 	store_device_info(device);
@@ -8047,7 +8062,7 @@ struct btd_service *btd_device_get_service(struct btd_device *dev,
 		struct btd_profile *p = btd_service_get_profile(service);
 
 		if (g_str_equal(p->remote_uuid, remote_uuid))
-			return service;
+			return service;/*利用uuid查找服务*/
 	}
 
 	return NULL;

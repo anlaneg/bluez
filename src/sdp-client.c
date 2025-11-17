@@ -123,13 +123,13 @@ static void cache_sdp_session(bdaddr_t *src, bdaddr_t *dst,
 }
 
 struct search_context {
-	bdaddr_t		src;
-	bdaddr_t		dst;
-	sdp_session_t		*session;
+	bdaddr_t		src;/*源地址*/
+	bdaddr_t		dst;/*目的地址*/
+	sdp_session_t		*session;/*对应的session结构体*/
 	bt_callback_t		cb;
 	bt_destroy_t		destroy;
 	gpointer		user_data;
-	uuid_t			uuid;
+	uuid_t			uuid;/*要查询的uuid*/
 	guint			io_id;
 	gboolean		filter_svc_class;
 };
@@ -155,7 +155,7 @@ static void search_completed_cb(uint8_t type, uint16_t status,
 	uint8_t dataType;
 	int err = 0;
 
-	if (status || type != SDP_SVC_SEARCH_ATTR_RSP) {
+	if (status/*事务失败*/ || type != SDP_SVC_SEARCH_ATTR_RSP/*只考虑服务属性查询响应*/) {
 		err = -EPROTO;
 		goto done;
 	}
@@ -200,6 +200,7 @@ static void search_completed_cb(uint8_t type, uint16_t status,
 done:
 	cache_sdp_session(&ctxt->src, &ctxt->dst, ctxt->session);
 
+	/*触发context->cb回调*/
 	if (ctxt->cb)
 		ctxt->cb(recs, err, ctxt->user_data);
 
@@ -251,7 +252,7 @@ static gboolean connect_watch(GIOChannel *chan, GIOCondition cond,
 		err = -sk_err;
 
 	if (err != 0)
-		goto failed;
+		goto failed;/*发生错误，报错*/
 
 	if (sdp_set_notify(ctxt->session, search_completed_cb, ctxt) < 0) {
 		err = -EIO;
@@ -290,8 +291,8 @@ failed:
 }
 
 static int create_search_context(struct search_context **ctxt,
-					const bdaddr_t *src,
-					const bdaddr_t *dst,
+					const bdaddr_t *src/*源地址*/,
+					const bdaddr_t *dst/*目的地址*/,
 					uuid_t *uuid, uint16_t flags)
 {
 	sdp_session_t *s;
@@ -300,15 +301,18 @@ static int create_search_context(struct search_context **ctxt,
 	int sk;
 
 	if (!ctxt)
+		/*不得为空*/
 		return -EINVAL;
 
 	s = get_cached_sdp_session(src, dst);
 	if (!s)
+		/*采用非阻塞方式建立连接，创建sdp session*/
 		s = sdp_connect(src, dst, SDP_NON_BLOCKING | flags);
 
 	if (!s)
 		return -errno;
 
+	/*创建search context*/
 	*ctxt = g_try_malloc0(sizeof(struct search_context));
 	if (!*ctxt) {
 		sdp_close(s);
@@ -331,7 +335,7 @@ static int create_search_context(struct search_context **ctxt,
 	chan = g_io_channel_unix_new(sk);
 	(*ctxt)->io_id = g_io_add_watch(chan,
 				G_IO_OUT | G_IO_HUP | G_IO_ERR | G_IO_NVAL,
-				connect_watch, *ctxt);
+				connect_watch, *ctxt);/*关注写事件*/
 	g_io_channel_unref(chan);
 
 	return 0;
@@ -379,7 +383,7 @@ int bt_search(const bdaddr_t *src, const bdaddr_t *dst,
 	return 0;
 }
 
-int bt_search_service(const bdaddr_t *src, const bdaddr_t *dst,
+int bt_search_service(const bdaddr_t *src/*本端地址*/, const bdaddr_t *dst/*远端地址*/,
 			uuid_t *uuid, bt_callback_t cb, void *user_data,
 			bt_destroy_t destroy, uint16_t flags)
 {

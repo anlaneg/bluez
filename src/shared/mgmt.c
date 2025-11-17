@@ -48,7 +48,7 @@ struct mgmt {
 	void *buf;
 	uint16_t len;
 	uint16_t mtu;
-	mgmt_debug_func_t debug_callback;
+	mgmt_debug_func_t debug_callback;/*debug回调*/
 	mgmt_destroy_func_t debug_destroy;
 	void *debug_data;
 };
@@ -64,7 +64,7 @@ struct mgmt_request {
 	mgmt_request_func_t callback;/*此请求被响应时调用*/
 	mgmt_destroy_func_t destroy;/*request销毁时调用*/
 	void *user_data;/*callback需要的参数*/
-	int timeout;
+	int timeout;/*请求超时时间*/
 	unsigned int timeout_id;/*此request对应的timeout event*/
 };
 
@@ -89,6 +89,7 @@ static void destroy_request(void *data)
 	struct mgmt_request *request = data;
 
 	if (request->destroy)
+		/*有destroy回调的，触发destroy函数*/
 		request->destroy(request->user_data);
 
 	if (request->timeout_id)
@@ -181,6 +182,7 @@ static bool request_timeout(void *data)
 		request->callback(MGMT_STATUS_TIMEOUT, 0, NULL,
 						request->user_data);
 
+	/*销毁此请求*/
 	destroy_request(request);
 
 	return false;
@@ -214,8 +216,9 @@ static bool send_request(struct mgmt *mgmt, struct mgmt_request *request)
 
 		/*发送出错，如有callback，则调用*/
 		if (request->callback)
-			request->callback(MGMT_STATUS_FAILED/*添加失败*/, 0, NULL,
+			request->callback(MGMT_STATUS_FAILED/*发送失败*/, 0, NULL,
 							request->user_data);
+		/*发送出错，销毁此请求*/
 		destroy_request(request);
 		return false;
 	}
@@ -301,6 +304,7 @@ static bool match_request_opcode_index(const void *a, const void *b)
 					request->index == match->index;
 }
 
+/*请求完成，通过callback处理响应*/
 static void request_complete(struct mgmt *mgmt, uint8_t status,
 					uint16_t opcode, uint16_t index,
 					uint16_t length, const void *param)
@@ -326,6 +330,7 @@ static void request_complete(struct mgmt *mgmt, uint8_t status,
 			request->callback(status, length, param,
 							request->user_data);
 
+		/*reqeust响应回调已调用，销毁请求*/
 		destroy_request(request);
 	}
 
@@ -351,8 +356,8 @@ static void notify_handler(void *data, void *user_data)
 		/*事件必须匹配*/
 		return;
 
-	if (notify->index != match->index && notify->index != MGMT_INDEX_NONE)
-		/*index必须匹配*/
+	if (notify->index != match->index && notify->index != MGMT_INDEX_NONE/*index不关注*/)
+		/*关注的hci index必须匹配*/
 		return;
 
 	/*执行notify提前注册好的callback*/
@@ -365,7 +370,7 @@ static void process_notify(struct mgmt *mgmt, uint16_t event/*event唯一编号*
 					uint16_t length, const void *param)
 {
 	struct event_index match = { .event = event, .index = index,
-					.length = length, .param = param };
+					.length = length, .param = param };/*指明事件信息*/
 
 	mgmt->in_notify = true;
 
@@ -437,7 +442,7 @@ static bool can_read_data(struct io *io, void *user_data)
 	default:
 		DBG(mgmt, "[0x%04x] event 0x%04x", index, event);
 
-		/*处理收到的对端发送过来的cmd,执行相应的notify回调*/
+		/*处理收到的hci发送过来的cmd,执行相应的notify回调*/
 		process_notify(mgmt, event, index, length,
 						mgmt->buf + MGMT_HDR_SIZE);
 		break;
@@ -619,6 +624,7 @@ bool mgmt_set_debug(struct mgmt *mgmt, mgmt_debug_func_t callback,
 	if (!mgmt)
 		return false;
 
+	/*已有debug_destroy回调，先调用，再重置*/
 	if (mgmt->debug_destroy)
 		mgmt->debug_destroy(mgmt->debug_data);
 

@@ -213,6 +213,7 @@ static int hog_disconnect(struct btd_service *service)
 	return 0;
 }
 
+/*hog的缩写是Human Interface Device Over GATT*/
 static struct btd_profile hog_profile = {
 	.name		= "input-hog",
 	.remote_uuid	= HOG_UUID,

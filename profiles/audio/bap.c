@@ -3818,7 +3818,7 @@ static int bap_adapter_probe(struct btd_profile *p, struct btd_adapter *adapter)
 
 	if (!btd_kernel_experimental_enabled(ISO_SOCKET_UUID)) {
 		error("BAP requires ISO Socket which is not enabled");
-		return -ENOTSUP;
+		return -ENOTSUP;/*未开启iso socket*/
 	}
 
 	data = bap_data_new(NULL);

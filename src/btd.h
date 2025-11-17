@@ -151,7 +151,7 @@ struct btd_opts {
 	uint16_t	did_version;
 
 	bt_mode_t	mode;/*工作模式,例如"低功耗"*/
-	uint16_t	max_adapters;
+	uint16_t	max_adapters;/*支持的adapter最大数目*/
 	bt_gatt_cache_t gatt_cache;
 	uint16_t	gatt_mtu;
 	uint8_t		gatt_channels;

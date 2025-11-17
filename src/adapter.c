@@ -154,6 +154,7 @@ static DBusConnection *dbus_conn = NULL;
 /*填充kernel支持的功能，通过自read_commands获取*/
 static uint32_t kernel_features = 0;
 
+/*记录系统中kernel通过event报告的所有的adapter(见index_added)*/
 static GList *adapter_list = NULL;
 static unsigned int adapter_remaining = 0;
 static bool powering_down = false;
@@ -260,6 +261,7 @@ enum {
 	ADAPTER_POWER_STATE_OFF_BLOCKED,
 };
 
+/*本机每个hci设备对应一个btd_adapter*/
 struct btd_adapter {
 	int ref_count;/*引用计数*/
 
@@ -324,6 +326,7 @@ struct btd_adapter {
 	GQueue *auths;			/* Ongoing and pending auths */
 	bool pincode_requested;		/* PIN requested during last bonding */
 	GSList *connections;		/* Connected devices */
+	/*此adapter已知的对端设备*/
 	GSList *devices;		/* Devices structure pointers */
 	GSList *connect_list;		/* Devices to connect when found */
 	struct btd_device *connect_le;	/* LE device waiting to be connected */
@@ -343,7 +346,7 @@ struct btd_adapter {
 	GSList *pin_callbacks;
 	GSList *msd_callbacks;
 
-	GSList *drivers;
+	GSList *drivers;/*用于适用于此adapter的所有btd_driver*/
 	GSList *profiles;/*用于记录可成功probe此adapter的profiles*/
 
 	struct oob_handler *oob_handler;
@@ -353,7 +356,7 @@ struct btd_adapter {
 	bool is_default;		/* true if adapter is default one */
 
 	struct queue *exp_pending;
-	struct queue *exps;/*扩展功能*/
+	struct queue *exps;/*用于记录开启的扩展功能*/
 };
 
 static char *adapter_power_state_str(uint32_t power_state)
@@ -564,9 +567,9 @@ const char *btd_adapter_get_storage_dir(struct btd_adapter *adapter)
 
 	if (adapter->bdaddr_type == BDADDR_LE_RANDOM) {
 		strcpy(dir, "static-");
-		ba2str(&adapter->bdaddr, dir + 7);
+		ba2str(&adapter->bdaddr, dir + 7);/*static-开头*/
 	} else {
-		ba2str(&adapter->bdaddr, dir);
+		ba2str(&adapter->bdaddr, dir);/*无前缀，仅地址*/
 	}
 
 	return dir;
@@ -1042,6 +1045,7 @@ int adapter_set_name(struct btd_adapter *adapter, const char *name)
 	return set_name(adapter, name);
 }
 
+/*在adapter下查找其已配对的btd_device*/
 struct btd_device *btd_adapter_find_device(struct btd_adapter *adapter,
 							const bdaddr_t *dst,
 							uint8_t bdaddr_type)
@@ -1056,6 +1060,7 @@ struct btd_device *btd_adapter_find_device(struct btd_adapter *adapter,
 	bacpy(&addr.bdaddr, dst);
 	addr.bdaddr_type = bdaddr_type;
 
+	/*通过dst地址查询其对应的设备（已配对的设备）*/
 	list = g_slist_find_custom(adapter->devices, &addr,
 							device_addr_type_cmp);
 	if (!list)
@@ -1424,16 +1429,17 @@ static void adapter_add_device(struct btd_adapter *adapter,
 						struct btd_device *device);
 
 static struct btd_device *adapter_create_device(struct btd_adapter *adapter,
-						const bdaddr_t *bdaddr,
+						const bdaddr_t *bdaddr/*设备地址*/,
 						uint8_t bdaddr_type)
 {
 	struct btd_device *device;
 
+	/*创建device*/
 	device = device_create(adapter, bdaddr, bdaddr_type);
 	if (!device)
 		return NULL;
 
-	adapter_add_device(adapter, device);
+	adapter_add_device(adapter, device);/*添加device到adapter*/
 	return device;
 }
 
@@ -1494,8 +1500,9 @@ struct btd_device *btd_adapter_get_device(struct btd_adapter *adapter,
 
 	device = btd_adapter_find_device(adapter, addr, addr_type);
 	if (device)
-		return device;
+		return device;/*找到设备，直接响应*/
 
+	/*未找到设备，创建它*/
 	return adapter_create_device(adapter, addr, addr_type);
 }
 
@@ -2083,7 +2090,7 @@ static void suspend_discovery(struct btd_adapter *adapter)
 
 	cp.type = adapter->discovery_type;
 
-	mgmt_send(adapter->mgmt, MGMT_OP_STOP_DISCOVERY,
+	mgmt_send(adapter->mgmt, MGMT_OP_STOP_DISCOVERY/*停止discovery*/,
 				adapter->dev_id, sizeof(cp), &cp,
 				suspend_discovery_complete, adapter, NULL);
 }
@@ -5151,7 +5158,7 @@ static void load_devices(struct btd_adapter *adapter)
 			device_set_privacy(device, true, irk_info->val);
 
 		btd_device_set_temporary(device, false);
-		adapter_add_device(adapter, device);
+		adapter_add_device(adapter, device);/*将此device添加进btd_adapter*/
 
 		/* TODO: register services from pre-loaded list of primaries */
 
@@ -5245,7 +5252,7 @@ static void probe_driver(struct btd_adapter *adapter, gpointer user_data)
 		return;
 	}
 
-	/*指明此adapter对应的驱动*/
+	/*此driver可适用于此btd_adapter,挂接所有适配驱动*/
 	adapter->drivers = g_slist_prepend(adapter->drivers, driver);
 }
 
@@ -5308,6 +5315,7 @@ void adapter_remove_profile(struct btd_adapter *adapter, gpointer p)
 		profile->adapter_remove(profile, adapter);
 }
 
+/*针对所有已注册的adapter_driver,调用device_added回调*/
 static void device_added_drivers(struct btd_adapter *adapter,
 						struct btd_device *device)
 {
@@ -5322,6 +5330,7 @@ static void device_added_drivers(struct btd_adapter *adapter,
 	}
 }
 
+/*针对所有已注册的adapter_driver,调用device_removed回调*/
 static void device_removed_drivers(struct btd_adapter *adapter,
 						struct btd_device *device)
 {
@@ -5350,17 +5359,19 @@ void device_resolved_drivers(struct btd_adapter *adapter,
 	}
 }
 
+/*为adapter添加btd_device*/
 static void adapter_add_device(struct btd_adapter *adapter,
 						struct btd_device *device)
 {
-	adapter->devices = g_slist_prepend(adapter->devices, device);
+	adapter->devices = g_slist_prepend(adapter->devices, device);/*添加此device*/
 	device_added_drivers(adapter, device);
 }
 
+/*针对adapter删除btd_device*/
 static void adapter_remove_device(struct btd_adapter *adapter,
 						struct btd_device *device)
 {
-	adapter->devices = g_slist_remove(adapter->devices, device);
+	adapter->devices = g_slist_remove(adapter->devices, device);/*删除此device*/
 	device_removed_drivers(adapter, device);
 }
 
@@ -5650,6 +5661,7 @@ static void remove_accept_list_complete(uint8_t status, uint16_t length,
 	ba2str(&rp->addr.bdaddr, addr);
 
 	if (status != MGMT_STATUS_SUCCESS) {
+		/*删除失败*/
 		error("Failed to remove device %s: %s (0x%02x)",
 					addr, mgmt_errstr(status), status);
 		return;
@@ -5667,9 +5679,10 @@ void adapter_accept_list_remove(struct btd_adapter *adapter,
 		return;
 
 	memset(&cp, 0, sizeof(cp));
-	bacpy(&cp.addr.bdaddr, device_get_address(dev));
+	bacpy(&cp.addr.bdaddr, device_get_address(dev));/*指定设备地址*/
 	cp.addr.type = BDADDR_BREDR;
 
+	/*删除accept_list上记录的此设备*/
 	mgmt_send(adapter->mgmt, MGMT_OP_REMOVE_DEVICE,
 				adapter->dev_id, sizeof(cp), &cp,
 				remove_accept_list_complete, adapter, NULL);
@@ -7172,6 +7185,7 @@ static void adapter_remove(struct btd_adapter *adapter)
 	queue_remove_all(adapter->exp_pending, NULL, NULL, cancel_exp_pending);
 }
 
+/*取adapter的path*/
 const char *adapter_get_path(struct btd_adapter *adapter)
 {
 	if (!adapter)
@@ -7370,7 +7384,7 @@ static bool device_is_discoverable(struct btd_adapter *adapter,
 }
 
 void btd_adapter_device_found(struct btd_adapter *adapter,
-					const bdaddr_t *bdaddr,
+					const bdaddr_t *bdaddr/*对端新设备地址*/,
 					uint8_t bdaddr_type, int8_t rssi,
 					uint32_t flags,
 					const uint8_t *data, uint8_t data_len,
@@ -7432,6 +7446,7 @@ void btd_adapter_device_found(struct btd_adapter *adapter,
 		 * the device.
 		 */
 		if (scan_rsp) {
+			/*此设备为scan响应*/
 			eir_data_free(&eir_data);
 			return;
 		}
@@ -7457,7 +7472,7 @@ void btd_adapter_device_found(struct btd_adapter *adapter,
 			return;
 		}
 
-		dev = adapter_create_device(adapter, bdaddr, bdaddr_type);
+		dev = adapter_create_device(adapter, bdaddr, bdaddr_type);/*创建设备*/
 	}
 
 	if (!dev) {
@@ -7630,11 +7645,12 @@ connect_le:
 	}
 }
 
+/*收到新设备通知时，此函数将被调用*/
 static void device_found_callback(uint16_t index, uint16_t length,
 					const void *param, void *user_data)
 {
 	const struct mgmt_ev_device_found *ev = param;
-	struct btd_adapter *adapter = user_data;
+	struct btd_adapter *adapter = user_data;/*此adapter发现的对端新设备*/
 	const uint8_t *eir;
 	uint16_t eir_len;
 	uint32_t flags;
@@ -7665,7 +7681,7 @@ static void device_found_callback(uint16_t index, uint16_t length,
 	DBG("hci%u addr %s, rssi %d flags 0x%04x eir_len %u",
 			index, addr, ev->rssi, flags, eir_len);
 
-	btd_adapter_device_found(adapter, &ev->addr.bdaddr,
+	btd_adapter_device_found(adapter, &ev->addr.bdaddr/*设备地址*/,
 					ev->addr.type, ev->rssi, flags,
 					eir, eir_len, false);
 }
@@ -7767,6 +7783,7 @@ int btd_register_adapter_driver(struct btd_adapter_driver *driver)
 		return -ENOTSUP;
 	}
 
+	/*注册的adapter驱动全部挂在adapter_drivers链表上*/
 	adapter_drivers = g_slist_append(adapter_drivers, driver);
 
 	if (driver->probe == NULL)
@@ -7787,6 +7804,7 @@ static void unload_driver(struct btd_adapter *adapter, gpointer data)
 	adapter->drivers = g_slist_remove(adapter->drivers, data);
 }
 
+/*删除dapter driver*/
 void btd_unregister_adapter_driver(struct btd_adapter_driver *driver)
 {
 	adapter_drivers = g_slist_remove(adapter_drivers, driver);
@@ -8535,7 +8553,7 @@ static void bonding_complete(struct btd_adapter *adapter,
  */
 static void bonding_attempt_complete(struct btd_adapter *adapter,
 					const bdaddr_t *bdaddr,
-					uint8_t addr_type, uint8_t status)
+					uint8_t addr_type, uint8_t status/*响应结果*/)
 {
 	struct btd_device *device;
 	char addr[18];
@@ -8595,6 +8613,7 @@ static void pair_device_complete(uint8_t status, uint16_t length,
 	 * powered.
 	 */
 	if (status != MGMT_STATUS_SUCCESS && length < sizeof(*rp)) {
+		/*pair设备失败*/
 		btd_error(adapter->dev_id, "Pair device failed: %s (0x%02x)",
 						mgmt_errstr(status), status);
 
@@ -8604,6 +8623,7 @@ static void pair_device_complete(uint8_t status, uint16_t length,
 	}
 
 	if (length < sizeof(*rp)) {
+		/*响应结果有误*/
 		btd_error(adapter->dev_id, "Too small pair device response");
 		return;
 	}
@@ -9375,7 +9395,7 @@ static int adapter_id_cmp(gconstpointer a, gconstpointer b)
 	return adapter->dev_id == id ? 0 : -1;
 }
 
-/*利用sba查找其对应的btd_adapter*/
+/*利用sba（源蓝牙地址)查找其对应的btd_adapter*/
 struct btd_adapter *adapter_find(const bdaddr_t *sba)
 {
 	GSList *match;
@@ -9400,6 +9420,7 @@ struct btd_adapter *adapter_find_by_id(int id)
 	return match->data;
 }
 
+/*利用函数func访问adapters上每一个btd_adapter*/
 void adapter_foreach(adapter_cb func, gpointer user_data)
 {
 	g_slist_foreach(adapters, (GFunc) func, user_data);
@@ -10089,6 +10110,7 @@ static bool exp_mgmt_send(struct btd_adapter *adapter, uint16_t opcode,
 	pending->id = mgmt_send(adapter->mgmt, opcode, index, length, param,
 					callback, pending, exp_complete);
 	if (!pending->id) {
+		/*发送失败*/
 		queue_remove(adapter->exp_pending, pending);
 		g_free(pending);
 		return false;
@@ -10263,7 +10285,7 @@ static const struct exp_feat {
 	uint32_t flag;
 	const struct mgmt_exp_uuid *uuid;
 	void (*func)(struct btd_adapter *adapter, uint8_t action);
-} exp_table[] = {
+} exp_table[] = {/*期待的功能及其对应uuid*/
 	EXP_FEAT(EXP_FEAT_DEBUG, &debug_uuid, exp_debug_func),
 	EXP_FEAT(EXP_FEAT_LE_SIMULT_ROLES, &le_simult_central_peripheral_uuid,
 		 le_simult_central_peripheral_func),
@@ -10275,7 +10297,7 @@ static const struct exp_feat {
 	EXP_FEAT(EXP_FEAT_ISO_SOCKET, &iso_socket_uuid, iso_socket_func),
 };
 
-/*解析exp features读取结果，并设置kernel*/
+/*解析exp features读取结果，并设置kernel开启/关闭相应的功能*/
 static void read_exp_features_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -10301,7 +10323,7 @@ static void read_exp_features_complete(uint8_t status, uint16_t length,
 		return;
 	}
 
-	/*读取功能数*/
+	/*读取kernel支持的功能数*/
 	feature_count = le16_to_cpu(rp->feature_count);
 
 	if (length < sizeof(*rp) + (sizeof(*rp->features) * feature_count)) {
@@ -10309,6 +10331,7 @@ static void read_exp_features_complete(uint8_t status, uint16_t length,
 		return;
 	}
 
+	/*遍历响应的feature列表*/
 	for (i = 0; i < feature_count; ++i) {
 		size_t j;
 
@@ -10319,11 +10342,11 @@ static void read_exp_features_complete(uint8_t status, uint16_t length,
 
 			if (memcmp(rp->features[i].uuid, feat->uuid->val,
 					sizeof(rp->features[i].uuid)))
-				/*跳过uuid不相等的功能*/
+				/*跳过与预期uuid不相等的功能*/
 				continue;
 
-			str = feat->uuid->str;/*uuid对应的字段串形式*/
-			action = btd_kernel_experimental_enabled(str);/*是否开启，0/1*/
+			str = feat->uuid->str;/*预期uuid对应的字段串形式*/
+			action = btd_kernel_experimental_enabled(str);/*此uuid是否开启，0/1*/
 
 			DBG("%s flags %u action %u", str,
 					rp->features[i].flags, action);
@@ -10331,13 +10354,14 @@ static void read_exp_features_complete(uint8_t status, uint16_t length,
 			/* If already set don't attempt to set it again */
 			if (action == (rp->features[i].flags & BIT(0))) {
 				if (action & BIT(0))
+					/*此功能开启，将其加入到exps中*/
 					queue_push_tail(adapter->exps,
 						(void *)feat->uuid->val);
 				continue;
 			}
 
 			if (feat->func)
-				/*调用func，对kernel进行操作*/
+				/*调用func，对kernel开启/关闭此功能*/
 				feat->func(adapter, action);
 		}
 	}
@@ -10519,7 +10543,7 @@ static void read_info_complete(uint8_t status, uint16_t length,
 
 	mgmt_register(adapter->mgmt, MGMT_EV_DEVICE_FOUND,
 						adapter->dev_id,
-						device_found_callback,
+						device_found_callback,/*新设备被发现时调用*/
 						adapter, NULL);
 
 	mgmt_register(adapter->mgmt, MGMT_EV_DEVICE_DISCONNECTED,
@@ -10671,6 +10695,7 @@ static void reset_adv_monitors_complete(uint8_t status, uint16_t length,
 	DBG("Removed all Adv Monitors");
 }
 
+/*移除此controller上的adv_monitor*/
 static void reset_adv_monitors(uint16_t index)
 {
 	struct mgmt_cp_remove_adv_monitor cp;
@@ -10717,6 +10742,7 @@ static void exp_complete(void *user_data)
 	queue_remove(adapter->exp_pending, pending);
 	g_free(pending);
 
+	/*当pending队列为空时，开启读取此adapter的信息并进行初始化*/
 	if (queue_isempty(adapter->exp_pending)) {
 		read_info(adapter);
 		return;
@@ -10736,7 +10762,7 @@ static void index_added(uint16_t index, uint16_t length, const void *param,
 
 	adapter = btd_adapter_lookup(index);
 	if (adapter) {
-		/*已有，忽略*/
+		/*此index已有btd_adapter，忽略*/
 		btd_warn(adapter->dev_id,
 			"Ignoring index added for an already existing adapter");
 		return;
@@ -10807,6 +10833,7 @@ static void read_index_list_complete(uint8_t status, uint16_t length,
 	int i;
 
 	if (status != MGMT_STATUS_SUCCESS) {
+		/*响应不成功*/
 		error("Failed to read index list: %s (0x%02x)",
 						mgmt_errstr(status), status);
 		return;
@@ -10817,7 +10844,7 @@ static void read_index_list_complete(uint8_t status, uint16_t length,
 		return;
 	}
 
-	num = btohs(rp->num_controllers);/*有多少hci设备*/
+	num = btohs(rp->num_controllers);/*响应有多少hci设备*/
 
 	DBG("Number of controllers: %d", num);
 
@@ -10830,7 +10857,7 @@ static void read_index_list_complete(uint8_t status, uint16_t length,
 	for (i = 0; i < num; i++) {
 		uint16_t index;
 
-		index = btohs(rp->index[i]);/*取controller id*/
+		index = btohs(rp->index[i]);/*取hci id*/
 
 		DBG("Found index %u", index);
 
@@ -10932,19 +10959,21 @@ static void read_commands_complete(uint8_t status, uint16_t length,
 	}
 }
 
+/*处理MGMT_OP_READ_VERSION命令响应*/
 static void read_version_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
 	const struct mgmt_rp_read_version *rp = param;
 
-	/*响应状态检查*/
 	if (status != MGMT_STATUS_SUCCESS) {
+		/*请求处理失败*/
 		error("Failed to read version information: %s (0x%02x)",
 						mgmt_errstr(status), status);
 		return;
 	}
 
 	if (length < sizeof(*rp)) {
+		/*响应长度有误*/
 		error("Wrong size of read version response");
 		return;
 	}
@@ -11002,13 +11031,14 @@ int adapter_init(void)
 {
 	dbus_conn = btd_get_dbus_connection();
 
-	mgmt_primary = mgmt_new_default();/*创建mgmt socket*/
+	/*创建mgmt socket*/
+	mgmt_primary = mgmt_new_default();
 	if (!mgmt_primary) {
 		error("Failed to access management interface");
 		return -EIO;
 	}
 
-	mgmt_set_debug(mgmt_primary, mgmt_debug, NULL, NULL);
+	mgmt_set_debug(mgmt_primary, mgmt_debug, NULL/*无debug参数*/, NULL);
 
 	DBG("sending read version command");
 

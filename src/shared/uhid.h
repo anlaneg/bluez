@@ -29,8 +29,10 @@ static inline uint8_t bt_uhid_icon_to_type(const char *icon)
 		return BT_UHID_NONE;
 
 	if (!strcmp(icon, "input-keyboard"))
+		/*键盘*/
 		return BT_UHID_KEYBOARD;
 	else if (!strcmp(icon, "input-mouse"))
+		/*鼠标*/
 		return BT_UHID_MOUSE;
 	else if (!strcmp(icon, "input-gaming"))
 		return BT_UHID_GAMING;

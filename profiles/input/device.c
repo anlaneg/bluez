@@ -65,13 +65,13 @@ struct hidp_msg {
 
 struct input_device {
 	struct btd_service	*service;
-	struct btd_device	*device;
+	struct btd_device	*device;/*关联的btd device*/
 	char			*path;
 	bdaddr_t		src;
 	bdaddr_t		dst;
 	const sdp_record_t	*rec;
-	GIOChannel		*ctrl_io;
-	GIOChannel		*intr_io;
+	GIOChannel		*ctrl_io;/*控制用io*/
+	GIOChannel		*intr_io;/*中断用io*/
 	guint			ctrl_watch;
 	guint			intr_watch;
 	guint			sec_watch;
@@ -80,12 +80,14 @@ struct input_device {
 	enum reconnect_mode_t	reconnect_mode;
 	unsigned int		reconnect_timer;
 	uint32_t		reconnect_attempt;
+	/*如果此指针不为空，则kernel uhid功能可用(可通过"/dev/uhid"操作）
+	 * 否则采用hidp socket实现*/
 	struct bt_uhid		*uhid;
 	uint8_t			report_req_pending;
 	unsigned int		report_req_timer;
 	uint32_t		report_rsp_id;
 	bool			virtual_cable_unplug;
-	uint8_t			type;
+	uint8_t			type;/*输入设备类型，例如：BT_UHID_NONE*/
 	unsigned int		idle_timer;
 };
 
@@ -93,6 +95,7 @@ static int idle_timeout = 0;
 static uhid_state_t uhid_state = UHID_ENABLED;
 static bool classic_bonded_only = true;
 
+/*设置idle超时时间*/
 void input_set_idle_timeout(int timeout)
 {
 	idle_timeout = timeout;
@@ -183,7 +186,7 @@ static int uhid_disconnect(struct input_device *idev, bool force)
 	int err;
 
 	if (!bt_uhid_created(idev->uhid))
-		return 0;
+		return 0;/*未创建uhid,直接返回*/
 
 	/* Force destroy the node if virtual cable unplug flag has been set */
 	if (idev->virtual_cable_unplug && !force)
@@ -228,6 +231,7 @@ static void input_device_idle_reset(struct input_device *idev)
 					NULL);
 }
 
+/*实现消息发送*/
 static bool hidp_send_message(struct input_device *idev, GIOChannel *chan,
 				uint8_t hdr, const uint8_t *data, size_t size)
 {
@@ -241,12 +245,12 @@ static bool hidp_send_message(struct input_device *idev, GIOChannel *chan,
 	}
 
 	iov[0].iov_base = &hdr;
-	iov[0].iov_len = sizeof(hdr);
+	iov[0].iov_len = sizeof(hdr);/*1字节的header*/
 
 	if (data == NULL)
 		size = 0;
 
-	iov[1].iov_base = (void *)data;
+	iov[1].iov_base = (void *)data;/*size字节的内容*/
 	iov[1].iov_len = size;
 
 	fd = g_io_channel_unix_get_fd(chan);
@@ -268,8 +272,9 @@ static bool hidp_send_message(struct input_device *idev, GIOChannel *chan,
 	return true;
 }
 
-static bool hidp_send_ctrl_message(struct input_device *idev, uint8_t hdr,
-					const uint8_t *data, size_t size)
+/*走控制io发送消息*/
+static bool hidp_send_ctrl_message(struct input_device *idev, uint8_t hdr/*消息header*/,
+					const uint8_t *data/*消息体*/, size_t size)
 {
 	if (hdr == (HIDP_TRANS_HID_CONTROL | HIDP_CTRL_VIRTUAL_CABLE_UNPLUG))
 		idev->virtual_cable_unplug = true;
@@ -277,15 +282,17 @@ static bool hidp_send_ctrl_message(struct input_device *idev, uint8_t hdr,
 	return hidp_send_message(idev, idev->ctrl_io, hdr, data, size);
 }
 
-static bool hidp_send_intr_message(struct input_device *idev, uint8_t hdr,
-					const uint8_t *data, size_t size)
+/*走中断io发送消息*/
+static bool hidp_send_intr_message(struct input_device *idev, uint8_t hdr/*消息header*/,
+					const uint8_t *data/*消息体*/, size_t size)
 {
 	return hidp_send_message(idev, idev->intr_io, hdr, data, size);
 }
 
+/*发送get report响应*/
 static bool uhid_send_get_report_reply(struct input_device *idev,
-					const uint8_t *data, size_t size,
-					uint32_t id, uint16_t err)
+					const uint8_t *data/*响应的数据*/, size_t size/*数据长度*/,
+					uint32_t id/*响应关联的请求id*/, uint16_t err/*错误码*/)
 {
 	int ret;
 
@@ -293,10 +300,12 @@ static bool uhid_send_get_report_reply(struct input_device *idev,
 		size = 0;
 
 	if (!bt_uhid_created(idev->uhid)) {
+		/*非uhid,返回false*/
 		DBG("HID report (%zu bytes) dropped", size);
 		return false;
 	}
 
+	//发送get report 响应
 	ret = bt_uhid_get_report_reply(idev->uhid, id, 0, err, data, size);
 	if (ret < 0) {
 		error("bt_uhid_get_report_reply: %s (%d)", strerror(-ret),
@@ -336,6 +345,7 @@ static bool uhid_send_input_report(struct input_device *idev,
 		size = 0;
 
 	if (!bt_uhid_created(idev->uhid)) {
+		/*非uhid情况，不处理直接返回*/
 		DBG("HID report (%zu bytes) dropped", size);
 		return false;
 	}
@@ -375,6 +385,7 @@ static bool hidp_recv_intr_data(GIOChannel *chan, struct input_device *idev)
 
 	hdr = data[0];
 	if (hdr != (HIDP_TRANS_DATA | HIDP_DATA_RTYPE_INPUT)) {
+		/*中断socket,只考虑input事件*/
 		DBG("unsupported HIDP protocol header 0x%02x", hdr);
 		return true;
 	}
@@ -395,6 +406,7 @@ static gboolean intr_watch_cb(GIOChannel *chan, GIOCondition cond, gpointer data
 	char address[18];
 
 	if (cond & G_IO_IN) {
+		/*收取自中断channel收到的event消息,这些消息会传递给kernel*/
 		if (hidp_recv_intr_data(chan, idev) && (cond == G_IO_IN))
 			return TRUE;
 	}
@@ -447,6 +459,7 @@ static void hidp_recv_ctrl_handshake(struct input_device *idev, uint8_t param)
 
 	switch (param) {
 	case HIDP_HSHK_SUCCESSFUL:
+		/*发送的SET_REPORT, SET_IDLE or SET_PROTOCOL已被正确收到*/
 		if (pending_req_type == HIDP_TRANS_SET_REPORT) {
 			DBG("SET_REPORT successful");
 			pending_req_complete = true;
@@ -454,12 +467,12 @@ static void hidp_recv_ctrl_handshake(struct input_device *idev, uint8_t param)
 			DBG("Spurious HIDP_HSHK_SUCCESSFUL");
 		break;
 
-	case HIDP_HSHK_NOT_READY:
-	case HIDP_HSHK_ERR_INVALID_REPORT_ID:
-	case HIDP_HSHK_ERR_UNSUPPORTED_REQUEST:
-	case HIDP_HSHK_ERR_INVALID_PARAMETER:
-	case HIDP_HSHK_ERR_UNKNOWN:
-	case HIDP_HSHK_ERR_FATAL:
+	case HIDP_HSHK_NOT_READY:/*设备太忙，没有收取请求，需要重发*/
+	case HIDP_HSHK_ERR_INVALID_REPORT_ID:/*传输的report id无效*/
+	case HIDP_HSHK_ERR_UNSUPPORTED_REQUEST:/*传输的请求，hid设备不支持*/
+	case HIDP_HSHK_ERR_INVALID_PARAMETER:/*请求参数有误*/
+	case HIDP_HSHK_ERR_UNKNOWN:/*Device could not identify the error condition.*/
+	case HIDP_HSHK_ERR_FATAL:/*这种错误需要重启*/
 		if (pending_req_type == HIDP_TRANS_GET_REPORT) {
 			DBG("GET_REPORT failed (%u)", param);
 			uhid_send_get_report_reply(idev, NULL, 0,
@@ -479,8 +492,9 @@ static void hidp_recv_ctrl_handshake(struct input_device *idev, uint8_t param)
 		break;
 
 	default:
+		/*发送控制消息*/
 		hidp_send_ctrl_message(idev, HIDP_TRANS_HANDSHAKE |
-				HIDP_HSHK_ERR_INVALID_PARAMETER, NULL, 0);
+				HIDP_HSHK_ERR_INVALID_PARAMETER/*参数无效*/, NULL, 0/*参数长度*/);
 		break;
 	}
 
@@ -499,10 +513,12 @@ static void hidp_recv_ctrl_hid_control(struct input_device *idev, uint8_t param)
 {
 	DBG("");
 
+	/*仅处理VIRTUAL_CABLE_UNPLUG*/
 	if (param == HIDP_CTRL_VIRTUAL_CABLE_UNPLUG)
 		connection_disconnect(idev, (1 << HIDP_VIRTUAL_CABLE_UNPLUG));
 }
 
+/*从hid设备到host收到ctrl data*/
 static void hidp_recv_ctrl_data(struct input_device *idev, uint8_t param,
 					const uint8_t *data, size_t size)
 {
@@ -514,23 +530,25 @@ static void hidp_recv_ctrl_data(struct input_device *idev, uint8_t param,
 	pending_req_type = idev->report_req_pending & HIDP_HEADER_TRANS_MASK;
 	if (pending_req_type != HIDP_TRANS_GET_REPORT &&
 				pending_req_type != HIDP_TRANS_SET_REPORT) {
+		/*只接收get report与set report两种请求类型*/
 		DBG("Spurious DATA on control channel");
 		return;
 	}
 
 	pending_req_param = idev->report_req_pending & HIDP_HEADER_PARAM_MASK;
 	if (pending_req_param != param) {
+		/*报文内容中的req_param与param指明的不一致*/
 		DBG("Received DATA RTYPE doesn't match pending request RTYPE");
 		return;
 	}
 
 	switch (param) {
-	case HIDP_DATA_RTYPE_FEATURE:
-	case HIDP_DATA_RTYPE_INPUT:
-	case HIDP_DATA_RTYPE_OUTPUT:
+	case HIDP_DATA_RTYPE_FEATURE:/*feature*/
+	case HIDP_DATA_RTYPE_INPUT:/*input*/
+	case HIDP_DATA_RTYPE_OUTPUT:/*output*/
 		if (pending_req_type == HIDP_TRANS_GET_REPORT)
-			uhid_send_get_report_reply(idev, data + 1, size - 1,
-							idev->report_rsp_id, 0);
+			uhid_send_get_report_reply(idev, data + 1/*report来的数据*/, size - 1/*数据长度*/,
+							idev->report_rsp_id/*请求id*/, 0/*无错误*/);
 		else
 			uhid_send_set_report_reply(idev, idev->report_rsp_id,
 							0);
@@ -554,6 +572,7 @@ static void hidp_recv_ctrl_data(struct input_device *idev, uint8_t param,
 	idev->report_rsp_id = 0;
 }
 
+/*收取hid发送过来的ctrl消息*/
 static bool hidp_recv_ctrl_message(GIOChannel *chan, struct input_device *idev)
 {
 	int fd;
@@ -577,17 +596,20 @@ static bool hidp_recv_ctrl_message(GIOChannel *chan, struct input_device *idev)
 	input_device_idle_reset(idev);
 
 	hdr = data[0];
-	type = hdr & HIDP_HEADER_TRANS_MASK;
-	param = hdr & HIDP_HEADER_PARAM_MASK;
+	type = hdr & HIDP_HEADER_TRANS_MASK;/*取消息类型*/
+	param = hdr & HIDP_HEADER_PARAM_MASK;/*消息*/
 
 	switch (type) {
 	case HIDP_TRANS_HANDSHAKE:
-		hidp_recv_ctrl_handshake(idev, param);
+		/*收到HID设备应答信息*/
+		hidp_recv_ctrl_handshake(idev, param/*result code*/);
 		break;
 	case HIDP_TRANS_HID_CONTROL:
+		/*收到状态变更控制*/
 		hidp_recv_ctrl_hid_control(idev, param);
 		break;
 	case HIDP_TRANS_DATA:
+		/*This DATA message type identifies a HID payload.*/
 		hidp_recv_ctrl_data(idev, param, data, len);
 		break;
 	default:
@@ -606,6 +628,7 @@ static gboolean ctrl_watch_cb(GIOChannel *chan, GIOCondition cond, gpointer data
 	char address[18];
 
 	if (cond & G_IO_IN) {
+		/*收取设备经ctrl io发送过来的消息*/
 		if (hidp_recv_ctrl_message(chan, idev) && (cond == G_IO_IN))
 			return TRUE;
 	}
@@ -646,6 +669,7 @@ static gboolean ctrl_watch_cb(GIOChannel *chan, GIOCondition cond, gpointer data
 
 #define REPORT_REQ_TIMEOUT  3
 
+/*pending请求对应的超时响应定时器被触发*/
 static bool hidp_report_req_timeout(gpointer data)
 {
 	struct input_device *idev = data;
@@ -654,15 +678,15 @@ static bool hidp_report_req_timeout(gpointer data)
 	char address[18];
 
 	ba2str(&idev->dst, address);
-	pending_req_type = idev->report_req_pending & HIDP_HEADER_TRANS_MASK;
+	pending_req_type = idev->report_req_pending & HIDP_HEADER_TRANS_MASK;/*超时的请求类型*/
 
 	switch (pending_req_type) {
-	case HIDP_TRANS_GET_REPORT:
+	case HIDP_TRANS_GET_REPORT:/*get report请求超时*/
 		req_type_str = "GET_REPORT";
 		uhid_send_get_report_reply(idev, NULL, 0, idev->report_rsp_id,
 								ETIMEDOUT);
 		break;
-	case HIDP_TRANS_SET_REPORT:
+	case HIDP_TRANS_SET_REPORT:/*set report请求超时*/
 		req_type_str = "SET_REPORT";
 		uhid_send_set_report_reply(idev, idev->report_rsp_id,
 								ETIMEDOUT);
@@ -682,6 +706,7 @@ static bool hidp_report_req_timeout(gpointer data)
 	return FALSE;
 }
 
+/*uhid情况下output event对应的回调*/
 static void hidp_send_output(struct uhid_event *ev, void *user_data)
 {
 	struct input_device *idev = user_data;
@@ -690,12 +715,14 @@ static void hidp_send_output(struct uhid_event *ev, void *user_data)
 
 	DBG("");
 
+	/*将此event,沿中断io对外进行发送*/
 	sent = hidp_send_intr_message(idev, hdr, ev->u.output.data,
 						ev->u.output.size);
 	if (!sent)
 		uhid_disconnect(idev, true);
 }
 
+/*uhid情况下set report event对应的回调*/
 static void hidp_send_set_report(struct uhid_event *ev, void *user_data)
 {
 	struct input_device *idev = user_data;
@@ -720,26 +747,31 @@ static void hidp_send_set_report(struct uhid_event *ev, void *user_data)
 	}
 
 	if (idev->report_req_pending) {
+		/*还有未响应的req,拒绝发消息*/
 		DBG("Old GET_REPORT or SET_REPORT still pending");
 		uhid_send_set_report_reply(idev, ev->u.set_report.id, EBUSY);
 		return;
 	}
 
+	/*经ctrl_io发送控制消息*/
 	sent = hidp_send_ctrl_message(idev, hdr, ev->u.set_report.data,
 						ev->u.set_report.size);
 	if (sent) {
-		idev->report_req_pending = hdr;
+		/*发送成功*/
+		idev->report_req_pending = hdr;/*记录待响应的请求*/
 		idev->report_req_timer =
 			timeout_add_seconds(REPORT_REQ_TIMEOUT,
-					hidp_report_req_timeout, idev, NULL);
-		idev->report_rsp_id = ev->u.set_report.id;
+					hidp_report_req_timeout, idev, NULL);/*启动超时定时器*/
+		idev->report_rsp_id = ev->u.set_report.id;/*记录响应rsp id*/
 	} else {
+		/*发送失败,发送set report reply指明eio*/
 		uhid_send_set_report_reply(idev, ev->u.set_report.id, EIO);
 		/* Force UHID_DESTROY on error */
-		uhid_disconnect(idev, true);
+		uhid_disconnect(idev, true);/*断开连接*/
 	}
 }
 
+/*uhid情况下，get report event处理回调*/
 static void hidp_send_get_report(struct uhid_event *ev, void *user_data)
 {
 	struct input_device *idev = user_data;
@@ -767,19 +799,22 @@ static void hidp_send_get_report(struct uhid_event *ev, void *user_data)
 		hdr = HIDP_TRANS_GET_REPORT | HIDP_DATA_RTYPE_OUTPUT;
 		break;
 	default:
+		/*其它类型不支持*/
 		DBG("Unsupported HID report type %u", ev->u.get_report.rtype);
 		return;
 	}
 
+	/*通过ctrl io对外发送event*/
 	sent = hidp_send_ctrl_message(idev, hdr, &ev->u.get_report.rnum,
 						sizeof(ev->u.get_report.rnum));
 	if (sent) {
+		/*发送成功*/
 		idev->report_req_pending = hdr;
 		idev->report_req_timer =
 			timeout_add_seconds(REPORT_REQ_TIMEOUT,
 						hidp_report_req_timeout, idev,
 						NULL);
-		idev->report_rsp_id = ev->u.get_report.id;
+		idev->report_rsp_id = ev->u.get_report.id;/*记录响应id*/
 	} else {
 		uhid_send_get_report_reply(idev, NULL, 0, ev->u.get_report.id,
 									EIO);
@@ -841,7 +876,7 @@ static int extract_hid_desc_data(const sdp_record_t *rec,
 {
 	sdp_data_t *d;
 
-	d = sdp_data_get(rec, SDP_ATTR_HID_DESCRIPTOR_LIST);
+	d = sdp_data_get(rec, SDP_ATTR_HID_DESCRIPTOR_LIST);/*取设备描述符list*/
 	if (!d)
 		goto invalid_desc;
 
@@ -865,6 +900,7 @@ static int extract_hid_desc_data(const sdp_record_t *rec,
 
 	req->rd_data = g_try_malloc0(d->unitSize);
 	if (req->rd_data) {
+		/*填充描述符信息*/
 		memcpy(req->rd_data, d->val.str, d->unitSize);
 		req->rd_size = d->unitSize;
 		epox_endian_quirk(req->rd_data, req->rd_size);
@@ -897,7 +933,7 @@ static int extract_hid_record(struct input_device *idev,
 	pdlist = sdp_data_get(idev->rec, SDP_ATTR_HID_DEVICE_SUBCLASS);
 	req->subclass = pdlist ? pdlist->val.uint8 : 0;
 
-	pdlist = sdp_data_get(idev->rec, SDP_ATTR_HID_COUNTRY_CODE);
+	pdlist = sdp_data_get(idev->rec, SDP_ATTR_HID_COUNTRY_CODE);/*取country code*/
 	req->country = pdlist ? pdlist->val.uint8 : 0;
 
 	pdlist = sdp_data_get(idev->rec, SDP_ATTR_HID_VIRTUAL_CABLE);
@@ -925,6 +961,7 @@ static int ioctl_connadd(struct hidp_connadd_req *req)
 	if (ctl < 0)
 		return -errno;
 
+	/*添加hci设备，启动kernel线程*/
 	if (ioctl(ctl, HIDPCONNADD, req) < 0)
 		err = -errno;
 
@@ -946,7 +983,7 @@ static bool ioctl_is_connected(struct input_device *idev)
 	}
 
 	memset(&ci, 0, sizeof(ci));
-	bacpy(&ci.bdaddr, &idev->dst);
+	bacpy(&ci.bdaddr, &idev->dst);/*检查此地址对应的session是否存在*/
 	if (ioctl(ctl, HIDPGETCONNINFO, &ci) < 0) {
 		error("Can't get HIDP connection info");
 		close(ctl);
@@ -956,9 +993,9 @@ static bool ioctl_is_connected(struct input_device *idev)
 	close(ctl);
 
 	if (ci.state != BT_CONNECTED)
-		return false;
+		return false;/*此session状态不为connected*/
 
-	return true;
+	return true;/*状态为connected*/
 }
 
 static int ioctl_disconnect(struct input_device *idev, uint32_t flags)
@@ -1002,6 +1039,7 @@ static int uhid_connadd(struct input_device *idev, struct hidp_connadd_req *req)
 	if (bt_uhid_created(idev->uhid))
 		return bt_uhid_replay(idev->uhid);
 
+	/*发送UHID_CREATE2创建uhid*/
 	err = bt_uhid_create(idev->uhid, req->name, &idev->src, &idev->dst,
 				req->vendor, req->product, req->version,
 				req->country, idev->type,
@@ -1011,9 +1049,12 @@ static int uhid_connadd(struct input_device *idev, struct hidp_connadd_req *req)
 		return err;
 	}
 
+	/*注册output event对应的回调*/
 	bt_uhid_register(idev->uhid, UHID_OUTPUT, hidp_send_output, idev);
+	/*注册get report event处理回调*/
 	bt_uhid_register(idev->uhid, UHID_GET_REPORT, hidp_send_get_report,
 									idev);
+	/*注册UHID_SET_REPORT对应的处理回调*/
 	bt_uhid_register(idev->uhid, UHID_SET_REPORT, hidp_send_set_report,
 									idev);
 
@@ -1034,6 +1075,7 @@ static gboolean encrypt_notify(GIOChannel *io, GIOCondition condition,
 		err = ioctl_connadd(idev->req);
 
 	if (err < 0) {
+		/*添加失败，关闭对应的io*/
 		error("ioctl_connadd(): %s (%d)", strerror(-err), -err);
 
 		if (idev->ctrl_io) {
@@ -1066,22 +1108,23 @@ static int hidp_add_connection(struct input_device *idev)
 	int err;
 
 	req = g_new0(struct hidp_connadd_req, 1);
-	req->ctrl_sock = g_io_channel_unix_get_fd(idev->ctrl_io);
-	req->intr_sock = g_io_channel_unix_get_fd(idev->intr_io);
+	req->ctrl_sock = g_io_channel_unix_get_fd(idev->ctrl_io);/*取得ctrl socket*/
+	req->intr_sock = g_io_channel_unix_get_fd(idev->intr_io);/*取得intr socket*/
 	req->flags     = 0;
 	req->idle_to   = idle_timeout;
 
-	err = extract_hid_record(idev, req);
+	err = extract_hid_record(idev, req);/*填充req其它字段*/
 	if (err < 0) {
 		error("Could not parse HID SDP record: %s (%d)", strerror(-err),
 									-err);
 		goto cleanup;
 	}
 
-	req->vendor = btd_device_get_vendor(idev->device);
+	req->vendor = btd_device_get_vendor(idev->device);/*指明设备vendor*/
 	req->product = btd_device_get_product(idev->device);
 	req->version = btd_device_get_version(idev->device);
 
+	/*填充设备名称*/
 	if (device_name_known(idev->device))
 		device_get_name(idev->device, req->name, sizeof(req->name));
 
@@ -1119,8 +1162,10 @@ static int hidp_add_connection(struct input_device *idev)
 	}
 
 	if (idev->uhid)
+		/*uhid可用，通过uhid接口实现hid设备添加*/
 		err = uhid_connadd(idev, req);
 	else
+		/*通过ioctl，添加hid设备，kernel启动了数据搬运线程*/
 		err = ioctl_connadd(req);
 
 cleanup:
@@ -1133,8 +1178,10 @@ cleanup:
 static bool is_connected(struct input_device *idev)
 {
 	if (idev->uhid)
+		/*uhid情况下，两个io不为NULL，即连接*/
 		return (idev->intr_io != NULL && idev->ctrl_io != NULL);
 	else
+		/*检查session是否已连接*/
 		return ioctl_is_connected(idev);
 }
 
@@ -1162,6 +1209,7 @@ static int connection_disconnect(struct input_device *idev, uint32_t flags)
 						NULL, 0);
 	}
 
+	/*依据不同情况，执行不同的断开方法*/
 	if (idev->uhid)
 		return uhid_disconnect(idev, false);
 	else
@@ -1235,12 +1283,12 @@ static int input_device_connected(struct input_device *idev)
 	int err;
 
 	if (idev->intr_io == NULL || idev->ctrl_io == NULL)
-		return -ENOTCONN;
+		return -ENOTCONN;/*以上两个必不能为零*/
 
 	/* Attempt to update SDP record if it had changed */
 	input_device_update_rec(idev);
 
-	err = hidp_add_connection(idev);
+	err = hidp_add_connection(idev);/*添加hid设备*/
 	if (err < 0)
 		return err;
 
@@ -1249,6 +1297,7 @@ static int input_device_connected(struct input_device *idev)
 	return 0;
 }
 
+/*中断socket连接成功时调用(通过l2cap收到设备发送过来的消息）*/
 static void interrupt_connect_cb(GIOChannel *chan, GError *conn_err,
 							gpointer user_data)
 {
@@ -1266,7 +1315,7 @@ static void interrupt_connect_cb(GIOChannel *chan, GError *conn_err,
 		goto failed;
 
 	if (idev->uhid)
-		cond |= G_IO_IN;
+		cond |= G_IO_IN;/*可读*/
 
 	idev->intr_watch = g_io_add_watch(idev->intr_io, cond, intr_watch_cb,
 									idev);
@@ -1305,11 +1354,12 @@ static void control_connect_cb(GIOChannel *chan, GError *conn_err,
 	}
 
 	/* Connect to the HID interrupt channel */
+	/*采用src到dst建立连接，目的PSM为HIDP_INTR*/
 	io = bt_io_connect(interrupt_connect_cb, idev,
 				NULL, &err,
 				BT_IO_OPT_SOURCE_BDADDR, &idev->src,
 				BT_IO_OPT_DEST_BDADDR, &idev->dst,
-				BT_IO_OPT_PSM, L2CAP_PSM_HIDP_INTR,
+				BT_IO_OPT_PSM, L2CAP_PSM_HIDP_INTR,/*创建中断socket*/
 				BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_LOW,
 				BT_IO_OPT_INVALID);
 	if (!io) {
@@ -1349,6 +1399,7 @@ static int dev_connect(struct input_device *idev)
 	else
 		sec_level = BT_IO_SEC_LOW;
 
+	/*采用src到dst建立连接，目的PSM为HIDP_CTRL*/
 	io = bt_io_connect(control_connect_cb, idev,
 				NULL, &err,
 				BT_IO_OPT_SOURCE_BDADDR, &idev->src,
@@ -1490,6 +1541,7 @@ static struct input_device *input_device_new(struct btd_service *service)
 	struct btd_adapter *adapter = device_get_adapter(device);
 	struct input_device *idev;
 
+	/*申请并初始化input设备*/
 	idev = g_new0(struct input_device, 1);
 	bacpy(&idev->src, btd_adapter_get_address(adapter));
 	bacpy(&idev->dst, device_get_address(device));
@@ -1535,6 +1587,7 @@ int input_device_register(struct btd_service *service)
 	if (uhid_state) {
 		idev->uhid = bt_uhid_new_default();
 		if (!idev->uhid) {
+			/*创建uhid设备失败，uhid不可用，禁用uhid*/
 			DBG("bt_uhid_new_default failed, switching to kernel "
 			    "mode");
 			uhid_state = UHID_DISABLED;
@@ -1570,6 +1623,7 @@ static struct input_device *find_device(const bdaddr_t *src,
 	struct btd_device *device;
 	struct btd_service *service;
 
+	/*通过src确定adapter,然后在adapter下查找dst对应的btd_device*/
 	device = btd_adapter_find_device(adapter_find(src), dst, BDADDR_BREDR);
 	if (device == NULL)
 		return NULL;
@@ -1599,17 +1653,19 @@ static int input_device_connadd(struct input_device *idev)
 {
 	int err;
 
-	err = input_device_connected(idev);
+	err = input_device_connected(idev);/*hid设备连接添加*/
 	if (err == 0)
 		return 0;
 
 	if (idev->ctrl_io) {
+		/*失败，关闭ctrl io*/
 		g_io_channel_shutdown(idev->ctrl_io, FALSE, NULL);
 		g_io_channel_unref(idev->ctrl_io);
 		idev->ctrl_io = NULL;
 	}
 
 	if (idev->intr_io) {
+		/*失败，关闭intr io*/
 		g_io_channel_shutdown(idev->intr_io, FALSE, NULL);
 		g_io_channel_unref(idev->intr_io);
 		idev->intr_io = NULL;
@@ -1638,25 +1694,26 @@ int input_device_set_channel(const bdaddr_t *src, const bdaddr_t *dst, int psm,
 		return -ENOENT;
 
 	if (uhid_state)
-		cond |= G_IO_IN;
+		cond |= G_IO_IN;/*可读*/
 
 	switch (psm) {
-	case L2CAP_PSM_HIDP_CTRL:
+	case L2CAP_PSM_HIDP_CTRL:/*ctrl socket设置*/
 		if (idev->ctrl_io)
 			return -EALREADY;
 		idev->ctrl_io = g_io_channel_ref(io);
 		idev->ctrl_watch = g_io_add_watch(idev->ctrl_io, cond,
 							ctrl_watch_cb, idev);
 		break;
-	case L2CAP_PSM_HIDP_INTR:
+	case L2CAP_PSM_HIDP_INTR:/*中断socket设置*/
 		if (idev->intr_io)
 			return -EALREADY;
 		idev->intr_io = g_io_channel_ref(io);
 		idev->intr_watch = g_io_add_watch(idev->intr_io, cond,
-							intr_watch_cb, idev);
+							intr_watch_cb/*设备通过intr发送过来的消息*/, idev);
 		break;
 	}
 
+	/*控制io及中断io均已包含，添加input设备*/
 	if (idev->intr_io && idev->ctrl_io)
 		input_device_connadd(idev);
 

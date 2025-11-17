@@ -36,9 +36,9 @@
 
 struct btd_service {
 	int			ref;
-	struct btd_device	*device;
-	struct btd_profile	*profile;
-	void			*user_data;
+	struct btd_device	*device;/*对应的device*/
+	struct btd_profile	*profile;/*对应的profile*/
+	void			*user_data;/*对应的私有数据*/
 	btd_service_state_t	state;
 	int			err;
 	bool			is_allowed;
@@ -125,6 +125,7 @@ void btd_service_unref(struct btd_service *service)
 	g_free(service);
 }
 
+/*创建btd_service*/
 struct btd_service *service_create(struct btd_device *device,
 						struct btd_profile *profile)
 {
@@ -322,16 +323,19 @@ int btd_service_disconnect(struct btd_service *service)
 	return err;
 }
 
+/*自service取得其关联的btd_device*/
 struct btd_device *btd_service_get_device(const struct btd_service *service)
 {
 	return service->device;
 }
 
+/*自service取对应的profile*/
 struct btd_profile *btd_service_get_profile(const struct btd_service *service)
 {
 	return service->profile;
 }
 
+/*设置此服务对应的user_data*/
 void btd_service_set_user_data(struct btd_service *service, void *user_data)
 {
 	service->user_data = user_data;
@@ -416,6 +420,7 @@ void btd_service_connecting_complete(struct btd_service *service, int err)
 		return;
 
 	if (err == 0)
+		/*状诚变更为CONNECTED*/
 		change_state(service, BTD_SERVICE_STATE_CONNECTED, 0);
 	else
 		change_state(service, BTD_SERVICE_STATE_DISCONNECTED, err);

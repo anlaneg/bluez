@@ -723,6 +723,7 @@ static bool match_experimental(const void *data, const void *match_data)
 	return !strcasecmp(value, uuid);
 }
 
+/*检查uuid是否已在btd_opts.kernel中存在，支持‘*’通配*/
 bool btd_kernel_experimental_enabled(const char *uuid)
 {
 	if (!btd_opts.kernel)
@@ -750,7 +751,7 @@ static void btd_parse_kernel_experimental(char **list)
 
 	if (btd_opts.kernel) {
 		warn("Unable to parse KernelExperimental: list already set");
-		return;
+		return;/*已设置，直接返回*/
 	}
 
 	btd_opts.kernel = queue_new();
@@ -760,7 +761,7 @@ static void btd_parse_kernel_experimental(char **list)
 		const char *uuid = list[i];
 
 		if (!strcasecmp("false", uuid) || !strcasecmp("off", uuid)) {
-			queue_destroy(btd_opts.kernel, free);
+			queue_destroy(btd_opts.kernel, free);/*清空队列*/
 			btd_opts.kernel = NULL;
 		}
 
@@ -780,7 +781,7 @@ static void btd_parse_kernel_experimental(char **list)
 
 		DBG("%s", uuid);
 
-		queue_push_tail(btd_opts.kernel, strdup(uuid));
+		queue_push_tail(btd_opts.kernel, strdup(uuid));/*添加此uuid*/
 	}
 }
 
@@ -989,13 +990,14 @@ static gboolean parse_kernel_experimental(const char *key, const char *value,
 	char **strlist;
 
 	if (value && value[0] != '*') {
+		/*按','分隔成uuid列表，并添加进btd_opts.kernel*/
 		strlist = g_strsplit(value, ",", -1);
 		btd_parse_kernel_experimental(strlist);
 		g_strfreev(strlist);
 	} else {
 		if (!btd_opts.kernel)
 			btd_opts.kernel = queue_new();
-		queue_push_head(btd_opts.kernel, strdup("*"));
+		queue_push_head(btd_opts.kernel, strdup("*"));/*添加'*'，默认开启*/
 	}
 
 	return TRUE;
@@ -1007,8 +1009,9 @@ static void parse_kernel_exp(GKeyFile *config)
 
 	if (!parse_config_string(config, "General", "KernelExperimental",
 						&str))
-		return;
+		return;/*未配置*/
 
+	/*解析配置的功能uuid列表*/
 	parse_kernel_experimental(NULL, str, NULL, NULL);
 
 	g_free(str);
@@ -1441,7 +1444,7 @@ static GOptionEntry options[] = {
 	{ "testing", 'T', 0, G_OPTION_ARG_NONE, &btd_opts.testing,
 				"Enable testing D-Bus interfaces" },
 	{ "kernel", 'K', G_OPTION_FLAG_OPTIONAL_ARG, G_OPTION_ARG_CALLBACK,
-				parse_kernel_experimental,
+				parse_kernel_experimental,/*指明开启的uuid列表*/
 				"Enable kernel experimental features" },
 	{ "nodetach", 'n', G_OPTION_FLAG_REVERSE,
 				G_OPTION_ARG_NONE, &option_detach,

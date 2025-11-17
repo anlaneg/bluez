@@ -493,7 +493,7 @@ typedef struct {
 } sdp_buf_t;
 
 typedef struct {
-	uint32_t handle;/*唯一指代一个服务*/
+	uint32_t handle;/*record唯一编号*/
 
 	/* Search pattern: a sequence of all UUIDs seen in this record */
 	sdp_list_t *pattern;/*存储一组uuids*/

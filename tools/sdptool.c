@@ -823,7 +823,7 @@ static int set_attrib(sdp_session_t *sess, uint32_t handle, uint16_t attrib, cha
 	}
 
 	/* Update on the server */
-	ret = sdp_device_record_update(sess, &interface, rec);
+	ret = sdp_device_record_update(sess, &interface, rec);/*发送更新请求*/
 	if (ret < 0)
 		printf("Service Record update failed (%d).\n", errno);
 	sdp_record_free(rec);
@@ -2254,6 +2254,7 @@ static int add_gn(sdp_session_t *session, svc_info_t *si)
 
 	sdp_set_info_attr(&record, "Group Network Service", 0, 0);
 
+	/*本机注册GNS*/
 	if (sdp_device_record_register(session, &interface, &record, SDP_RECORD_PERSIST) < 0) {
 		printf("Service Record registration failed\n");
 		ret = -1;
@@ -4139,7 +4140,7 @@ static int cmd_search(int argc, char **argv)
  * Show how to get a specific SDP record by its handle.
  * Not really useful to the user, just show how it can be done...
  */
-static int get_service(bdaddr_t *bdaddr, struct search_context *context, int quite)
+static int get_service(bdaddr_t *bdaddr/*目的地址*/, struct search_context *context, int quite)
 {
 	sdp_list_t *attrid;
 	uint32_t range = 0x0000ffff;

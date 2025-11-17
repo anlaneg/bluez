@@ -29,8 +29,8 @@ static sdp_list_t *service_db;/*链表，串连所有已知服务，sdp_record_t
 static sdp_list_t *access_db;
 
 typedef struct {
-	uint32_t handle;
-	bdaddr_t device;
+	uint32_t handle;/*record唯一编号*/
+	bdaddr_t device;/*设备地址*/
 } sdp_access_t;
 
 /*
@@ -51,6 +51,7 @@ int record_sort(const void *r1, const void *r2)
 	return rec1->handle - rec2->handle;
 }
 
+/*比对两个sdp_access_t中的handle*/
 static int access_sort(const void *r1, const void *r2)
 {
 	const sdp_access_t *rec1 = r1;
@@ -159,7 +160,7 @@ void sdp_svcdb_set_collectable(sdp_record_t *record, int sock)
 /*
  * Add a service record to the repository
  */
-void sdp_record_add(const bdaddr_t *device, sdp_record_t *rec/*新的服务记录*/)
+void sdp_record_add(const bdaddr_t *device/*设备地址*/, sdp_record_t *rec/*新的服务记录*/)
 {
 	sdp_access_t *dev;
 
@@ -173,12 +174,14 @@ void sdp_record_add(const bdaddr_t *device, sdp_record_t *rec/*新的服务记�
 	if (!dev)
 		return;
 
-	bacpy(&dev->device, device);
+	bacpy(&dev->device, device);/*设置设备地址*/
 	dev->handle = rec->handle;
 
+	/*添加设备*/
 	access_db = sdp_list_insert_sorted(access_db, dev, access_sort);
 }
 
+/*在service_db上查询编号为handle的sdp_record_t*/
 static sdp_list_t *record_locate(uint32_t handle)
 {
 	if (service_db) {
@@ -194,6 +197,7 @@ static sdp_list_t *record_locate(uint32_t handle)
 	return NULL;
 }
 
+/*通过handle查询access_db*/
 static sdp_list_t *access_locate(uint32_t handle)
 {
 	if (access_db) {
@@ -277,14 +281,16 @@ int sdp_check_access(uint32_t handle, bdaddr_t *device)
 	if (bacmp(&a->device, device) &&
 			bacmp(&a->device, BDADDR_ANY) &&
 			bacmp(device, BDADDR_ANY))
+		/*不匹配，且两者均非any*/
 		return 0;
 
-	return 1;
+	return 1;/*认为匹配*/
 }
 
+/*分配handle*/
 uint32_t sdp_next_handle(void)
 {
-	uint32_t handle = 0x10000;
+	uint32_t handle = 0x10000;/*起始编号*/
 
 	while (sdp_record_find(handle))
 		handle++;

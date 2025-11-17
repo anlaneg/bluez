@@ -13,7 +13,9 @@
 #define __HIDP_DEFS_H
 
 /* HIDP header masks */
+/*占用高4位*/
 #define HIDP_HEADER_TRANS_MASK			0xf0
+/*占用低4位*/
 #define HIDP_HEADER_PARAM_MASK			0x0f
 
 /* HIDP transaction types */

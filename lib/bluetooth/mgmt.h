@@ -641,7 +641,7 @@ struct mgmt_rp_read_exp_features_info {
 #define MGMT_OP_SET_EXP_FEATURE		0x004a
 struct mgmt_cp_set_exp_feature {
 	uint8_t  uuid[16];
-	uint8_t  action;
+	uint8_t  action;/*开启/关闭*/
 } __packed;
 #define MGMT_SET_EXP_FEATURE_SIZE	17
 struct mgmt_rp_set_exp_feature {

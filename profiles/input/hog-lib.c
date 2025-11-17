@@ -1005,6 +1005,7 @@ static void uhid_create(struct bt_hog *hog, uint8_t *report_map,
 		return;
 	}
 
+	/*发送UHID_CREATE2创建uhid*/
 	err = bt_uhid_create(hog->uhid, hog->name, &src, &dst,
 				hog->vendor, hog->product, hog->version,
 				hog->bcountrycode, hog->type, value, vlen);
