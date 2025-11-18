@@ -117,12 +117,16 @@ void btd_adapter_set_class(struct btd_adapter *adapter, uint8_t major,
 
 struct btd_adapter_driver {
 	const char *name;
+	/*检查此driver是否与adapter匹配*/
 	int (*probe)(struct btd_adapter *adapter);
+	/*解除driver与adapter的关联*/
 	void (*remove)(struct btd_adapter *adapter);
+	/*收到resume通知后调用*/
 	void (*resume)(struct btd_adapter *adapter);
 	/*此dapter上新增device时调用*/
 	void (*device_added)(struct btd_adapter *adapter,
 						struct btd_device *device);
+	/*adapter关联的设备device删除时调用*/
 	void (*device_removed)(struct btd_adapter *adapter,
 						struct btd_device *device);
 	void (*device_resolved)(struct btd_adapter *adapter,

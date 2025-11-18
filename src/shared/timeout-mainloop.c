@@ -15,7 +15,7 @@
 #include "timeout.h"
 
 struct timeout_data {
-	int id;
+	int id;/*利用mainloop_add_timeout创建timeout id,用于标识此对象*/
 	timeout_func_t func;
 	timeout_destroy_func_t destroy;
 	unsigned int timeout;
@@ -26,6 +26,7 @@ static void timeout_callback(int id, void *user_data)
 {
 	struct timeout_data *data = user_data;
 
+	/*调用用户指定的回调*/
 	if (data->func(data->user_data) &&
 			!mainloop_modify_timeout(data->id, data->timeout))
 		return;
@@ -55,8 +56,8 @@ unsigned int timeout_add(unsigned int timeout, timeout_func_t func,
 	data->timeout = timeout;
 	data->destroy = destroy;
 
-	data->id = mainloop_add_timeout(timeout, timeout_callback, data,
-							timeout_destroy);
+	data->id = mainloop_add_timeout(timeout, timeout_callback/*超时时此函数将被调用*/, data,
+							timeout_destroy/*data移除时调用*/);
 	if (data->id < 0) {
 		free(data);
 		return 0;
@@ -73,7 +74,7 @@ void timeout_remove(unsigned int id)
 	mainloop_remove_timeout((int) id);
 }
 
-unsigned int timeout_add_seconds(unsigned int timeout, timeout_func_t func,
+unsigned int timeout_add_seconds(unsigned int timeout/*超时时间*/, timeout_func_t func,
 			void *user_data, timeout_destroy_func_t destroy)
 {
 	/*按秒设置超时时间*/

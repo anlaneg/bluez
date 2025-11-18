@@ -64,7 +64,7 @@ static DBusMessage *change_folder(DBusConnection *connection,
 	GError *err = NULL;
 
 	if (dbus_message_get_args(message, NULL,
-				DBUS_TYPE_STRING, &folder,
+				DBUS_TYPE_STRING, &folder/*取的文件夹*/,
 				DBUS_TYPE_INVALID) == FALSE)
 		return g_dbus_create_error(message,
 				ERROR_INTERFACE ".InvalidArguments", NULL);

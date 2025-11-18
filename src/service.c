@@ -35,14 +35,14 @@
 #include "service.h"
 
 struct btd_service {
-	int			ref;
+	int			ref;/*引用计数*/
 	struct btd_device	*device;/*对应的device*/
 	struct btd_profile	*profile;/*对应的profile*/
 	void			*user_data;/*对应的私有数据*/
-	btd_service_state_t	state;
+	btd_service_state_t	state;/*服务状态*/
 	int			err;
 	bool			is_allowed;
-	bool			initiator;
+	bool			initiator;/*标记是否已初始化*/
 };
 
 struct service_state_callback {
@@ -54,6 +54,7 @@ struct service_state_callback {
 /*添加系统所有state_cb*/
 static GSList *state_callbacks = NULL;
 
+/*service状态变更*/
 static const char *state2str(btd_service_state_t state)
 {
 	switch (state) {
@@ -102,9 +103,10 @@ static void change_state(struct btd_service *service, btd_service_state_t state/
 	}
 
 	if (state == BTD_SERVICE_STATE_DISCONNECTED)
-		service->initiator = false;
+		service->initiator = false;/*指明service还未初始化*/
 }
 
+/*增加service引用计数*/
 struct btd_service *btd_service_ref(struct btd_service *service)
 {
 	service->ref++;
@@ -114,6 +116,7 @@ struct btd_service *btd_service_ref(struct btd_service *service)
 	return service;
 }
 
+/*引用计数减为0，则释放service*/
 void btd_service_unref(struct btd_service *service)
 {
 	service->ref--;
@@ -126,7 +129,7 @@ void btd_service_unref(struct btd_service *service)
 	g_free(service);
 }
 
-/*创建btd_service*/
+/*指定device,profile创建btd_service*/
 struct btd_service *service_create(struct btd_device *device,
 						struct btd_profile *profile)
 {
@@ -147,19 +150,23 @@ struct btd_service *service_create(struct btd_device *device,
 	return service;
 }
 
+/*触发profile->device_probe回调*/
 int service_probe(struct btd_service *service)
 {
 	char addr[18];
 	int err;
 
+	/*probe时，state必须为unavailable*/
 	btd_assert(service->state == BTD_SERVICE_STATE_UNAVAILABLE);
 
 	err = service->profile->device_probe(service);
 	if (err == 0) {
+		/*probe成功，转disconnected状态*/
 		change_state(service, BTD_SERVICE_STATE_DISCONNECTED, 0);
 		return 0;
 	}
 
+	/*显示设备地址probe失败*/
 	ba2str(device_get_address(service->device), addr);
 	error("%s profile probe failed for %s", service->profile->name, addr);
 
@@ -168,11 +175,16 @@ int service_probe(struct btd_service *service)
 
 void service_remove(struct btd_service *service)
 {
+	/*先转disconnected*/
 	change_state(service, BTD_SERVICE_STATE_DISCONNECTED, -ECONNABORTED);
+	/*再转unavailable*/
 	change_state(service, BTD_SERVICE_STATE_UNAVAILABLE, 0);
+	/*触发device_remove回调*/
 	service->profile->device_remove(service);
+	/*device与profile相互解耦合*/
 	service->device = NULL;
 	service->profile = NULL;
+	/*释放service*/
 	btd_service_unref(service);
 }
 
@@ -194,9 +206,10 @@ int service_accept(struct btd_service *service, bool initiator)
 	}
 
 	if (!service->profile->accept)
-		return -ENOSYS;
+		return -ENOSYS;/*无accept回调，不支持accept*/
 
 	if (!service->is_allowed) {
+		/*服务被设置为不容许*/
 		info("service %s is not allowed",
 						service->profile->remote_uuid);
 		return -ECONNABORTED;
@@ -225,19 +238,21 @@ int service_set_connecting(struct btd_service *service)
 	case BTD_SERVICE_STATE_UNAVAILABLE:
 		return -EINVAL;
 	case BTD_SERVICE_STATE_DISCONNECTED:
-		break;
+		break;/*容许变更*/
 	case BTD_SERVICE_STATE_CONNECTING:
 	case BTD_SERVICE_STATE_CONNECTED:
-		return 0;
+		return 0;/*已connecting,不必变更*/
 	case BTD_SERVICE_STATE_DISCONNECTING:
 		return -EBUSY;
 	}
 
+	/*变更为connecting*/
 	change_state(service, BTD_SERVICE_STATE_CONNECTING, 0);
 
 	return 0;
 }
 
+/*触发profile connect回调，service变更为connecting状态*/
 int btd_service_connect(struct btd_service *service)
 {
 	struct btd_profile *profile = service->profile;
@@ -245,10 +260,10 @@ int btd_service_connect(struct btd_service *service)
 	int err;
 
 	if (!profile->connect)
-		return -ENOTSUP;
+		return -ENOTSUP;/*无connect回调*/
 
 	if (!btd_adapter_get_powered(device_get_adapter(service->device)))
-		return -ENETDOWN;
+		return -ENETDOWN;/*未启动*/
 
 	switch (service->state) {
 	case BTD_SERVICE_STATE_UNAVAILABLE:
@@ -264,11 +279,13 @@ int btd_service_connect(struct btd_service *service)
 	}
 
 	if (!service->is_allowed) {
+		/*不容许，报错*/
 		info("service %s is not allowed",
 						service->profile->remote_uuid);
 		return -ECONNABORTED;
 	}
 
+	/*触发profile connect回调*/
 	err = profile->connect(service);
 	if (err == 0) {
 		service->initiator = true;
@@ -290,7 +307,7 @@ int btd_service_disconnect(struct btd_service *service)
 	int err;
 
 	if (!profile->disconnect)
-		return -ENOTSUP;
+		return -ENOTSUP;/*无disconnect回调*/
 
 	switch (service->state) {
 	case BTD_SERVICE_STATE_UNAVAILABLE:
@@ -330,13 +347,13 @@ struct btd_device *btd_service_get_device(const struct btd_service *service)
 	return service->device;
 }
 
-/*自service取对应的profile*/
+/*自service取得其关联的profile*/
 struct btd_profile *btd_service_get_profile(const struct btd_service *service)
 {
 	return service->profile;
 }
 
-/*设置此服务对应的user_data*/
+/*设置此服务对应的user_data（私有数据）*/
 void btd_service_set_user_data(struct btd_service *service, void *user_data)
 {
 	service->user_data = user_data;
@@ -347,6 +364,7 @@ void *btd_service_get_user_data(const struct btd_service *service)
 	return service->user_data;
 }
 
+/*取得service获得的状态*/
 btd_service_state_t btd_service_get_state(const struct btd_service *service)
 {
 	return service->state;
@@ -396,6 +414,7 @@ bool btd_service_remove_state_cb(unsigned int id/*要移除的编号*/)
 	return false;
 }
 
+/*设置service is_allowed*/
 void btd_service_set_allowed(struct btd_service *service, bool allowed)
 {
 	if (allowed == service->is_allowed)
@@ -405,11 +424,13 @@ void btd_service_set_allowed(struct btd_service *service, bool allowed)
 
 	if (!allowed && (service->state == BTD_SERVICE_STATE_CONNECTING ||
 			service->state == BTD_SERVICE_STATE_CONNECTED)) {
+		/*已连接或者正在连接，执行disconnect*/
 		btd_service_disconnect(service);
 		return;
 	}
 }
 
+/*检查service是否容许*/
 bool btd_service_is_allowed(struct btd_service *service)
 {
 	return service->is_allowed;
@@ -419,12 +440,13 @@ void btd_service_connecting_complete(struct btd_service *service, int err)
 {
 	if (service->state != BTD_SERVICE_STATE_DISCONNECTED &&
 			service->state != BTD_SERVICE_STATE_CONNECTING)
-		return;
+		return;/*仅关注以上两个状态*/
 
 	if (err == 0)
 		/*状态变更为CONNECTED*/
 		change_state(service, BTD_SERVICE_STATE_CONNECTED, 0);
 	else
+		/*出错，状态变更为disconnected*/
 		change_state(service, BTD_SERVICE_STATE_DISCONNECTED, err);
 }
 
@@ -432,10 +454,12 @@ void btd_service_disconnecting_complete(struct btd_service *service, int err)
 {
 	if (service->state != BTD_SERVICE_STATE_CONNECTED &&
 			service->state != BTD_SERVICE_STATE_DISCONNECTING)
-		return;
+		return;/*仅关注以上两个状态*/
 
 	if (err == 0)
+		/*无错误，变更为disconnected*/
 		change_state(service, BTD_SERVICE_STATE_DISCONNECTED, 0);
 	else /* If disconnect fails, we assume it remains connected */
+		/*出错，仍处于connected*/
 		change_state(service, BTD_SERVICE_STATE_CONNECTED, err);
 }

@@ -385,7 +385,7 @@ static gboolean bnep_setup(GIOChannel *chan,
 		/*ns参数有误*/
 		error("Server error, bridge not initialized: (0x%x)", dst_role);
 	else
-		bridge = ns->bridge;
+		bridge = ns->bridge;/*取得配置的桥设备名称*/
 
 	strncpy(na->setup->dev, BNEP_INTERFACE, 16);
 	na->setup->dev[15] = '\0';/*要创建的bnep网口名称*/
@@ -564,7 +564,7 @@ static DBusMessage *register_server(DBusConnection *conn,
 	const char *uuid, *bridge;
 
 	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_STRING, &uuid,
-				DBUS_TYPE_STRING, &bridge, DBUS_TYPE_INVALID))
+				DBUS_TYPE_STRING, &bridge/*桥名称*/, DBUS_TYPE_INVALID))
 		return btd_error_invalid_args(msg);
 
 	ns = find_server_by_uuid(na->servers, uuid);
@@ -583,7 +583,7 @@ static DBusMessage *register_server(DBusConnection *conn,
 		return btd_error_failed(msg, "SDP record registration failed");
 
 	g_free(ns->bridge);
-	ns->bridge = g_strdup(bridge);
+	ns->bridge = g_strdup(bridge);/*设置bridge*/
 
 	ns->watch_id = g_dbus_add_disconnect_watch(conn,
 					dbus_message_get_sender(msg),

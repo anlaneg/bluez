@@ -36,6 +36,7 @@
 
 struct btd_battery {
 	char *path; /* D-Bus object path */
+	/*百分比*/
 	uint8_t percentage; /* valid between 0 to 100 inclusively */
 	char *source; /* Descriptive source of the battery info */
 	char *provider_path; /* The provider root path, if any */
@@ -55,10 +56,12 @@ struct battery_provider {
 	GDBusClient *client;
 };
 
+/*记录系统所有btd_battery*/
 static struct queue *batteries = NULL;
 
 static void provider_disconnect_cb(DBusConnection *conn, void *user_data);
 
+/*在系统中增加battery（完成battery注册）*/
 static void battery_add(struct btd_battery *battery)
 {
 	if (!batteries)
@@ -84,6 +87,7 @@ static bool match_path(const void *data, const void *user_data)
 	return g_strcmp0(battery->path, path) == 0;
 }
 
+/*创建btd_battery*/
 static struct btd_battery *battery_new(const char *path, const char *source,
 				       const char *provider_path)
 {
@@ -111,6 +115,7 @@ static void battery_free(struct btd_battery *battery)
 	free(battery);
 }
 
+/*获取百分比*/
 static gboolean property_percentage_get(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *data)
 {
@@ -127,7 +132,7 @@ static gboolean property_percentage_exists(const GDBusPropertyTable *property,
 {
 	struct btd_battery *battery = data;
 
-	return battery->percentage <= BATTERY_MAX_PERCENTAGE;
+	return battery->percentage <= BATTERY_MAX_PERCENTAGE;/*是否存在百分比*/
 }
 
 static gboolean property_source_get(const GDBusPropertyTable *property,
@@ -222,18 +227,21 @@ bool btd_battery_update(struct btd_battery *battery, uint8_t percentage)
 	DBG("path = %s", battery->path);
 
 	if (!queue_find(batteries, NULL, battery)) {
+		/*没有注册此battery*/
 		error("error updating battery: battery is not registered");
 		return false;
 	}
 
 	if (percentage > BATTERY_MAX_PERCENTAGE) {
+		/*设置的值过大*/
 		error("error updating battery: percentage is not valid");
 		return false;
 	}
 
 	if (battery->percentage == percentage)
-		return true;
+		return true;/*设置成功，但未更新*/
 
+	/*更新电量，并发送电量更新通知*/
 	battery->percentage = percentage;
 	g_dbus_emit_property_changed(btd_get_dbus_connection(), battery->path,
 				     BATTERY_INTERFACE, "Percentage");

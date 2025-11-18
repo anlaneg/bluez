@@ -244,7 +244,7 @@ struct btd_device {
 	struct btd_adapter	*adapter;/*设备所属的adapter*/
 	GSList		*uuids;/*用于记录此设备上的UUID*/
 	GSList		*primaries;		/* List of primary services */
-	/*可应用于此设备的服务？？*/
+	/*应用于此设备的所有services*/
 	GSList		*services;		/* List of btd_service */
 	GSList		*pending;		/* Pending services */
 	GSList		*watches;		/* List of disconnect_data */
@@ -2254,6 +2254,7 @@ bool btd_device_add_set(struct btd_device *device, bool encrypted,
 	return true;
 }
 
+/*针对设备设置自动连接*/
 static void device_set_auto_connect(struct btd_device *device, gboolean enable)
 {
 	char addr[18];
@@ -2269,10 +2270,11 @@ static void device_set_auto_connect(struct btd_device *device, gboolean enable)
 	if (device->auto_connect == enable)
 		return;
 
-	device->auto_connect = enable;
+	device->auto_connect = enable;/*设置自动连接*/
 
 	/* Disabling auto connect */
 	if (enable == FALSE) {
+		/*关闭自动连接*/
 		adapter_connect_list_remove(device->adapter, device);
 		adapter_auto_connect_remove(device->adapter, device);
 		return;
@@ -3555,6 +3557,7 @@ static const GDBusMethodTable device_methods[] = {
 						NULL, connect_profile) },
 	{ GDBUS_ASYNC_METHOD("DisconnectProfile", GDBUS_ARGS({ "UUID", "s" }),
 						NULL, disconnect_profile) },
+	/*与设备配对*/
 	{ GDBUS_ASYNC_METHOD("Pair", NULL, NULL, pair_device) },
 	{ GDBUS_METHOD("CancelPairing", NULL, NULL, cancel_pairing) },
 	{ GDBUS_EXPERIMENTAL_METHOD("GetServiceRecords", NULL,
@@ -5542,6 +5545,7 @@ struct probe_data {
 	GSList *uuids;
 };
 
+/*创建btd_service*/
 static struct btd_service *probe_service(struct btd_device *device,
 						struct btd_profile *profile,
 						GSList *uuids)
@@ -5549,22 +5553,26 @@ static struct btd_service *probe_service(struct btd_device *device,
 	GSList *l;
 	struct btd_service *service;
 
+	/*如果profile无device_probe回调,则无法创建btd_service，返回NULL*/
 	if (profile->device_probe == NULL)
-		return NULL;/*无此回调,返回NULL*/
+		return NULL;
 
-	/*在uuids集合中无与profile->remote_uuid相同的元素，返回NULL*/
+	/*如果profile无remote_uuid,则无法创建btd_service，返回NULL.
+	 *或者profile->remote_uuid不属于uuids集合，返回NULL*/
 	if (!device_match_profile(device, profile, uuids))
 		return NULL;
 
+	/*检查设备支持service中是否已包含此profile*/
 	l = find_service_with_profile(device->services, profile);
 	/* If the service already exists, return NULL so that it won't be added
 	 * to the device->services.
 	 */
 	if (l)
-		return NULL;/*此service已存在*/
+		return NULL;/*此service已存在，不再创建*/
 
 	service = service_create(device, profile);
 
+	/*触发profile->device_probe回调*/
 	if (service_probe(service)) {
 		btd_service_unref(service);
 		return NULL;
@@ -5580,6 +5588,7 @@ static struct btd_service *probe_service(struct btd_device *device,
 		if (device->temporary)
 			device->disable_auto_connect = TRUE;
 		else
+			/*设置为自动连接*/
 			device_set_auto_connect(device, TRUE);
 	}
 
@@ -5627,12 +5636,13 @@ void device_remove_profile(gpointer a, gpointer b)
 	struct btd_service *service;
 	GSList *l;
 
+	/*设备应用的一组services，检查哪个service使用了此profile*/
 	l = find_service_with_profile(device->services, profile);
 	if (l == NULL)
 		return;
 
 	service = l->data;
-	device->services = g_slist_delete_link(device->services, l);
+	device->services = g_slist_delete_link(device->services, l);/*移除此service*/
 	device->pending = g_slist_remove(device->pending, service);
 	service_remove(service);
 }

@@ -1512,7 +1512,6 @@ int main(int argc, char *argv[])
 	/*解析main_conf*/
 	parse_config(main_conf);
 
-	/*连接到dbus*/
 	if (connect_dbus() < 0) {
 		/*无法连接到dbus,报错退出*/
 		error("Unable to get on D-Bus");

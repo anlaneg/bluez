@@ -68,6 +68,7 @@ struct network_conn {
 
 static GSList *peers = NULL;
 
+/*字符串转service id*/
 static uint16_t get_pan_srv_id(const char *svc)
 {
 	if (!strcasecmp(svc, "panu") || !strcasecmp(svc, PANU_UUID))
@@ -80,6 +81,7 @@ static uint16_t get_pan_srv_id(const char *svc)
 	return 0;
 }
 
+/*遍历list(一串struct network_peer)，查找与device相等的*/
 static struct network_peer *find_peer(GSList *list, struct btd_device *device)
 {
 	for (; list; list = list->next) {
@@ -559,19 +561,19 @@ int connection_register(struct btd_service *svc)
 
 	peer = find_peer(peers, device);
 	if (!peer) {
-		peer = create_peer(device);
+		peer = create_peer(device);/*创建peer*/
 		if (!peer)
 			return -1;
 		peers = g_slist_append(peers, peer);
 	}
 
 	nc = g_new0(struct network_conn, 1);
-	nc->id = id;/*角色编号*/
+	nc->id = id;/*service编号(网络角色编号）*/
 	nc->service = btd_service_ref(svc);
 	nc->state = DISCONNECTED;
 	nc->peer = peer;
 
-	btd_service_set_user_data(svc, nc);
+	btd_service_set_user_data(svc, nc);/*为service设置私有数据*/
 
 	DBG("id %u registered", id);
 

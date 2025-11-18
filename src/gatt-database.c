@@ -548,6 +548,7 @@ static void profile_remove(void *data)
 
 	DBG("Removed \"%s\"", p->name);
 
+	/*遍历所有adapter,使adapter与profile解耦*/
 	adapter_foreach(adapter_remove_profile, p);
 	btd_profile_unregister(p);
 

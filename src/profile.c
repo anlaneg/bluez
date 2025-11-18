@@ -2649,6 +2649,7 @@ bool btd_profile_remove_custom_prop(const char *uuid, const char *name)
 
 void btd_profile_init(void)
 {
+	/*管理external profile*/
 	g_dbus_register_interface(btd_get_dbus_connection(),
 				"/org/bluez", "org.bluez.ProfileManager1",
 				methods, NULL, NULL, NULL, NULL);

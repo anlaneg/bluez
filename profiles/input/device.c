@@ -1514,10 +1514,10 @@ int input_device_connect(struct btd_service *service)
 	idev = btd_service_get_user_data(service);
 
 	if (idev->ctrl_io)
-		return -EBUSY;
+		return -EBUSY;/*已有ctrl io,报错*/
 
 	if (is_connected(idev))
-		return -EALREADY;
+		return -EALREADY;/*已连接，报错*/
 
 	return dev_connect(idev);
 }

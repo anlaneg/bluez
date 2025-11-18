@@ -91,7 +91,7 @@ static void batt_reset(struct batt *batt)
 static void parse_battery_level(struct batt *batt,
 				const uint8_t *value)
 {
-	uint8_t percentage = value[0];
+	uint8_t percentage = value[0];/*电量百分比*/
 
 	DBG("Battery Level updated: %d%%", percentage);
 
@@ -104,7 +104,7 @@ static void parse_battery_level(struct batt *batt,
 
 	if (batt->percentage != percentage) {
 		batt->percentage = percentage;
-		btd_battery_update(batt->battery, batt->percentage);
+		btd_battery_update(batt->battery, batt->percentage);/*更正电量*/
 	}
 }
 

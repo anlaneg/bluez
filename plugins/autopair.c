@@ -276,6 +276,7 @@ static int autopair_init(void)
 		return err;
 	}
 
+	/*读取随机值*/
 	n = read(fd, &seed, sizeof(seed));
 	if (n < (ssize_t) sizeof(seed)) {
 		err = (n == -1) ? -errno : -EIO;
@@ -287,7 +288,7 @@ static int autopair_init(void)
 
 	close(fd);
 
-	srand(seed);
+	srand(seed);/*提供随机种子*/
 
 	/*注册autopair驱动*/
 	return btd_register_adapter_driver(&autopair_driver);

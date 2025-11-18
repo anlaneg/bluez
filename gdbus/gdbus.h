@@ -139,8 +139,8 @@ struct GDBusSignalTable {
 struct GDBusPropertyTable {
 	const char *name;
 	const char *type;
-	GDBusPropertyGetter get;
-	GDBusPropertySetter set;
+	GDBusPropertyGetter get;/*get函数*/
+	GDBusPropertySetter set;/*set函数*/
 	GDBusPropertyExists exists;
 	GDBusPropertyFlags flags;
 };

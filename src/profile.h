@@ -39,6 +39,7 @@ struct btd_profile {
 	bool testing;/*是否测试性功能*/
 
 	int (*device_probe) (struct btd_service *service);
+	/*设备自此service中移除时，此回调调用*/
 	void (*device_remove) (struct btd_service *service);
 
 	int (*connect) (struct btd_service *service);
@@ -46,8 +47,11 @@ struct btd_profile {
 
 	int (*accept) (struct btd_service *service);
 
+	/*检查profile是否可应用于此adapter，
+	 * 如果可应用会将此profile记录在adapter->profiles上*/
 	int (*adapter_probe) (struct btd_profile *p,
 						struct btd_adapter *adapter);
+	/*profile与adapter解耦合*/
 	void (*adapter_remove) (struct btd_profile *p,
 						struct btd_adapter *adapter);
 };

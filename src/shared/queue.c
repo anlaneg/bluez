@@ -216,6 +216,7 @@ void queue_foreach(struct queue *queue/*要检查的队列*/, queue_foreach_func
 	queue_unref(queue);
 }
 
+/*指针地址比对*/
 static bool direct_match(const void *a, const void *b)
 {
 	return a == b;

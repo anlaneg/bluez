@@ -265,7 +265,7 @@ enum {
 struct btd_adapter {
 	int ref_count;/*引用计数*/
 
-	uint16_t dev_id;
+	uint16_t dev_id;/*设备唯一编号，例如hci0中的0*/
 	struct mgmt *mgmt;
 
 	/*adapter地址(对应的是一个hci设备地址)*/
@@ -327,7 +327,7 @@ struct btd_adapter {
 	GQueue *auths;			/* Ongoing and pending auths */
 	bool pincode_requested;		/* PIN requested during last bonding */
 	GSList *connections;		/* Connected devices */
-	/*此adapter已知的对端设备*/
+	/*此adapter已知的所有对端设备*/
 	GSList *devices;		/* Devices structure pointers */
 	GSList *connect_list;		/* Devices to connect when found */
 	struct btd_device *connect_le;	/* LE device waiting to be connected */
@@ -342,7 +342,7 @@ struct btd_adapter {
 
 	GHashTable *allowed_uuid_set;	/* Set of allowed service UUIDs */
 
-	gboolean initialized;
+	gboolean initialized;/*此adapter是否已初始化*/
 
 	GSList *pin_callbacks;
 	GSList *msd_callbacks;
@@ -1716,6 +1716,7 @@ static void cancel_passive_scanning(struct btd_adapter *adapter)
 	}
 }
 
+/*取扫描类型*/
 static uint8_t get_scan_type(struct btd_adapter *adapter)
 {
 	uint8_t type;
@@ -1949,7 +1950,7 @@ static bool start_discovery_timeout(gpointer user_data)
 	DBG("adapter->current_discovery_filter == %d",
 	    !!adapter->current_discovery_filter);
 
-	new_type = get_scan_type(adapter);
+	new_type = get_scan_type(adapter);/*扫描类型*/
 
 	if (adapter->discovery_enable == 0x01) {
 		struct mgmt_cp_stop_discovery cp;
@@ -1982,7 +1983,7 @@ static bool start_discovery_timeout(gpointer user_data)
 		cp.type = adapter->discovery_type;
 		mgmt_send(adapter->mgmt, MGMT_OP_STOP_DISCOVERY,
 					adapter->dev_id, sizeof(cp), &cp,
-					NULL, NULL, NULL);
+					NULL, NULL, NULL);/*发送停止discovery*/
 
 		/* Don't even bother to try to quickly start discovery
 		 * just after stopping it, it would fail with status
@@ -2001,7 +2002,7 @@ static bool start_discovery_timeout(gpointer user_data)
 		mgmt_send(adapter->mgmt, MGMT_OP_START_DISCOVERY,
 					adapter->dev_id, sizeof(cp), &cp,
 					start_discovery_complete, adapter,
-					NULL);
+					NULL);/*发送开启Discovery*/
 
 		return FALSE;
 	}
@@ -2458,7 +2459,7 @@ static int update_discovery_filter(struct btd_adapter *adapter)
 	g_free(adapter->current_discovery_filter);
 	adapter->current_discovery_filter = sd_cp;
 
-	trigger_start_discovery(adapter, 0);
+	trigger_start_discovery(adapter, 0/*不延迟立即触发*/);
 
 	return -EINPROGRESS;
 }
@@ -2550,6 +2551,7 @@ static DBusMessage *start_discovery(DBusConnection *conn,
 	DBG("sender %s", sender);
 
 	if (!btd_adapter_get_powered(adapter))
+		/*adapter还未给电*/
 		return btd_error_not_ready(msg);
 
 	is_discovering = get_discovery_client(adapter, sender, &client);
@@ -2559,6 +2561,7 @@ static DBusMessage *start_discovery(DBusConnection *conn,
 	 * already started a discovery then return an error.
 	 */
 	if (is_discovering)
+		/*已启动*/
 		return btd_error_busy(msg);
 
 	/*
@@ -2956,6 +2959,7 @@ static DBusMessage *stop_discovery(DBusConnection *conn,
 	}
 }
 
+/*取adapter地址*/
 static gboolean property_get_address(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *user_data)
 {
@@ -2970,6 +2974,7 @@ static gboolean property_get_address(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+/*取adapter地址类型*/
 static gboolean property_get_address_type(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *user_data)
 {
@@ -3498,6 +3503,7 @@ static gboolean property_get_uuids(const GDBusPropertyTable *property,
 	struct gatt_db *db;
 	GHashTable *uuids;
 
+	/*创建空的hash表*/
 	uuids = g_hash_table_new_full(g_str_hash, g_str_equal, free, NULL);
 	if (!uuids)
 		return FALSE;
@@ -3507,11 +3513,11 @@ static gboolean property_get_uuids(const GDBusPropertyTable *property,
 		sdp_record_t *rec = l->data;
 		char *uuid;
 
-		uuid = bt_uuid2string(&rec->svclass);
+		uuid = bt_uuid2string(&rec->svclass);/*取此服务对应的uuid*/
 		if (uuid == NULL)
 			continue;
 
-		g_hash_table_add(uuids, uuid);
+		g_hash_table_add(uuids, uuid);/*收集uuids*/
 	}
 
 	/* GATT services */
@@ -3987,16 +3993,22 @@ bool btd_adapter_is_uuid_allowed(struct btd_adapter *adapter,
 }
 
 static const GDBusMethodTable adapter_methods[] = {
+		/*用于启动Discovery*/
 	{ GDBUS_ASYNC_METHOD("StartDiscovery", NULL, NULL, start_discovery) },
+	/*设置DiscoveryFilter*/
 	{ GDBUS_METHOD("SetDiscoveryFilter",
 				GDBUS_ARGS({ "properties", "a{sv}" }), NULL,
 				set_discovery_filter) },
+				/*用于停止Discovery*/
 	{ GDBUS_ASYNC_METHOD("StopDiscovery", NULL, NULL, stop_discovery) },
+	/*用于移除设备*/
 	{ GDBUS_ASYNC_METHOD("RemoveDevice",
 			GDBUS_ARGS({ "device", "o" }), NULL, remove_device) },
+			/*获取DiscoveryFilter*/
 	{ GDBUS_METHOD("GetDiscoveryFilters", NULL,
 			GDBUS_ARGS({ "filters", "as" }),
 			get_discovery_filters) },
+			/*用于连接设备*/
 	{ GDBUS_EXPERIMENTAL_ASYNC_METHOD("ConnectDevice",
 				GDBUS_ARGS({ "properties", "a{sv}" }), NULL,
 				connect_device) },
@@ -5269,15 +5281,17 @@ static void load_drivers(struct btd_adapter *adapter)
 		probe_driver(adapter, l->data);
 }
 
+/*触发adapter_probe*/
 static void probe_profile(struct btd_profile *profile, void *data/*btd_adapter类型*/)
 {
 	struct btd_adapter *adapter = data;/*参数为adapter*/
 	int err;
 
 	if (profile->adapter_probe == NULL)
-		/*跳过没有回调的*/
+		/*跳过没有adapter_probe回调的*/
 		return;
 
+	/*触发adapter_probe回调，检查此adapter是否可应用此profiles*/
 	err = profile->adapter_probe(profile, adapter);
 	if (err < 0) {
 		/*probe失败*/
@@ -5290,12 +5304,13 @@ static void probe_profile(struct btd_profile *profile, void *data/*btd_adapter�
 	adapter->profiles = g_slist_prepend(adapter->profiles, profile);
 }
 
+/*为adapter添加profile*/
 void adapter_add_profile(struct btd_adapter *adapter, gpointer p/*btd_profile结构体类型*/)
 {
 	struct btd_profile *profile = p;
 
 	if (!adapter->initialized)
-		return;
+		return;/*此adapter还未初始化，不处理*/
 
 	probe_profile(profile, adapter);
 
@@ -5307,13 +5322,16 @@ void adapter_remove_profile(struct btd_adapter *adapter, gpointer p)
 	struct btd_profile *profile = p;
 
 	if (!adapter->initialized)
-		return;
+		return;/*adapter未初始化，跳过*/
 
+	/*profile需要删除，如果有device_remove，则针对adapter->devices上所有device调用*/
 	if (profile->device_remove)
 		g_slist_foreach(adapter->devices, device_remove_profile, p);
 
+	/*profile自adapter上移除*/
 	adapter->profiles = g_slist_remove(adapter->profiles, profile);
 
+	/*触发移除函数*/
 	if (profile->adapter_remove)
 		profile->adapter_remove(profile, adapter);
 }
@@ -5333,7 +5351,8 @@ static void device_added_drivers(struct btd_adapter *adapter,
 	}
 }
 
-/*针对所有已注册的adapter_driver,调用device_removed回调*/
+/*adapter关联的设备device需要删除，
+ * 针对所有已注册的adapter_driver,调用device_removed回调*/
 static void device_removed_drivers(struct btd_adapter *adapter,
 						struct btd_device *device)
 {
@@ -5798,6 +5817,7 @@ void adapter_auto_connect_add(struct btd_adapter *adapter,
 	bdaddr_type = btd_device_get_bdaddr_type(device);
 
 	if (bdaddr_type == BDADDR_BREDR) {
+		/*BR/EDR不支持auto-connection*/
 		DBG("auto-connection feature is not available for BR/EDR");
 		return;
 	}
@@ -5986,6 +6006,7 @@ static void remove_driver(gpointer data, gpointer user_data)
 	struct btd_adapter_driver *driver = data;
 	struct btd_adapter *adapter = user_data;
 
+	/*解除driver与adapter的关联*/
 	if (driver->remove)
 		driver->remove(adapter);
 }
@@ -6001,6 +6022,7 @@ static void remove_profile(gpointer data, gpointer user_data)
 
 static void unload_drivers(struct btd_adapter *adapter)
 {
+	/*移除此adapter关联的所有driver*/
 	g_slist_foreach(adapter->drivers, remove_driver, adapter);
 	g_slist_free(adapter->drivers);
 	adapter->drivers = NULL;
@@ -9482,9 +9504,10 @@ static int adapter_register(struct btd_adapter *adapter)
 	/*设置adapter path*/
 	adapter->path = g_strdup_printf("/org/bluez/hci%d", adapter->dev_id);
 
+	/*用于管理adapter*/
 	if (!g_dbus_register_interface(dbus_conn,
 					adapter->path, ADAPTER_INTERFACE,
-					adapter_methods, NULL,
+					adapter_methods/*注册adapter服务接口*/, NULL,
 					adapter_properties, adapter,
 					adapter_free)) {
 		btd_error(adapter->dev_id,
@@ -9690,6 +9713,7 @@ static void connected_callback(uint16_t index, uint16_t length,
 	eir_data_free(&eir_data);
 }
 
+/*遍历所有driver,用于resume通知关联的adapter*/
 static void controller_resume_notify(struct btd_adapter *adapter)
 {
 	GSList *l;

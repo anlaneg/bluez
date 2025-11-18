@@ -9,7 +9,9 @@
  */
 
 typedef enum {
+	/*刚创建*/
 	BTD_SERVICE_STATE_UNAVAILABLE, /* Not probed */
+	/*执行完device_probe*/
 	BTD_SERVICE_STATE_DISCONNECTED,
 	BTD_SERVICE_STATE_CONNECTING,
 	BTD_SERVICE_STATE_CONNECTED,
