@@ -120,8 +120,8 @@ static void pb_adv_send(struct pb_adv_session *session,
 	if (session->loop) {
 		rx = l_new(struct idle_rx, 1);
 		rx->session = session->loop;
-		rx->len = len;
-		memcpy(rx->data, data, len);
+		rx->len = len;/*长度*/
+		memcpy(rx->data, data, len);/*内容*/
 
 		l_idle_oneshot(idle_rx_adv, rx, NULL);
 	} else
@@ -187,6 +187,7 @@ static void send_adv_segs(struct pb_adv_session *session, const uint8_t *data,
 	}
 }
 
+/*比对指针相等*/
 static bool session_match (const void *a, const void *b)
 {
 	return a == b;

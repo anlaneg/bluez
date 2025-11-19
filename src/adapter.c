@@ -9504,7 +9504,7 @@ static int adapter_register(struct btd_adapter *adapter)
 	/*设置adapter path*/
 	adapter->path = g_strdup_printf("/org/bluez/hci%d", adapter->dev_id);
 
-	/*用于管理adapter*/
+	/*注册ADAPTER_INTERFACE接口,用于管理adapter*/
 	if (!g_dbus_register_interface(dbus_conn,
 					adapter->path, ADAPTER_INTERFACE,
 					adapter_methods/*注册adapter服务接口*/, NULL,

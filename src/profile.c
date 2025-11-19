@@ -687,7 +687,7 @@ struct ext_profile {
 };
 
 struct ext_io {
-	struct ext_profile *ext;
+	struct ext_profile *ext;/*其关联的ext_profile*/
 	int proto;
 	GIOChannel *io;
 	guint io_id;
@@ -1575,11 +1575,12 @@ static struct ext_io *find_connection(struct ext_profile *ext,
 {
 	GSList *l;
 
+
 	for (l = ext->conns; l != NULL; l = g_slist_next(l)) {
 		struct ext_io *conn = l->data;
 
 		if (conn->device == dev)
-			return conn;
+			return conn;/*遍历所有conns并查找与之匹配的device*/
 	}
 
 	return NULL;
@@ -1766,7 +1767,7 @@ static int ext_connect_dev(struct btd_service *service)
 
 	conn = find_connection(ext, dev);
 	if (conn)
-		return -EALREADY;
+		return -EALREADY;/*此连接已存在*/
 
 	adapter = device_get_adapter(dev);
 
@@ -1786,6 +1787,7 @@ static int ext_connect_dev(struct btd_service *service)
 	if (err < 0)
 		goto failed;
 
+	/*初始化conn*/
 	conn->adapter = btd_adapter_ref(adapter);
 	conn->device = btd_device_ref(dev);
 	conn->service = btd_service_ref(service);

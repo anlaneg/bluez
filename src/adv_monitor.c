@@ -1798,6 +1798,7 @@ struct btd_adv_monitor_manager *btd_adv_monitor_manager_create(
 	if (!manager)
 		return NULL;
 
+	/*注册org.bluez.AdvertisementMonitorManager1接口,管理AdvertisementMonitor*/
 	if (!g_dbus_register_interface(btd_get_dbus_connection(),
 					adapter_get_path(manager->adapter),
 					ADV_MONITOR_MGR_INTERFACE,

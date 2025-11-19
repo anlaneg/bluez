@@ -289,7 +289,7 @@ int btd_service_connect(struct btd_service *service)
 	err = profile->connect(service);
 	if (err == 0) {
 		service->initiator = true;
-		change_state(service, BTD_SERVICE_STATE_CONNECTING, 0);
+		change_state(service, BTD_SERVICE_STATE_CONNECTING, 0);/*变更为connecting状态*/
 		return 0;
 	}
 

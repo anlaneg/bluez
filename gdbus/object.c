@@ -46,7 +46,7 @@ struct generic_data {
 	unsigned int refcount;
 	DBusConnection *conn;
 	char *path;
-	GSList *interfaces;
+	GSList *interfaces;/*记录注册的所有接口*/
 	GSList *objects;
 	GSList *added;
 	GSList *removed;
@@ -56,10 +56,20 @@ struct generic_data {
 	struct generic_data *parent;
 };
 
+/*D-Bus 接口（Interface）的核心作用就是 “定义一组相关的方法（Method）、信号（Signal）和属性（Property）”
+ * 接口是 D-Bus 服务端与客户端的 “功能契约”，其中 “方法” 是客户端主动调用的核心功能，
+ * 通常会围绕一个业务模块（如蓝牙设备、网络接口）组织一组相关方法，形成完整的功能集合。
+ *
+ * 简单说：一个 D-Bus 接口 ≈ 一个 “API 集合”，方法是这个集合中最核心的 “可调用功能”，
+ * 与信号、属性配合实现完整的交互逻辑。*/
 struct interface_data {
-	char *name;
-	const GDBusMethodTable *methods;
+	char *name;/*接口名称*/
+	/*客户端主动调用，服务端执行并返回结果*/
+	const GDBusMethodTable *methods;/*对应的一组方法*/
+	/*服务端主动推送，通知客户端状态变化*/
 	const GDBusSignalTable *signals;
+	/*属性,接口的状态数据.
+	 * 客户端通过 Properties.Get 读取、Properties.Set 修改*/
 	const GDBusPropertyTable *properties;
 	GSList *pending_prop;
 	void *user_data;
@@ -672,6 +682,7 @@ static void emit_interfaces_added(struct generic_data *data)
 	g_dbus_send_unref(data->conn, signal);
 }
 
+/*遍历interfaces列表,检查名称匹配的interface_data*/
 static struct interface_data *find_interface(GSList *interfaces,
 						const char *name)
 {
@@ -1134,31 +1145,34 @@ static DBusHandlerResult generic_message(DBusConnection *connection,
 	const char *interface;
 
 	g_dbus_debug("[%s:%s] > %s.%s [#%d]",
-			dbus_message_get_sender(message),
-			dbus_message_type_string(message),
-			dbus_message_get_interface(message),
-			dbus_message_get_member(message),
-			dbus_message_get_serial(message));
+			dbus_message_get_sender(message),/*获取发送当前 D-Bus 消息的发送方唯一标识（即发送方的 D-Bus 名称）*/
+			dbus_message_type_string(message),/*将 D-Bus 消息的类型（枚举值）转换为可读字符串（便于调试 / 日志）*/
+			dbus_message_get_interface(message),/*获取当前 D-Bus 消息对应的接口名（即消息关联的功能契约）*/
+			dbus_message_get_member(message),/*获取当前 D-Bus 消息对应的成员名（方法名或信号名）*/
+			dbus_message_get_serial(message));/*获取当前 D-Bus 消息的唯一序列号（D-Bus 总线分配，用于消息追踪 / 关联）*/
 
 	interface = dbus_message_get_interface(message);
 
+	/*利用接口名称查询interface_data*/
 	iface = find_interface(data->interfaces, interface);
 	if (iface == NULL)
+		/*不能处理此接口*/
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 
 	for (method = iface->methods; method &&
 			method->name && method->function; method++) {
 
+		/*检查message调用的是否为此接口下的此方法*/
 		if (dbus_message_is_method_call(message, iface->name,
 							method->name) == FALSE)
-			continue;
+			continue;/*跳过非匹配方法*/
 
 		if (check_experimental(method->flags,
 					G_DBUS_METHOD_FLAG_EXPERIMENTAL))
-			return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+			return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;/*此方法标记有experimental,且未开启,跳过*/
 
 		if (check_testing(method->flags, G_DBUS_METHOD_FLAG_TESTING))
-			return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+			return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;/*此方法标记有TESTING,且未开启,跳过*/
 
 		if (g_dbus_args_have_signature(method->in_args,
 							message) == FALSE)
@@ -1168,6 +1182,7 @@ static DBusHandlerResult generic_message(DBusConnection *connection,
 						iface->user_data) == TRUE)
 			return DBUS_HANDLER_RESULT_HANDLED;
 
+		/*处理dbus消息*/
 		return process_message(connection, message, method,
 							iface->user_data);
 	}
@@ -1176,8 +1191,8 @@ static DBusHandlerResult generic_message(DBusConnection *connection,
 }
 
 static DBusObjectPathVTable generic_table = {
-	.unregister_function	= generic_unregister,
-	.message_function	= generic_message,
+	.unregister_function	= generic_unregister,/*对象路径被注销时的回调（如释放资源）*/
+	.message_function	= generic_message,/*处理客户端方法调用的回调*/
 };
 
 static const GDBusMethodTable introspect_methods[] = {
@@ -1272,9 +1287,10 @@ static const GDBusSignalTable manager_signals[] = {
 	{ }
 };
 
+/*注册接口(接口名称及方法名唯一确定一个回调,接口名称可以解决版本问题,例如:org.bluez.Device1)*/
 static gboolean add_interface(struct generic_data *data,
-				const char *name,
-				const GDBusMethodTable *methods,
+				const char *name/*接口名称*/,
+				const GDBusMethodTable *methods/*接口下的一组方法*/,
 				const GDBusSignalTable *signals,
 				const GDBusPropertyTable *properties,
 				void *user_data,
@@ -1288,7 +1304,7 @@ static gboolean add_interface(struct generic_data *data,
 	for (method = methods; method && method->name; method++) {
 		if (!check_experimental(method->flags,
 					G_DBUS_METHOD_FLAG_EXPERIMENTAL))
-			goto done;/*跳过实验性方法*/
+			goto done;
 
 		if (!check_testing(method->flags, G_DBUS_METHOD_FLAG_TESTING))
 			goto done;
@@ -1312,9 +1328,10 @@ static gboolean add_interface(struct generic_data *data,
 	}
 
 	/* Nothing to register */
-	return FALSE;
+	return FALSE;/*以上均有标记,不能注册*/
 
 done:
+	/*初始化interface_data*/
 	iface = g_new0(struct interface_data, 1);
 	iface->name = g_strdup(name);
 	iface->methods = methods;
@@ -1323,7 +1340,7 @@ done:
 	iface->user_data = user_data;
 	iface->destroy = destroy;
 
-	data->interfaces = g_slist_append(data->interfaces, iface);
+	data->interfaces = g_slist_append(data->interfaces, iface);/*添加interface_data*/
 	if (data->parent == NULL)
 		return TRUE;
 
@@ -1334,8 +1351,8 @@ done:
 	return TRUE;
 }
 
-static struct generic_data *object_path_ref(DBusConnection *connection,
-							const char *path)
+static struct generic_data *object_path_ref(DBusConnection *connection/*D-Bus 连接（如与系统总线的连接）*/,
+							const char *path/*要注册的对象路径*/)
 {
 	struct generic_data *data;
 
@@ -1354,8 +1371,9 @@ static struct generic_data *object_path_ref(DBusConnection *connection,
 
 	data->introspect = g_strdup(DBUS_INTROSPECT_1_0_XML_DOCTYPE_DECL_NODE "<node></node>");
 
+	/*在 D-Bus 连接上注册一个‘对象路径’，并绑定该路径对应的接口方法、信号、属性的处理逻辑*/
 	if (!dbus_connection_register_object_path(connection, path,
-						&generic_table, data)) {
+						&generic_table/*回调函数表（方法/信号/属性的处理逻辑）*/, data/*传递给回调函数的自定义数据*/)) {
 		dbus_connection_unref(data->conn);
 		g_free(data->path);
 		g_free(data->introspect);
@@ -1439,7 +1457,7 @@ static gboolean check_signal(DBusConnection *conn, const char *path,
 /*在 D-Bus 连接上注册一个特定的对象路径（Object Path）下的指定接口（Interface），
  * 从而使该接口提供的功能（方法、信号和属性）能够被其他 D-Bus 客户端访问和调用。*/
 gboolean g_dbus_register_interface(DBusConnection *connection,
-					const char *path, const char *name,
+					const char *path/*要注册的对象路径*/, const char *name/*接口名称*/,
 					const GDBusMethodTable *methods,
 					const GDBusSignalTable *signals,
 					const GDBusPropertyTable *properties,
@@ -1458,15 +1476,18 @@ gboolean g_dbus_register_interface(DBusConnection *connection,
 		return FALSE;
 	}
 
+	/*针对此object path创建generic_data,并绑定此object path的处理逻辑*/
 	data = object_path_ref(connection, path);
 	if (data == NULL)
 		return FALSE;
 
 	if (find_interface(data->interfaces, name)) {
+		/*此接口已存在*/
 		object_path_unref(connection, path);
 		return FALSE;
 	}
 
+	/*添加接口及其对应的methods,signals,properties*/
 	if (!add_interface(data, name, methods, signals, properties, user_data,
 								destroy)) {
 		object_path_unref(connection, path);
@@ -1475,6 +1496,7 @@ gboolean g_dbus_register_interface(DBusConnection *connection,
 
 	if (properties != NULL && !find_interface(data->interfaces,
 						DBUS_INTERFACE_PROPERTIES))
+		/*如果DBUS_INTERFACE_PROPERTIES接口也不存在,增加接口*/
 		add_interface(data, DBUS_INTERFACE_PROPERTIES,
 				properties_methods, properties_signals, NULL,
 				data, NULL);
@@ -1961,6 +1983,7 @@ gboolean g_dbus_attach_object_manager(DBusConnection *connection)
 {
 	struct generic_data *data;
 
+	/*创建'/'对象*/
 	data = object_path_ref(connection, "/");
 	if (data == NULL)
 		return FALSE;

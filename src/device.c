@@ -2782,6 +2782,20 @@ resolve_services:
 	return NULL;
 }
 
+/*通过dbus实现设备连接
+ * #0  dev_connect (conn=0x57b417a74f50, msg=0x57b417ab1cc0, user_data=0x57b417a9bf10) at src/device.c:2788
+#1  0x000057b3f3883fe7 in process_message (connection=0x57b417a74f50, message=0x57b417ab1cc0, method=0x57b3f3961ba8 <device_methods+40>, iface_user_data=0x57b417a9bf10) at gdbus/object.c:295
+#2  0x000057b3f388605c in generic_message (connection=0x57b417a74f50, message=0x57b417ab1cc0, user_data=0x57b417a9a290) at gdbus/object.c:1171
+#3  0x000070ccf3583554 in dbus_connection_dispatch () from target:/lib/x86_64-linux-gnu/libdbus-1.so.3
+#4  0x000057b3f388154c in message_dispatch (data=0x57b417a74f50) at gdbus/mainloop.c:59
+#5  0x000070ccf361749e in ?? () from target:/lib/x86_64-linux-gnu/libglib-2.0.so.0
+#6  0x000070ccf3676737 in ?? () from target:/lib/x86_64-linux-gnu/libglib-2.0.so.0
+#7  0x000070ccf3617f87 in g_main_loop_run () from target:/lib/x86_64-linux-gnu/libglib-2.0.so.0
+#8  0x000057b3f38d515f in mainloop_run () at src/shared/mainloop-glib.c:65
+#9  0x000057b3f38d57bd in mainloop_run_with_signal (func=0x57b3f38059e2 <signal_callback>, user_data=0x0) at src/shared/mainloop-notify.c:201
+#10 0x000057b3f380606b in main (argc=1, argv=0x7ffefa0648e8) at src/main.c:1573
+(gdb)
+ * */
 static DBusMessage *dev_connect(DBusConnection *conn, DBusMessage *msg,
 							void *user_data)
 {
@@ -2832,6 +2846,7 @@ static DBusMessage *dev_connect(DBusConnection *conn, DBusMessage *msg,
 		return NULL;
 	}
 
+	/*BDADDR_BREDR地址类型连接*/
 	return connect_profiles(dev, bdaddr_type, msg, NULL);
 }
 
@@ -3292,6 +3307,21 @@ static void bonding_request_free(struct bonding_req *bonding)
 	g_free(bonding);
 }
 
+/*通过dbus调用设备配对
+ * (gdb) bt
+#0  pair_device (conn=0x57b417a74f50, msg=0x57b417a92520, data=0x57b417ab5300) at src/device.c:3308
+#1  0x000057b3f3883fe7 in process_message (connection=0x57b417a74f50, message=0x57b417a92520, method=0x57b3f3961c20 <device_methods+160>, iface_user_data=0x57b417ab5300) at gdbus/object.c:295
+#2  0x000057b3f388605c in generic_message (connection=0x57b417a74f50, message=0x57b417a92520, user_data=0x57b417ab5710) at gdbus/object.c:1171
+#3  0x000070ccf3583554 in dbus_connection_dispatch () from target:/lib/x86_64-linux-gnu/libdbus-1.so.3
+#4  0x000057b3f388154c in message_dispatch (data=0x57b417a74f50) at gdbus/mainloop.c:59
+#5  0x000070ccf361749e in ?? () from target:/lib/x86_64-linux-gnu/libglib-2.0.so.0
+#6  0x000070ccf3676737 in ?? () from target:/lib/x86_64-linux-gnu/libglib-2.0.so.0
+#7  0x000070ccf3617f87 in g_main_loop_run () from target:/lib/x86_64-linux-gnu/libglib-2.0.so.0
+#8  0x000057b3f38d515f in mainloop_run () at src/shared/mainloop-glib.c:65
+#9  0x000057b3f38d57bd in mainloop_run_with_signal (func=0x57b3f38059e2 <signal_callback>, user_data=0x0) at src/shared/mainloop-notify.c:201
+#10 0x000057b3f380606b in main (argc=1, argv=0x7ffefa0648e8) at src/main.c:1573
+(gdb)
+ * */
 static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 								void *data)
 {
@@ -4873,6 +4903,7 @@ static struct btd_device *device_new(struct btd_adapter *adapter,
 
 	DBG("Creating device %s", device->path);
 
+	/*注册"org.bluez.Device1"接口,用于管理设备*/
 	if (g_dbus_register_interface(dbus_conn,
 					device->path, DEVICE_INTERFACE,
 					device_methods, device_signals,
@@ -6721,7 +6752,7 @@ void btd_device_set_temporary(struct btd_device *device, bool temporary)
 		return;
 
 	if (device->temporary == temporary)
-		return;
+		return;/*两者相等 ,直接返回*/
 
 	if (device_address_is_private(device))
 		return;
