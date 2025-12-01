@@ -51,8 +51,8 @@
 static GSList *devices = NULL;
 
 struct control {
-	struct btd_device *dev;
-	struct avctp *session;
+	struct btd_device *dev;/*关联的device*/
+	struct avctp *session;/*关联的session*/
 	struct btd_service *target;
 	struct btd_service *remote;
 	unsigned int avctp_id;
@@ -80,9 +80,9 @@ static void state_changed(struct btd_device *dev, avctp_state_t old_state,
 		break;
 	case AVCTP_STATE_CONNECTING:
 		if (control->session)
-			break;
+			break;/*session已设置*/
 
-		control->session = avctp_get(dev);
+		control->session = avctp_get(dev);/*设置关联的session*/
 
 		break;
 	case AVCTP_STATE_CONNECTED:
@@ -103,6 +103,7 @@ int control_connect(struct btd_service *service)
 	if (control->session)
 		return -EALREADY;
 
+	/*创建avctp session*/
 	control->session = avctp_connect(control->dev);
 	if (!control->session)
 		return -EIO;
@@ -129,6 +130,7 @@ static DBusMessage *key_pressed(DBusConnection *conn, DBusMessage *msg,
 	int err;
 
 	if (!control->session)
+		/*session未初始化*/
 		return btd_error_not_connected(msg);
 
 	if (!control->target)
@@ -302,6 +304,7 @@ static struct control *find_control(struct btd_device *dev)
 static struct control *control_init(struct btd_service *service)
 {
 	struct control *control;
+	/*取此服务关联的device*/
 	struct btd_device *dev = btd_service_get_device(service);
 
 	control = find_control(dev);
@@ -310,6 +313,7 @@ static struct control *control_init(struct btd_service *service)
 
 	control = g_new0(struct control, 1);
 
+	/*注册接口org.bluez.MediaControl1*/
 	if (!g_dbus_register_interface(btd_get_dbus_connection(),
 					device_get_path(dev),
 					AUDIO_CONTROL_INTERFACE,
@@ -324,7 +328,7 @@ static struct control *control_init(struct btd_service *service)
 							device_get_path(dev));
 
 	control->dev = dev;
-	control->avctp_id = avctp_add_state_cb(dev, state_changed, control);
+	control->avctp_id = avctp_add_state_cb(dev/*指明device*/, state_changed, control);
 	devices = g_slist_prepend(devices, control);
 
 	return control;

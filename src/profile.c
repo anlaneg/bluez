@@ -645,13 +645,14 @@
 
 struct ext_io;
 
+/*外部profile*/
 struct ext_profile {
 	struct btd_profile p;
 
 	char *name;/*profile名称*/
-	char *owner;
-	char *path;
-	char *uuid;
+	char *owner;/*profile owner名称，例如发送注册external profile的发送者*/
+	char *path;/*dbus obj path*/
+	char *uuid;/*profile对应的uuid*/
 	char *service;/*service对应的uuid*/
 	char *role;/*角色:“client"或者"server"*/
 
@@ -659,7 +660,7 @@ struct ext_profile {
 	char *(*get_record)(struct ext_profile *ext, struct ext_io *l2cap,
 							struct ext_io *rfcomm);
 
-	char *remote_uuid;
+	char *remote_uuid;/*一般与uuid相等，部分profile存在两端不一样的情况，看defaults*/
 
 	guint id;
 
@@ -667,8 +668,8 @@ struct ext_profile {
 	BtIOSecLevel sec_level;
 	bool authorize;
 
-	bool enable_client;/*开启client*/
-	bool enable_server;/*开启服务*/
+	bool enable_client;/*开启client端*/
+	bool enable_server;/*开启server端*/
 
 	int local_psm;/*本端使用的psm,如果<0,则为0*/
 	int local_chan;
@@ -754,7 +755,7 @@ void btd_profile_foreach(void (*func)(struct btd_profile *p, void *data),
 	}
 }
 
-/*通过uuid查找btd_profile*/
+/*通过uuid查找btd_profile（只比对local uuid)*/
 static struct btd_profile *btd_profile_find_uuid(const char *uuid)
 {
 	GSList *l, *next;
@@ -781,7 +782,7 @@ static struct btd_profile *btd_profile_find_uuid(const char *uuid)
 	return NULL;
 }
 
-/*注册profiles*/
+/*注册内部profile*/
 int btd_profile_register(struct btd_profile *profile)
 {
 	if (profile->experimental && !(g_dbus_get_flags() &
@@ -803,9 +804,9 @@ int btd_profile_register(struct btd_profile *profile)
 	return 0;
 }
 
+/*移除profile注册*/
 void btd_profile_unregister(struct btd_profile *profile)
 {
-	/*移除此profile注册*/
 	profiles = g_slist_remove(profiles, profile);
 }
 
@@ -1276,6 +1277,7 @@ static void ext_confirm(GIOChannel *io, gpointer user_data)
 	DBG("incoming connect from %s", addr);
 
 	if (!btd_adapter_is_uuid_allowed(adapter_find(&src), uuid)) {
+		/*此adapter不容许此uuid,忽略连接请求*/
 		info("UUID %s is not allowed. Ignoring the connection", uuid);
 		return;
 	}
@@ -1318,6 +1320,7 @@ static void ext_direct_connect(GIOChannel *io, GError *err, gpointer user_data)
 	}
 
 	if (!btd_adapter_is_uuid_allowed(adapter_find(&src), uuid)) {
+		/*此adapter不容许此uuid,忽略连接请求*/
 		info("UUID %s is not allowed. Ignoring the connection", uuid);
 		return;
 	}
@@ -2204,12 +2207,13 @@ static void ext_set_defaults(struct ext_profile *ext)
 	ext->enable_server = true;
 	ext->remote_uuid = NULL;
 
+	/*内置了一些已知的设置，利用它填充ext->uuid*/
 	for (i = 0; i < G_N_ELEMENTS(defaults); i++) {
 		struct default_settings *settings = &defaults[i];
 		const char *remote_uuid;
 
 		if (strcasecmp(ext->uuid, settings->uuid) != 0)
-			continue;/*此ext profile与此settings不匹配*/
+			continue;/*此ext profile与此settings不匹配,忽略*/
 
 		/*如果settings有remote_uuid，使用settings设置，否则使用uuid*/
 		if (settings->remote_uuid)
@@ -2253,6 +2257,7 @@ static void ext_set_defaults(struct ext_profile *ext)
 	}
 }
 
+/*通过dbus消息填充external profile*/
 static int parse_ext_opt(struct ext_profile *ext, const char *key,
 							DBusMessageIter *value)
 {
@@ -2307,11 +2312,11 @@ static int parse_ext_opt(struct ext_profile *ext, const char *key,
 		ext->role = g_strdup(str);
 
 		if (g_str_equal(ext->role, "client")) {
-			/*角色为client*/
+			/*指定角色为client*/
 			ext->enable_server = false;
 			ext->enable_client = true;
 		} else if (g_str_equal(ext->role, "server")) {
-			/*角色为server*/
+			/*指定角色为server*/
 			ext->enable_server = true;
 			ext->enable_client = false;
 		}
@@ -2378,7 +2383,7 @@ static void set_service(struct ext_profile *ext)
 	}
 }
 
-/*创建指定uuid的外部profile*/
+/*创建并注册指定uuid的external profile*/
 static struct ext_profile *create_ext(const char *owner, const char *path,
 					const char *uuid/*指明的profile uuid*/,
 					DBusMessageIter *opts)
@@ -2409,6 +2414,7 @@ static struct ext_profile *create_ext(const char *owner, const char *path,
 		dbus_message_iter_next(&entry);
 		dbus_message_iter_recurse(&entry, &value);
 
+		/*利用dbus消息填充external profile*/
 		if (parse_ext_opt(ext, key, &value) < 0)
 			error("Invalid value for profile option %s", key);
 
@@ -2419,7 +2425,7 @@ static struct ext_profile *create_ext(const char *owner, const char *path,
 		set_service(ext);
 
 	if (ext->enable_server && !(ext->record || ext->get_record))
-		ext->get_record = get_generic_record;
+		ext->get_record = get_generic_record;/*如果开启了server端，有必要使用此回调*/
 
 	if (!ext->name)
 		ext->name = g_strdup_printf("%s%s/%s", owner, path, uuid);
@@ -2487,6 +2493,7 @@ static void remove_ext(struct ext_profile *ext)
 	g_free(ext);
 }
 
+/*用于dbus连接断开时，释放external profile*/
 static void ext_exited(DBusConnection *conn, void *user_data)
 {
 	struct ext_profile *ext = user_data;
@@ -2510,19 +2517,20 @@ static DBusMessage *register_profile(DBusConnection *conn,
 
 	dbus_message_iter_init(msg, &args);
 
-	dbus_message_iter_get_basic(&args, &path);
+	dbus_message_iter_get_basic(&args, &path);/*取得path*/
 	dbus_message_iter_next(&args);
 
+	/*通过owner,path查找ext_profile*/
 	ext = find_ext_profile(sender, path);
 	if (ext)
 		/*此external profile已存在*/
 		return btd_error_already_exists(msg);
 
-	dbus_message_iter_get_basic(&args, &uuid);
+	dbus_message_iter_get_basic(&args, &uuid);/*取得uuid*/
 	dbus_message_iter_next(&args);
 
 	if (btd_profile_find_uuid(uuid)) {
-		/*此profile对应的uuid已注册*/
+		/*此uuid对应的profile已注册*/
 		warn("%s tried to register %s which is already registered",
 								sender, uuid);
 		return btd_error_not_permitted(msg, "UUID already registered");
@@ -2533,11 +2541,12 @@ static DBusMessage *register_profile(DBusConnection *conn,
 
 	dbus_message_iter_recurse(&args, &opts);
 
-	/*注册外部profile*/
+	/*注册external profile*/
 	ext = create_ext(sender, path, uuid, &opts);
 	if (!ext)
 		return btd_error_invalid_args(msg);
 
+	/*连接断开时，释放此external profile*/
 	ext->id = g_dbus_add_disconnect_watch(conn, sender, ext_exited, ext,
 									NULL);
 
@@ -2580,6 +2589,7 @@ static const GDBusMethodTable methods[] = {
 	{ }
 };
 
+/*通过uuid,name查找btd_profile_custom_property*/
 static struct btd_profile_custom_property *find_custom_prop(const char *uuid,
 							const char *name)
 {
@@ -2598,6 +2608,7 @@ static struct btd_profile_custom_property *find_custom_prop(const char *uuid,
 	return NULL;
 }
 
+/*创建并添加btd_profile_custom_property*/
 bool btd_profile_add_custom_prop(const char *uuid, const char *type,
 					const char *name,
 					btd_profile_prop_exists exists,
@@ -2608,8 +2619,9 @@ bool btd_profile_add_custom_prop(const char *uuid, const char *type,
 
 	prop = find_custom_prop(uuid, name);
 	if (prop != NULL)
-		return false;
+		return false;/*已存在*/
 
+	/*创建并添加*/
 	prop = g_new0(struct btd_profile_custom_property, 1);
 
 	prop->uuid = strdup(uuid);
@@ -2624,6 +2636,7 @@ bool btd_profile_add_custom_prop(const char *uuid, const char *type,
 	return true;
 }
 
+/*用于释放btd_profile_custom_property*/
 static void free_property(gpointer data)
 {
 	struct btd_profile_custom_property *p = data;
@@ -2639,10 +2652,12 @@ bool btd_profile_remove_custom_prop(const char *uuid, const char *name)
 {
 	struct btd_profile_custom_property *prop;
 
+	/*通过uuid,name查找btd_profile_custom_property*/
 	prop = find_custom_prop(uuid, name);
 	if (prop == NULL)
 		return false;
 
+	/*自custom_props中移除查找到的prop*/
 	custom_props = g_slist_remove(custom_props, prop);
 	free_property(prop);
 
@@ -2651,10 +2666,10 @@ bool btd_profile_remove_custom_prop(const char *uuid, const char *name)
 
 void btd_profile_init(void)
 {
-	/*管理external profile*/
+	/*管理external profile接口*/
 	g_dbus_register_interface(btd_get_dbus_connection(),
 				"/org/bluez", "org.bluez.ProfileManager1",
-				methods, NULL, NULL, NULL, NULL);
+				methods/*注册解注册external profile*/, NULL, NULL, NULL, NULL);
 }
 
 void btd_profile_cleanup(void)

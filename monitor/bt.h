@@ -553,8 +553,8 @@ struct bt_hci_iso_data_start {
 } __attribute__ ((packed));
 
 struct bt_hci_evt_hdr {
-	uint8_t  evt;
-	uint8_t  plen;
+	uint8_t  evt;/*event编号*/
+	uint8_t  plen;/*参数长度*/
 } __attribute__ ((packed));
 
 #define BT_HCI_CMD_NOP				0x0000
@@ -3713,9 +3713,9 @@ struct bt_hci_evt_le_conn_complete {
 struct bt_hci_evt_le_adv_report {
 	uint8_t  num_reports;
 	uint8_t  event_type;
-	uint8_t  addr_type;
+	uint8_t  addr_type;/*地址类型，例如：0x0指Public Device Address*/
 	uint8_t  addr[6];
-	uint8_t  data_len;
+	uint8_t  data_len;/*data长度*/
 	uint8_t  data[0];
 } __attribute__ ((packed));
 

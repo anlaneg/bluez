@@ -302,12 +302,13 @@ static DBusHandlerResult process_message(DBusConnection *connection,
 {
 	DBusMessage *reply;
 
+	/*触发方法*/
 	reply = method->function(connection, message, iface_user_data);
 
 	if (method->flags & G_DBUS_METHOD_FLAG_NOREPLY ||
 					dbus_message_get_no_reply(message)) {
 		if (reply != NULL)
-			dbus_message_unref(reply);
+			dbus_message_unref(reply);/*不响应消息*/
 		return DBUS_HANDLER_RESULT_HANDLED;
 	}
 
@@ -319,6 +320,7 @@ static DBusHandlerResult process_message(DBusConnection *connection,
 	if (reply == NULL)
 		return DBUS_HANDLER_RESULT_NEED_MEMORY;
 
+	/*发送响应*/
 	g_dbus_send_message(connection, reply);
 
 	return DBUS_HANDLER_RESULT_HANDLED;
@@ -1951,6 +1953,7 @@ void g_dbus_emit_property_changed_full(DBusConnection *connection,
 		add_pending(data);
 }
 
+/*通知客户端 “属性值已变更”*/
 void g_dbus_emit_property_changed(DBusConnection *connection, const char *path,
 				const char *interface, const char *name)
 {

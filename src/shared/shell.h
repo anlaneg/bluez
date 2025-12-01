@@ -31,18 +31,18 @@ typedef void (*bt_shell_menu_pre_run_t) (const struct bt_shell_menu *menu);
 
 struct bt_shell_menu_entry {
 	const char *cmd;/*命令标识*/
-	const char *arg;
-	bt_shell_menu_cb_t func;
-	const char *desc;
+	const char *arg;/*命令参数样式*/
+	bt_shell_menu_cb_t func;/*命令执行回调*/
+	const char *desc;/*命令描述信息*/
 	bt_shell_menu_gen_t gen;
 	bt_shell_menu_disp_t disp;
 	bt_shell_menu_exists_t exists;
 };
 
 struct bt_shell_menu {
-	const char *name;
-	const char *desc;
-	bt_shell_menu_pre_run_t pre_run;
+	const char *name;/*菜单名*/
+	const char *desc;/*描述信息*/
+	bt_shell_menu_pre_run_t pre_run;/*初始化函数*/
 	const struct bt_shell_menu_entry entries[];
 };
 

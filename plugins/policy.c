@@ -61,6 +61,7 @@ static const char *default_reconnect[] = {
 			A2DP_SINK_UUID, NULL };
 static char **reconnect_uuids = NULL;
 
+/*默认尝试次数*/
 static const size_t default_attempts = 7;
 static size_t reconnect_attempts = 0;
 
@@ -620,6 +621,7 @@ static void reconnect_reset(struct reconnect_data *reconnect)
 	}
 }
 
+/*检查此uuid是否配置了重连*/
 static bool reconnect_match(const char *uuid)
 {
 	char **str;
@@ -763,6 +765,7 @@ static void service_cb(struct btd_service *service,
 	DBG("Added %s reconnect %u", profile->name, reconnect->reconnect);
 }
 
+/*执行重连*/
 static bool reconnect_timeout(gpointer data)
 {
 	struct reconnect_data *reconnect = data;
@@ -776,6 +779,7 @@ static bool reconnect_timeout(gpointer data)
 	/* Mark any reconnect on resume as handled */
 	reconnect->on_resume = false;
 
+	/*执行连接到服务*/
 	err = btd_device_connect_services(reconnect->dev, reconnect->services);
 	if (err < 0) {
 		error("Reconnecting services failed: %s (%d)",
@@ -784,7 +788,7 @@ static bool reconnect_timeout(gpointer data)
 		return FALSE;
 	}
 
-	reconnect->attempt++;
+	reconnect->attempt++;/*重连次数增加*/
 
 	return FALSE;
 }
@@ -796,6 +800,7 @@ static void reconnect_set_timer(struct reconnect_data *reconnect, int timeout)
 	reconnect->active = true;
 
 	if (reconnect->attempt < reconnect_intervals_len)
+		/*未达到重连尝试极限，获取本次重连间隔*/
 		interval_timeout = reconnect_intervals[reconnect->attempt];
 
 	if (timeout < 0)
@@ -804,7 +809,7 @@ static void reconnect_set_timer(struct reconnect_data *reconnect, int timeout)
 	DBG("attempt %u/%zu %d seconds", reconnect->attempt + 1,
 						reconnect_attempts, timeout);
 
-	reconnect->timer = timeout_add_seconds(timeout, reconnect_timeout,
+	reconnect->timer = timeout_add_seconds(timeout/*设置重连间隔*/, reconnect_timeout,
 						reconnect, NULL);
 }
 
@@ -888,6 +893,7 @@ static void conn_fail_cb(struct btd_device *dev, uint8_t status)
 
 	/* Reset if ReconnectAttempts was reached */
 	if (reconnect->attempt == reconnect_attempts) {
+		/*达到重连上线，不再启动timer*/
 		reconnect_reset(reconnect);
 		return;
 	}
@@ -900,7 +906,7 @@ static int policy_adapter_probe(struct btd_adapter *adapter)
 	DBG("");
 
 	if (auto_enable)
-		btd_adapter_restore_powered(adapter);
+		btd_adapter_restore_powered(adapter);/*恢复powered*/
 
 	return 0;
 }
@@ -922,16 +928,20 @@ static int policy_init(void)
 	if (!conf) {
 		reconnect_uuids = g_strdupv((char **) default_reconnect);
 		reconnect_attempts = default_attempts;
+		/*重连间隔数组长度*/
 		reconnect_intervals_len = sizeof(default_intervals) /
 						sizeof(*reconnect_intervals);
+		/*重连间隔数组*/
 		reconnect_intervals = util_memdup(default_intervals,
 						sizeof(default_intervals));
-		auto_enable = default_auto_enable;
+		auto_enable = default_auto_enable;/*默认自动给power*/
 		goto done;
 	}
 
+	/*指明list分隔符*/
 	g_key_file_set_list_separator(conf, ',');
 
+	/*取[Policy]ReconnectUUIDs配置*/
 	reconnect_uuids = g_key_file_get_string_list(conf, "Policy",
 							"ReconnectUUIDs",
 							NULL, &gerr);
@@ -940,6 +950,7 @@ static int policy_init(void)
 		reconnect_uuids = g_strdupv((char **) default_reconnect);
 	}
 
+	/*取重连次数配置*/
 	reconnect_attempts = g_key_file_get_integer(conf, "Policy",
 							"ReconnectAttempts",
 							&gerr);
@@ -948,6 +959,7 @@ static int policy_init(void)
 		reconnect_attempts = default_attempts;
 	}
 
+	/*取重连间隔配置*/
 	reconnect_intervals = g_key_file_get_integer_list(conf, "Policy",
 					"ReconnectIntervals",
 					(size_t *) &reconnect_intervals_len,

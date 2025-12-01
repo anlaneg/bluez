@@ -340,6 +340,7 @@ struct btd_adapter {
 
 	struct btd_battery_provider_manager *battery_provider_manager;
 
+	/*此adapter容许的uuid服务*/
 	GHashTable *allowed_uuid_set;	/* Set of allowed service UUIDs */
 
 	gboolean initialized;/*此adapter是否已初始化*/
@@ -354,6 +355,7 @@ struct btd_adapter {
 
 	unsigned int db_id;		/* Service event handler for GATT db */
 
+	/*首个adapter为默认adapter,指定为true*/
 	bool is_default;		/* true if adapter is default one */
 
 	struct queue *exp_pending;
@@ -414,6 +416,7 @@ struct btd_adapter *btd_adapter_get_default(void)
 	return NULL;
 }
 
+/*检查此adapter是否为default adapter*/
 bool btd_adapter_is_default(struct btd_adapter *adapter)
 {
 	if (!adapter)
@@ -1010,6 +1013,7 @@ static int set_name(struct btd_adapter *adapter, const char *name)
 
 	DBG("sending set local name command for index %u", adapter->dev_id);
 
+	/*设置设备local name*/
 	if (mgmt_send(adapter->mgmt, MGMT_OP_SET_LOCAL_NAME,
 				adapter->dev_id, sizeof(cp), &cp,
 				set_local_name_complete, adapter, NULL) > 0)
@@ -1024,13 +1028,14 @@ static int set_name(struct btd_adapter *adapter, const char *name)
 int adapter_set_name(struct btd_adapter *adapter, const char *name)
 {
 	if (g_strcmp0(adapter->system_name, name) == 0)
-		return 0;
+		return 0;/*已采用此名称*/
 
 	DBG("name: %s", name);
 
 	g_free(adapter->system_name);
 	adapter->system_name = g_strdup(name);
 
+	/*通知Name变更*/
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Name");
 
@@ -1470,6 +1475,7 @@ static void service_auth_cancel(struct service_auth *auth)
 static void adapter_remove_device(struct btd_adapter *adapter,
 						struct btd_device *device);
 
+/*自adapter移除设备dev*/
 void btd_adapter_remove_device(struct btd_adapter *adapter,
 				struct btd_device *dev)
 {
@@ -2247,6 +2253,7 @@ static int merge_discovery_filters(struct btd_adapter *adapter, int *rssi,
 	bool has_filtered_discovery = false;
 	uint8_t adapter_scan_type = get_scan_type(adapter);
 
+	/*有多个client均设置了discovery_filter,merge这些filter*/
 	for (l = adapter->discovery_list; l != NULL; l = g_slist_next(l)) {
 		struct discovery_client *client = l->data;
 		struct discovery_filter *item = client->discovery_filter;
@@ -2352,7 +2359,7 @@ static void populate_mgmt_filter_uuids(uint8_t (*mgmt_uuids)[16], GSList *uuids)
  * otherwise it's pointing to filter. Returns 0 on success, -1 on error
  */
 static int discovery_filter_to_mgmt_cp(struct btd_adapter *adapter,
-		       struct mgmt_cp_start_service_discovery **cp_ptr)
+		       struct mgmt_cp_start_service_discovery **cp_ptr/*出参*/)
 {
 	GSList *uuids = NULL;
 	struct mgmt_cp_start_service_discovery *cp;
@@ -2371,7 +2378,7 @@ static int discovery_filter_to_mgmt_cp(struct btd_adapter *adapter,
 	uuid_count = g_slist_length(uuids);
 
 	cp = g_try_malloc(sizeof(*cp) + 16*uuid_count);
-	*cp_ptr = cp;
+	*cp_ptr = cp;/*指明出参*/
 	if (!cp) {
 		g_slist_free(uuids);
 		return -1;
@@ -2451,6 +2458,7 @@ static int update_discovery_filter(struct btd_adapter *adapter)
 	 */
 	if (filters_equal(adapter->current_discovery_filter, sd_cp) &&
 	    adapter->discovering != false) {
+		/*filter无变更且当前正在discovery,不再单独处理*/
 		DBG("filters were equal, deciding to not restart the scan.");
 		g_free(sd_cp);
 		return 0;
@@ -2633,8 +2641,8 @@ static bool parse_uuids(DBusMessageIter *value, struct discovery_filter *filter)
 		if (bt_string_to_uuid(&uuid, uuid_param))
 			return false;
 
-		bt_uuid_to_uuid128(&uuid, &u128);
-		bt_uuid_to_string(&u128, uuidstr, sizeof(uuidstr));
+		bt_uuid_to_uuid128(&uuid, &u128);/*转uuid128*/
+		bt_uuid_to_string(&u128, uuidstr, sizeof(uuidstr));/*uuid128转字符串*/
 
 		filter->uuids = g_slist_prepend(filter->uuids, strdup(uuidstr));
 
@@ -2750,6 +2758,7 @@ static bool parse_auto_connect(DBusMessageIter *value,
 	return true;
 }
 
+/*discovery_filter结构体成员解析方法*/
 struct filter_parser {
 	const char *name;
 	bool (*func)(DBusMessageIter *iter, struct discovery_filter *filter);
@@ -2772,7 +2781,7 @@ static bool parse_discovery_filter_entry(char *key, DBusMessageIter *value,
 
 	for (parser = parsers; parser && parser->name; parser++) {
 		if (!strcmp(parser->name, key))
-			return parser->func(value, filter);
+			return parser->func(value, filter);/*实现解析*/
 	}
 
 	DBG("Unknown key parameter: %s!\n", key);
@@ -2786,9 +2795,10 @@ static bool parse_discovery_filter_entry(char *key, DBusMessageIter *value,
  * Returns false on any error, and true on success.
  */
 static bool parse_discovery_filter_dict(struct btd_adapter *adapter,
-					struct discovery_filter **filter,
+					struct discovery_filter **filter/*出参*/,
 					DBusMessage *msg)
 {
+	/*自msg中解出discovery filter*/
 	DBusMessageIter iter, subiter, dictiter, variantiter;
 	bool is_empty = true;
 
@@ -2831,6 +2841,7 @@ static bool parse_discovery_filter_dict(struct btd_adapter *adapter,
 
 		dbus_message_iter_recurse(&dictiter, &variantiter);
 
+		/*填充filter*/
 		if (!parse_discovery_filter_entry(key, &variantiter, *filter))
 			goto invalid_args;
 
@@ -2865,6 +2876,7 @@ invalid_args:
 	return false;
 }
 
+/*解析并设置discovery_filter*/
 static DBusMessage *set_discovery_filter(DBusConnection *conn,
 					DBusMessage *msg, void *user_data)
 {
@@ -3667,6 +3679,7 @@ static void property_set_connectable(const GDBusPropertyTable *property,
 	property_set_mode(adapter, MGMT_SETTING_CONNECTABLE, iter, id);
 }
 
+/*移除设备*/
 static DBusMessage *remove_device(DBusConnection *conn,
 					DBusMessage *msg, void *user_data)
 {
@@ -3679,6 +3692,7 @@ static DBusMessage *remove_device(DBusConnection *conn,
 						DBUS_TYPE_INVALID) == FALSE)
 		return btd_error_invalid_args(msg);
 
+	/*取得要删除的设备*/
 	list = g_slist_find_custom(adapter->devices, path, device_path_cmp);
 	if (!list)
 		return btd_error_does_not_exist(msg);
@@ -3979,7 +3993,7 @@ bool btd_adapter_is_uuid_allowed(struct btd_adapter *adapter,
 	bt_uuid_t uuid;
 
 	if (!adapter || !adapter->allowed_uuid_set)
-		return true;/*未设置白名单,默认返回true*/
+		return true;/*未设置白名单,默认返回true（容许）*/
 
 	if (bt_string_to_uuid(&uuid, uuid_str)) {
 		btd_error(adapter->dev_id,
@@ -5317,6 +5331,7 @@ void adapter_add_profile(struct btd_adapter *adapter, gpointer p/*btd_profile结
 	g_slist_foreach(adapter->devices, device_probe_profile, profile);
 }
 
+/*处理adapter移除profile*/
 void adapter_remove_profile(struct btd_adapter *adapter, gpointer p)
 {
 	struct btd_profile *profile = p;
@@ -7890,7 +7905,7 @@ static gboolean process_auth_queue(gpointer user_data)
 			return FALSE;
 
 		if (!btd_adapter_is_uuid_allowed(adapter, auth->uuid)) {
-			/*不容许,调用cb*/
+			/*此uuid不容许在此adapter运行,调用cb*/
 			auth->cb(&err, auth->user_data);
 			goto next;
 		}
@@ -8444,11 +8459,13 @@ static ssize_t btd_adapter_pin_cb_iter_next(
 	ssize_t ret;
 
 	while (iter->it != NULL) {
+		/*触发回调*/
 		cb = iter->it->data;
 		ret = cb(adapter, device, pin_buf, display, iter->attempt);
-		iter->attempt++;
+		iter->attempt++;/*尝试次数增加*/
 		if (ret > 0)
-			return ret;
+			return ret;/*填充成功，直接返回*/
+		/*尝试下一个*/
 		iter->attempt = 1;
 		iter->it = g_slist_next(iter->it);
 	}
@@ -8497,10 +8514,11 @@ static void pin_code_request_callback(uint16_t index, uint16_t length,
 		pinlen = 0;
 	else
 		pinlen = btd_adapter_pin_cb_iter_next(iter, adapter, device,
-								pin, &display);
+								pin/*出参，填充好的pin*/, &display);
 
 	if (pinlen > 0 && (!ev->secure || pinlen == 16)) {
 		if (display && device_is_bonding(device, NULL)) {
+			/*通知pin码*/
 			err = device_notify_pincode(device, ev->secure, pin);
 			if (err < 0) {
 				btd_error(adapter->dev_id,
@@ -9519,7 +9537,7 @@ static int adapter_register(struct btd_adapter *adapter)
 	}
 
 	if (adapters == NULL)
-		adapter->is_default = true;
+		adapter->is_default = true;/*首个adapter为默认adapter*/
 
 	adapters = g_slist_append(adapters, adapter);/*添加adapter*/
 
@@ -9615,16 +9633,18 @@ static int adapter_unregister(struct btd_adapter *adapter)
 {
 	DBG("Unregister path: %s", adapter->path);
 
+	/*删除adapter*/
 	adapters = g_slist_remove(adapters, adapter);
 
 	if (adapter->is_default && adapters != NULL) {
+		/*删除的adapter是默认adapter,且还有其它adapter可用，选择新的default adapter*/
 		struct btd_adapter *new_default;
 
 		new_default = adapter_find_by_id(hci_get_route(NULL));
 		if (new_default == NULL)
 			new_default = adapters->data;
 
-		new_default->is_default = true;
+		new_default->is_default = true;/*指明为default*/
 	}
 
 	adapter_list = g_list_remove(adapter_list, adapter);

@@ -66,7 +66,7 @@ static const char *wii_names[] = {
 };
 
 static ssize_t wii_pincb(struct btd_adapter *adapter, struct btd_device *device,
-						char *pinbuf, bool *display,
+						char *pinbuf/*出参，填充的pin code*/, bool *display,
 						unsigned int attempt)
 {
 	uint16_t vendor, product;
@@ -77,7 +77,7 @@ static ssize_t wii_pincb(struct btd_adapter *adapter, struct btd_device *device,
 	 * an unknown device.
 	 */
 	if (attempt > 1)
-		return 0;
+		return 0;/*尝试次数大于1，直接返回0*/
 
 	ba2str(device_get_address(device), addr);
 
@@ -88,17 +88,18 @@ static ssize_t wii_pincb(struct btd_adapter *adapter, struct btd_device *device,
 
 	for (i = 0; i < G_N_ELEMENTS(wii_ids); ++i) {
 		if (vendor == wii_ids[i][0] && product == wii_ids[i][1])
-			goto found;
+			goto found;/*vendor及product匹配*/
 	}
 
 	for (i = 0; i < G_N_ELEMENTS(wii_names); ++i) {
 		if (g_str_equal(name, wii_names[i]))
-			goto found;
+			goto found;/*名称匹配*/
 	}
 
 	return 0;
 
 found:
+	/*填充pinbuf*/
 	DBG("Forcing fixed pin on detected wiimote %s", addr);
 	memcpy(pinbuf, btd_adapter_get_address(adapter), 6);
 	return 6;
@@ -130,11 +131,11 @@ static ssize_t autopair_pincb(struct btd_adapter *adapter,
 	/* Try with the wii_pincb first */
 	ret = wii_pincb(adapter, device, pinbuf, display, attempt);
 	if (ret > 0)
-		return ret;
+		return ret;/*已填充，直接返回*/
 
 	ba2str(device_get_address(device), addr);
 
-	class = btd_device_get_class(device);
+	class = btd_device_get_class(device);/*取设备class*/
 
 	device_get_name(device, name, sizeof(name));
 
@@ -245,6 +246,7 @@ static ssize_t autopair_pincb(struct btd_adapter *adapter,
 
 static int autopair_probe(struct btd_adapter *adapter)
 {
+	/*为此adapter增加pin_callbacks*/
 	btd_adapter_register_pin_cb(adapter, autopair_pincb);
 
 	return 0;

@@ -242,7 +242,7 @@ static void decrypt_net_pkt(void *a, void *b)
 	}
 }
 
-uint32_t net_key_decrypt(uint32_t iv_index, const uint8_t *pkt, size_t len,
+uint32_t net_key_decrypt(uint32_t iv_index, const uint8_t *pkt/*源内容*/, size_t len/*源内容长度*/,
 					uint8_t **plain, size_t *plain_len)
 {
 	/* If we already successfully decrypted this packet, use cached data */
@@ -255,7 +255,7 @@ uint32_t net_key_decrypt(uint32_t iv_index, const uint8_t *pkt, size_t len,
 	}
 
 	cache_id = 0;
-	memcpy(cache_pkt, pkt, len);
+	memcpy(cache_pkt, pkt, len);/*源内容写入到cache_pkt中*/
 	cache_len = len;
 	cache_iv_index = iv_index;
 

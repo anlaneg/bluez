@@ -308,7 +308,7 @@ static void pb_adv_packet(void *user_data, const uint8_t *pkt, uint16_t len)
 	bool first;
 
 	if (!l_queue_find(pb_sessions, session_match, session))
-		return;
+		return;/*没有查找到叁数指定的session，退出*/
 
 	link_id = l_get_be32(pkt + 1);
 	type = l_get_u8(pkt + 6);

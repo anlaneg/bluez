@@ -33,8 +33,8 @@
 #include "mesh/mesh-io.h"
 #include "mesh/util.h"
 
-static const char *storage_dir;
-static const char *mesh_conf_fname;
+static const char *storage_dir;/*配置文件目录*/
+static const char *mesh_conf_fname;/*配置文件名称*/
 static enum mesh_io_type io_type;
 static void *io_opts;
 
@@ -105,6 +105,7 @@ static void request_name_callback(struct l_dbus *dbus, bool success,
 		return;
 	}
 
+	/*执行mesh初始化*/
 	if (!mesh_init(storage_dir, mesh_conf_fname, io_type, io_opts,
 					mesh_ready_callback, dbus)) {
 		l_error("Failed to initialize mesh");
@@ -132,28 +133,31 @@ static void kill_to(struct l_timeout *timeout, void *user_data)
 	l_main_quit();
 }
 
+/*信号处理*/
 static void signal_handler(uint32_t signo, void *user_data)
 {
 	static bool terminated;
 
 	if (terminated)
-		return;
+		return;/*已终止，不再处理*/
 
 	l_info("Terminating");
 
 	mesh_cleanup(true);
 
+	/*退出loop*/
 	if (io_type != MESH_IO_TYPE_UNIT_TEST)
 		l_timeout_create(1, kill_to, NULL, NULL);
 	else
 		l_main_quit();
 
-	terminated = true;
+	terminated = true;/*标记terminated*/
 }
 
-static bool parse_io(const char *optarg, enum mesh_io_type *type, void **opts)
+static bool parse_io(const char *optarg, enum mesh_io_type *type/*出参，类型*/, void **opts/*出参，类型参数*/)
 {
 	if (strstr(optarg, "auto") == optarg) {
+		/*auto情况下*/
 		int *index = l_new(int, 1);
 
 		*type = MESH_IO_TYPE_AUTO;
@@ -172,10 +176,11 @@ static bool parse_io(const char *optarg, enum mesh_io_type *type, void **opts)
 
 		optarg += strlen("generic");
 		if (!*optarg || *optarg != ':')
-			return false;
+			return false;/*其后没有':'*/
 
 		optarg++;
 
+		/*取index*/
 		if (sscanf(optarg, "hci%d", index) == 1)
 			return true;
 
@@ -191,10 +196,10 @@ static bool parse_io(const char *optarg, enum mesh_io_type *type, void **opts)
 
 		optarg += strlen("unit");
 		if (*optarg != ':')
-			return false;
+			return false;/*其后没有':'*/
 
 		optarg++;
-		test_path = strdup(optarg);
+		test_path = strdup(optarg);/*unit后跟路径*/
 
 		*opts = test_path;
 		return true;
@@ -213,11 +218,12 @@ int main(int argc, char *argv[])
 	int hci_index;
 
 	if (!l_main_init())
-		return -1;
+		return -1;/*初始化失败*/
 
 	l_log_set_stderr();
 
 	if (!mesh_crypto_check_avail()) {
+		/*加密函数无效*/
 		l_error("Mesh Crypto functions unavailable");
 		status = l_main_run_with_signal(signal_handler, NULL);
 		goto done;
@@ -235,14 +241,15 @@ int main(int argc, char *argv[])
 		case 'u':
 			if (sscanf(optarg, "%d", &hci_index) == 1 ||
 					sscanf(optarg, "%d", &hci_index) == 1)
-				io = l_strdup_printf("unit:%d", hci_index);
+				io = l_strdup_printf("unit:%d", hci_index);/*无前缀，仅hci设备序号*/
 			else
 				io = l_strdup(optarg);
 			break;
 		case 'i':
+			/*取hci设备编号*/
 			if (sscanf(optarg, "hci%d", &hci_index) == 1 ||
 					sscanf(optarg, "%d", &hci_index) == 1)
-				io = l_strdup_printf("generic:%s", optarg);
+				io = l_strdup_printf("generic:%s", optarg);/*指明指定设备，例如hci0*/
 			else
 				io = l_strdup(optarg);
 			break;
@@ -250,16 +257,16 @@ int main(int argc, char *argv[])
 			detached = false;
 			break;
 		case 'd':
-			enable_debug();
+			enable_debug();/*开启debug*/
 			break;
 		case 's':
-			storage_dir = optarg;
+			storage_dir = optarg;/*设置配置目录*/
 			break;
 		case 'c':
-			mesh_conf_fname = optarg;
+			mesh_conf_fname = optarg;/*设置配置文件名称*/
 			break;
 		case 'b':
-			dbus_debug = true;
+			dbus_debug = true;/*开启dbus debug*/
 			break;
 		case 'h':
 			usage();
@@ -273,9 +280,10 @@ int main(int argc, char *argv[])
 	}
 
 	if (!io)
-		io = l_strdup_printf("auto");
+		io = l_strdup_printf("auto");/*参数未提供io,使用"auto"*/
 
 	if (!parse_io(io, &io_type, &io_opts)) {
+		/*io设置有误*/
 		l_error("Invalid io: %s\n%s", io, io_usage);
 		status = EXIT_FAILURE;
 		goto done;
@@ -287,6 +295,7 @@ int main(int argc, char *argv[])
 	if (!detached)
 		umask(0077);
 
+	/*选择dbus*/
 	if (io_type != MESH_IO_TYPE_UNIT_TEST)
 		dbus = l_dbus_new_default(L_DBUS_SYSTEM_BUS);
 	else {
@@ -295,6 +304,7 @@ int main(int argc, char *argv[])
 	}
 
 	if (!dbus) {
+		/*创建dbus失败*/
 		l_error("unable to connect to D-Bus");
 		status = EXIT_FAILURE;
 		goto done;
@@ -302,8 +312,8 @@ int main(int argc, char *argv[])
 
 	if (dbus_debug)
 		l_dbus_set_debug(dbus, do_debug, "[DBUS] ", NULL);
-	l_dbus_set_ready_handler(dbus, ready_callback, dbus, NULL);
-	l_dbus_set_disconnect_handler(dbus, disconnect_callback, NULL, NULL);
+	l_dbus_set_ready_handler(dbus, ready_callback/*dbus连接成功后调用*/, dbus, NULL);
+	l_dbus_set_disconnect_handler(dbus, disconnect_callback/*dbus连接断开时调用*/, NULL, NULL);
 
 	if (!l_dbus_object_manager_enable(dbus, "/")) {
 		l_error("Failed to enable Object Manager");

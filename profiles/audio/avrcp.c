@@ -4528,7 +4528,7 @@ static struct avrcp_server *avrcp_server_register(struct btd_adapter *adapter)
 	servers = g_slist_append(servers, server);
 
 	if (!avctp_id)
-		avctp_id = avctp_add_state_cb(NULL, state_changed, NULL);
+		avctp_id = avctp_add_state_cb(NULL/*不指定设备*/, state_changed, NULL);
 
 	return server;
 }

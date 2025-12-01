@@ -124,7 +124,7 @@ struct GDBusArgInfo {
 struct GDBusMethodTable {
 	const char *name;/*方法名称*/
 	GDBusMethodFunction function;
-	GDBusMethodFlags flags;
+	GDBusMethodFlags flags;/*方法标记*/
 	unsigned int privilege;
 	const GDBusArgInfo *in_args;
 	const GDBusArgInfo *out_args;

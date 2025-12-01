@@ -53,7 +53,7 @@ static GDBusProxy *agent_manager;
 static char *auto_register_agent = NULL;
 
 struct adapter {
-	GDBusProxy *proxy;
+	GDBusProxy *proxy;/*指向对应的proxy*/
 	GDBusProxy *ad_proxy;
 	GDBusProxy *adv_monitor_proxy;
 	GList *devices;
@@ -61,10 +61,11 @@ struct adapter {
 	GList *bearers;
 };
 
-static struct adapter *default_ctrl;/*用于设置默认的controller*/
+static struct adapter *default_ctrl;/*用于设置默认的adapter*/
 static GDBusProxy *default_dev;
 static char *default_local_attr;
 static GDBusProxy *default_attr;
+/*串连adapter结构体*/
 static GList *ctrl_list;
 static GList *battery_proxies;
 
@@ -159,12 +160,12 @@ static struct set_discovery_filter_args {
 	dbus_uint16_t rssi;
 	dbus_int16_t pathloss;
 	char **uuids;
-	size_t uuids_len;
+	size_t uuids_len;/*uuids数组长度*/
 	dbus_bool_t duplicate;
 	dbus_bool_t discoverable;
 	dbus_bool_t auto_connect;
-	bool set;
-	bool active;
+	bool set;/*标明filter是否已知会对端设置*/
+	bool active;/*是否已start discovery,则知会对端设置filter set_discovery_filter*/
 	unsigned int timeout;
 } filter = {
 	.rssi = DISTANCE_VAL_INVALID,
@@ -405,7 +406,7 @@ static void adapter_added(GDBusProxy *proxy)
 	struct adapter *adapter;
 	adapter = find_ctrl(ctrl_list, g_dbus_proxy_get_path(proxy));
 	if (!adapter)
-		/*未查询到adapter,新建*/
+		/*未查询到此adapter,新建*/
 		adapter = adapter_new(proxy);
 
 	/*设置proxy*/
@@ -954,11 +955,13 @@ static gboolean parse_argument(int argc, char *argv[], const char **arg_table,
 	const char **opt;
 
 	if (argc < 2) {
+		/*必须至少提供两个参数*/
 		bt_shell_printf("Missing argument to %s\n", argv[0]);
 		return FALSE;
 	}
 
 	if (!strcmp(argv[1], "help")) {
+		/*显示arg table*/
 		for (opt = arg_table; opt && *opt; opt++)
 			bt_shell_printf("%s\n", *opt);
 		bt_shell_noninteractive_quit(EXIT_SUCCESS);
@@ -966,19 +969,20 @@ static gboolean parse_argument(int argc, char *argv[], const char **arg_table,
 	}
 
 	if (!strcmp(argv[1], "on") || !strcmp(argv[1], "yes")) {
-		*value = TRUE;
+		*value = TRUE;/*开启*/
 		if (option)
 			*option = "";
 		return TRUE;
 	}
 
 	if (!strcmp(argv[1], "off") || !strcmp(argv[1], "no")) {
-		*value = FALSE;
+		*value = FALSE;/*停止*/
 		return TRUE;
 	}
 
 	for (opt = arg_table; opt && *opt; opt++) {
 		if (strcmp(argv[1], *opt) == 0) {
+			/*与参数opt匹配，指明开启*/
 			*value = TRUE;
 			*option = *opt;
 			return TRUE;
@@ -1346,12 +1350,13 @@ static void cmd_default_agent(int argc, char *argv[])
 
 static void start_discovery_reply(DBusMessage *message, void *user_data)
 {
-	dbus_bool_t enable = GPOINTER_TO_UINT(user_data);
+	dbus_bool_t enable = GPOINTER_TO_UINT(user_data);/*启动/停止*/
 	DBusError error;
 
 	dbus_error_init(&error);
 
 	if (dbus_set_error_from_message(&error, message) == TRUE) {
+		/*启停discovery失败*/
 		bt_shell_printf("Failed to %s discovery: %s\n",
 				enable == TRUE ? "start" : "stop", error.name);
 		dbus_error_free(&error);
@@ -1360,7 +1365,7 @@ static void start_discovery_reply(DBusMessage *message, void *user_data)
 
 	bt_shell_printf("Discovery %s\n", enable ? "started" : "stopped");
 
-	filter.active = enable;
+	filter.active = enable;/*指明当前discovery状态（start/stop）*/
 
 	return bt_shell_noninteractive_quit(-EINPROGRESS);
 }
@@ -1378,6 +1383,7 @@ static void clear_discovery_filter(DBusMessageIter *iter, void *user_data)
 	dbus_message_iter_close_container(iter, &dict);
 }
 
+/*利用user_data填充*/
 static void set_discovery_filter_setup(DBusMessageIter *iter, void *user_data)
 {
 	struct set_discovery_filter_args *args = user_data;
@@ -1446,15 +1452,16 @@ static void set_discovery_filter_reply(DBusMessage *message, void *user_data)
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 }
 
-static void set_discovery_filter(bool cleared)
+static void set_discovery_filter(bool cleared/*是否清除*/)
 {
 	GDBusSetupFunction func;
 
 	if (check_default_ctrl() == FALSE || filter.set)
 		return;
 
-	func = cleared ? clear_discovery_filter : set_discovery_filter_setup;
+	func = cleared ? clear_discovery_filter/*清除对应的filter*/ : set_discovery_filter_setup;
 
+	/*设置discovery filter*/
 	if (g_dbus_proxy_method_call(default_ctrl->proxy, "SetDiscoveryFilter",
 					func, set_discovery_filter_reply,
 					&filter, NULL) == FALSE) {
@@ -1473,6 +1480,7 @@ static const char *scan_arguments[] = {
 	NULL
 };
 
+/*开启/关闭scan*/
 static void cmd_scan(int argc, char *argv[])
 {
 	dbus_bool_t enable;
@@ -1480,7 +1488,7 @@ static void cmd_scan(int argc, char *argv[])
 	const char *mode;
 
 	if (!parse_argument(argc, argv, scan_arguments, "Mode", &enable,
-								&mode))
+								&mode/*指明的模式*/))
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
 	if (check_default_ctrl() == FALSE)
@@ -1503,7 +1511,7 @@ static void cmd_scan(int argc, char *argv[])
 		method = "StopDiscovery";
 
 	if (g_dbus_proxy_method_call(default_ctrl->proxy, method,
-				NULL, start_discovery_reply,
+				NULL, start_discovery_reply/*响应处理*/,
 				GUINT_TO_POINTER(enable), NULL) == FALSE) {
 		bt_shell_printf("Failed to %s discovery\n",
 					enable == TRUE ? "start" : "stop");
@@ -1511,11 +1519,13 @@ static void cmd_scan(int argc, char *argv[])
 	}
 }
 
+/*显示或设置filter.uuids*/
 static void cmd_scan_filter_uuids(int argc, char *argv[])
 {
 	if (argc < 2 || !strlen(argv[1])) {
 		char **uuid;
 
+		/*显示filter.uuids*/
 		for (uuid = filter.uuids; uuid && *uuid; uuid++)
 			print_uuid("\t", "UUID", *uuid);
 
@@ -1527,8 +1537,9 @@ static void cmd_scan_filter_uuids(int argc, char *argv[])
 	filter.uuids_len = 0;
 
 	if (!strcmp(argv[1], "all"))
-		goto commit;
+		goto commit;/*指定为all*/
 
+	/*argv[1]开始表出了一组uuid,复制这组uuids*/
 	filter.uuids = g_strdupv(&argv[1]);
 	if (!filter.uuids) {
 		bt_shell_printf("Failed to parse input\n");
@@ -1544,6 +1555,7 @@ commit:
 		set_discovery_filter(false);
 }
 
+/*显示设置 filter.rssi*/
 static void cmd_scan_filter_rssi(int argc, char *argv[])
 {
 	if (argc < 2 || !strlen(argv[1])) {
@@ -1561,6 +1573,7 @@ static void cmd_scan_filter_rssi(int argc, char *argv[])
 		set_discovery_filter(false);
 }
 
+/*显示并设置filter.pathloss*/
 static void cmd_scan_filter_pathloss(int argc, char *argv[])
 {
 	if (argc < 2 || !strlen(argv[1])) {
@@ -1579,6 +1592,7 @@ static void cmd_scan_filter_pathloss(int argc, char *argv[])
 		set_discovery_filter(false);
 }
 
+/*显示并设置filter.transport*/
 static void cmd_scan_filter_transport(int argc, char *argv[])
 {
 	if (argc < 2 || !strlen(argv[1])) {
@@ -1597,9 +1611,11 @@ static void cmd_scan_filter_transport(int argc, char *argv[])
 		set_discovery_filter(false);
 }
 
+/*设置/显示 filter.duplicate*/
 static void cmd_scan_filter_duplicate_data(int argc, char *argv[])
 {
 	if (argc < 2 || !strlen(argv[1])) {
+		/*显示filter.duplicate配置*/
 		bt_shell_printf("DuplicateData: %s\n",
 				filter.duplicate ? "on" : "off");
 		return bt_shell_noninteractive_quit(EXIT_SUCCESS);
@@ -1620,6 +1636,7 @@ static void cmd_scan_filter_duplicate_data(int argc, char *argv[])
 		set_discovery_filter(false);
 }
 
+/*显示或者设置filter.discoverable*/
 static void cmd_scan_filter_discoverable(int argc, char *argv[])
 {
 	if (argc < 2 || !strlen(argv[1])) {
@@ -1643,6 +1660,7 @@ static void cmd_scan_filter_discoverable(int argc, char *argv[])
 		set_discovery_filter(false);
 }
 
+/*设置或显示filter.pattern*/
 static void cmd_scan_filter_pattern(int argc, char *argv[])
 {
 	if (argc < 2 || !strlen(argv[1])) {
@@ -1659,6 +1677,7 @@ static void cmd_scan_filter_pattern(int argc, char *argv[])
 		set_discovery_filter(false);
 }
 
+/*显示设置filter.auto_connect*/
 static void cmd_scan_filter_auto_connect(int argc, char *argv[])
 {
 	if (argc < 2 || !strlen(argv[1])) {
@@ -1770,11 +1789,11 @@ static gboolean data_clear(const struct clear_entry *entry_table,
 	bool all = false;
 
 	if (!name || !strlen(name) || !strcmp("all", name))
-		all = true;
+		all = true;/*全匹配*/
 
 	for (entry = entry_table; entry && entry->name; entry++) {
 		if (all || !strcmp(entry->name, name)) {
-			entry->clear();
+			entry->clear();/*执行配置清除*/
 			if (!all)
 				goto done;
 		}
@@ -1796,6 +1815,7 @@ static void cmd_scan_filter_clear(int argc, char *argv[])
 	if (argc < 2 || !strlen(argv[1]))
 		all = true;
 
+	/*按参数argv[1]清除filter指定成员配置*/
 	if (!data_clear(filter_clear, all ? "all" : argv[1]))
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
@@ -1807,6 +1827,7 @@ static void cmd_scan_filter_clear(int argc, char *argv[])
 	set_discovery_filter(all);
 }
 
+/*取设备*/
 static struct GDBusProxy *find_device(int argc, char *argv[])
 {
 	GDBusProxy *proxy;
@@ -1874,15 +1895,16 @@ static void cmd_info(int argc, char *argv[])
 	DBusMessageIter iter;
 	const char *address;
 
-	proxy = find_device(argc, argv);
+	proxy = find_device(argc, argv);/*取设备*/
 	if (!proxy)
 		return cmd_set_info(argc, argv);
 
 	if (g_dbus_proxy_get_property(proxy, "Address", &iter) == FALSE)
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
-	dbus_message_iter_get_basic(&iter, &address);
+	dbus_message_iter_get_basic(&iter, &address);/*解析出设备地址*/
 
+	/*显示设备地址*/
 	if (g_dbus_proxy_get_property(proxy, "AddressType", &iter) == TRUE) {
 		const char *type;
 
@@ -1893,6 +1915,7 @@ static void cmd_info(int argc, char *argv[])
 		bt_shell_printf("Device %s\n", address);
 	}
 
+	/*显示设备信息*/
 	print_property(proxy, "Name");
 	print_property(proxy, "Alias");
 	print_property(proxy, "Class");
@@ -2039,6 +2062,7 @@ static void cmd_trust(int argc, char *argv[])
 
 	str = g_strdup_printf("%s trust", proxy_address(proxy));
 
+	/*设置device Trusted属性*/
 	if (g_dbus_proxy_set_property_basic(proxy, "Trusted",
 					DBUS_TYPE_BOOLEAN, &trusted,
 					generic_callback, str, g_free) == TRUE)
@@ -2170,6 +2194,7 @@ static void cmd_remove(int argc, char *argv[])
 	if (check_default_ctrl() == FALSE)
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
+	/*移除所有设备*/
 	if (strcmp(argv[1], "*") == 0) {
 		GList *list;
 
@@ -2188,7 +2213,7 @@ static void cmd_remove(int argc, char *argv[])
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 	}
 
-	remove_device(proxy);
+	remove_device(proxy);/*移除指定设备*/
 }
 
 struct connection_data {
@@ -2242,6 +2267,7 @@ static void connect_reply(DBusMessage *message, void *user_data)
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 }
 
+/*连接到指定设备，如果参数数目为3，则传递uuid*/
 static void cmd_connect(int argc, char *argv[])
 {
 	struct connection_data *data;
@@ -2252,7 +2278,7 @@ static void cmd_connect(int argc, char *argv[])
 	if (check_default_ctrl() == FALSE)
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
-	proxy = find_proxy_by_address(default_ctrl->devices, argv[1]);
+	proxy = find_proxy_by_address(default_ctrl->devices, argv[1]/*设备地址*/);
 	if (!proxy) {
 		bt_shell_printf("Device %s not available\n", argv[1]);
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
@@ -2267,6 +2293,7 @@ static void cmd_connect(int argc, char *argv[])
 		format_connection_profile(profile, sizeof(profile), argv[2]);
 	}
 
+	/*调用方法*/
 	if (g_dbus_proxy_method_call(proxy, method, connection_setup,
 					connect_reply, data, NULL) == FALSE) {
 		bt_shell_printf("Failed to connect\n");
@@ -2347,6 +2374,7 @@ static void cmd_wake(int argc, char *argv[])
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
 	if (argc <= 2) {
+		/*显示WakeAllowed属性*/
 		print_property(proxy, "WakeAllowed");
 		return;
 	}
@@ -2362,6 +2390,7 @@ static void cmd_wake(int argc, char *argv[])
 
 	str = g_strdup_printf("wake %s", value == TRUE ? "on" : "off");
 
+	/*设置WakeAllowed属性*/
 	if (g_dbus_proxy_set_property_basic(proxy, "WakeAllowed",
 					DBUS_TYPE_BOOLEAN, &value,
 					generic_callback, str, g_free))
@@ -3521,7 +3550,7 @@ static const struct bt_shell_menu main_menu = {
 					"Set controller alias" },
 	{ "reset-alias",  NULL,       cmd_reset_alias,
 					"Reset controller alias" },
-	/**/
+	/*设置controler power*/
 	{ "power",        "<on/off>", cmd_power, "Set controller power",
 							NULL },
 	{ "pairable",     "<on/off>", cmd_pairable,
@@ -3542,15 +3571,15 @@ static const struct bt_shell_menu main_menu = {
 							ad_generator},
 	{ "set-alias",    "<alias>",  cmd_set_alias, "Set device alias" },
 	{ "scan",         "<on/off/bredr/le>", cmd_scan,
-				"Scan for devices", scan_generator },
+				"Scan for devices", scan_generator },/*指定扫描*/
 	{ "info",         "[dev/set]",    cmd_info, "Device/Set information",
-							dev_set_generator },
+							dev_set_generator },/*显示设备信息*/
 	{ "pair",         "[dev]",    cmd_pair, "Pair with device",
 							dev_generator },
 	{ "cancel-pairing",  "[dev]",    cmd_cancel_pairing,
 				"Cancel pairing with device", dev_generator },
 	{ "trust",        "[dev]",    cmd_trust, "Trust device",
-							dev_generator },
+							dev_generator },/*指定Trust设备*/
 	{ "untrust",      "[dev]",    cmd_untrust, "Untrust device",
 							dev_generator },
 	{ "block",        "[dev]",    cmd_block, "Block device",
@@ -3559,7 +3588,7 @@ static const struct bt_shell_menu main_menu = {
 								dev_generator },
 	{ "remove",       "<dev>",    cmd_remove, "Remove device",
 							dev_generator },
-	{ "connect",      "<dev> [uuid]", cmd_connect,
+	{ "connect",      "<dev> [uuid]", cmd_connect,/*连接到单个设备的所有profiles或者单个profile*/
 				"Connect a device and all its profiles or "
 				"optionally connect a single profile only",
 							dev_generator },
@@ -3677,6 +3706,7 @@ int main(int argc, char *argv[])
 	g_dbus_client_set_ready_watch(client, client_ready, &timeout_id);
 	status = bt_shell_run();
 
+	/*移除子菜单*/
 	admin_remove_submenu();
 	player_remove_submenu();
 	mgmt_remove_submenu();

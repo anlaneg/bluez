@@ -26,7 +26,7 @@
 
 #include "mesh/util.h"
 
-static bool debug_enabled;
+static bool debug_enabled;/*开启debug*/
 
 void print_packet(const char *label, const void *data, uint16_t size)
 {
@@ -40,12 +40,14 @@ void print_packet(const char *label, const void *data, uint16_t size)
 	if (size > 0) {
 		char *str;
 
+		/*显示报文内容*/
 		str = l_util_hexstring(data, size);
 		l_debug("%05d.%03d %s: %s",
 				(uint32_t) pkt_time.tv_sec % 100000,
 				(uint32_t) pkt_time.tv_usec/1000, label, str);
 		l_free(str);
 	} else
+		/*无报文内容，针显示label*/
 		l_debug("%05d.%03d %s: empty",
 				(uint32_t) pkt_time.tv_sec % 100000,
 				(uint32_t) pkt_time.tv_usec/1000, label);
@@ -59,6 +61,7 @@ uint32_t get_timestamp_secs(void)
 	return ts.tv_sec;
 }
 
+/*解析16进制数据，产生out*/
 bool str2hex(const char *str, uint16_t in_len, uint8_t *out,
 							uint16_t out_len)
 {
@@ -156,6 +159,7 @@ void del_path(const char *path)
 	nftw(path, del_fobject, 5, FTW_DEPTH | FTW_PHYS);
 }
 
+/*开启debug*/
 void enable_debug(void)
 {
 	debug_enabled = true;

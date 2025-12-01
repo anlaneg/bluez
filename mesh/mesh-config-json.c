@@ -2462,6 +2462,7 @@ bool mesh_config_update_crpl(struct mesh_config *cfg, uint16_t crpl)
 	return save_config(cfg->jnode, cfg->node_dir_path);
 }
 
+/*加载配置文件json格式*/
 static bool load_node(const char *fname, const uint8_t uuid[16],
 				mesh_config_node_func_t cb, void *user_data)
 {
@@ -2495,13 +2496,13 @@ static bool load_node(const char *fname, const uint8_t uuid[16],
 		return false;
 	}
 
-	sz = read(fd, str, st.st_size);
+	sz = read(fd, str, st.st_size);/*取得文件大小*/
 	if (sz != st.st_size) {
 		l_error("Failed to read configuration file %s", fname);
 		goto done;
 	}
 
-	jnode = json_tokener_parse(str);
+	jnode = json_tokener_parse(str);/*解析文件内容*/
 	if (!jnode)
 		goto done;
 
@@ -2635,7 +2636,8 @@ bool mesh_config_save(struct mesh_config *cfg, bool no_wait,
 	return true;
 }
 
-bool mesh_config_load_nodes(const char *cfgdir_name, mesh_config_node_func_t cb,
+/*加载node.json*/
+bool mesh_config_load_nodes(const char *cfgdir_name/*配置目录*/, mesh_config_node_func_t cb/*配置处理回调*/,
 								void *user_data)
 {
 	DIR *cfgdir;
@@ -2644,7 +2646,7 @@ bool mesh_config_load_nodes(const char *cfgdir_name, mesh_config_node_func_t cb,
 								strlen(bak_ext);
 
 	create_dir(cfgdir_name);
-	cfgdir = opendir(cfgdir_name);
+	cfgdir = opendir(cfgdir_name);/*打开配置目录*/
 	if (!cfgdir) {
 		l_error("Failed to open mesh node storage directory: %s",
 								cfgdir_name);
@@ -2657,7 +2659,7 @@ bool mesh_config_load_nodes(const char *cfgdir_name, mesh_config_node_func_t cb,
 		size_t node_len;
 
 		if (entry->d_type != DT_DIR)
-			continue;
+			continue;/*跳过非目录*/
 
 		/* Check path length */
 		node_len = strlen(entry->d_name);
@@ -2666,16 +2668,19 @@ bool mesh_config_load_nodes(const char *cfgdir_name, mesh_config_node_func_t cb,
 			continue;
 
 		if (!str2hex(entry->d_name, node_len, uuid, sizeof(uuid)))
-			continue;
+			continue;/*跳过目录格式有误的*/
 
+		/*拼好配置文件夹名称，文件名称*/
 		dirname = l_strdup_printf("%s/%s", cfgdir_name, entry->d_name);
 		fname = l_strdup_printf("%s%s", dirname, cfgnode_name);
 
+		/*加载配置文件*/
 		if (!load_node(fname, uuid, cb, user_data)) {
 
 			/* Fall-back to Backup version */
 			bak = l_strdup_printf("%s%s", fname, bak_ext);
 
+			/*尝试备份配置*/
 			if (load_node(bak, uuid, cb, user_data)) {
 				remove(fname);
 				rename(bak, fname);

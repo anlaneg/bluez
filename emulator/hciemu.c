@@ -721,8 +721,9 @@ int hciemu_add_hook(struct hciemu *hciemu, enum hciemu_hook_type type,
 
 	dev = vhci_get_btdev(hciemu->vhci);
 	if (!dev)
-		return 0;
+		return 0;/*此设备必须存在*/
 
+	/*hook类型转换*/
 	switch (type) {
 	case HCIEMU_HOOK_PRE_CMD:
 		hook_type = BTDEV_HOOK_PRE_CMD;
@@ -740,6 +741,7 @@ int hciemu_add_hook(struct hciemu *hciemu, enum hciemu_hook_type type,
 		return -1;
 	}
 
+	/*添加hook*/
 	return btdev_add_hook(dev, hook_type, opcode, function, user_data);
 }
 

@@ -1078,6 +1078,7 @@ static void method_call_reply(DBusPendingCall *call, void *user_data)
 	struct method_call_data *data = user_data;
 	DBusMessage *reply = dbus_pending_call_steal_reply(call);
 
+	/*调用消息响应处理函数*/
 	if (data->function)
 		data->function(reply, data->user_data);
 
@@ -1090,7 +1091,7 @@ static void method_call_reply(DBusPendingCall *call, void *user_data)
 /*本地应用程序向远程 D-Bus 服务发起一个方法调用（Method Call）*/
 gboolean g_dbus_proxy_method_call(GDBusProxy *proxy, const char *method/*方法名称*/,
 				GDBusSetupFunction setup,
-				GDBusReturnFunction function, void *user_data,
+				GDBusReturnFunction function/*消息响应处理函数*/, void *user_data,
 				GDBusDestroyFunction destroy)
 {
 	struct method_call_data *data;
@@ -1126,7 +1127,7 @@ gboolean g_dbus_proxy_method_call(GDBusProxy *proxy, const char *method/*方法�
 	if (data == NULL)
 		return FALSE;
 
-	data->function = function;
+	data->function = function;/*指定响应消息处理函数*/
 	data->user_data = user_data;
 	data->destroy = destroy;
 
@@ -1378,6 +1379,7 @@ static void get_managed_objects(GDBusClient *client)
 	if (client->get_objects_call != NULL)
 		return;
 
+	/*调用GetManagedObjects方法*/
 	msg = dbus_message_new_method_call(client->service_name,
 						client->root_path,
 						DBUS_INTERFACE_OBJECT_MANAGER,

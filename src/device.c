@@ -232,7 +232,7 @@ struct btd_device {
 	GSList		*eir_uuids;
 	struct bt_ad	*ad;
 	uint8_t         ad_flags[1];
-	char		name[MAX_NAME_LENGTH + 1];
+	char		name[MAX_NAME_LENGTH + 1];/*设备名称*/
 	char		*alias;
 	uint32_t	class;
 	uint16_t	vendor_src;
@@ -292,7 +292,7 @@ struct btd_device {
 	sdp_list_t	*tmp_records;
 
 	bool		trusted;
-	gboolean	blocked;/*是否阻止此设备*/
+	gboolean	blocked;/*是否阻止此设备，置为true时，这类设备将不被probe*/
 	gboolean	auto_connect;
 	gboolean	disable_auto_connect;
 	gboolean	general_connect;
@@ -2323,6 +2323,7 @@ static int connect_next(struct btd_device *dev)
 	struct btd_service *service;
 	int err = -ENOENT;
 
+	/*遍历dev->pending链表上所有serivce,执行service connect*/
 	while (dev->pending) {
 		service = dev->pending->data;
 
@@ -2330,6 +2331,7 @@ static int connect_next(struct btd_device *dev)
 		if (!err)
 			return 0;
 
+		/*移除已处理的dev->pending,更新到下一个元素*/
 		dev->pending = g_slist_delete_link(dev->pending, dev->pending);
 	}
 
@@ -2551,7 +2553,7 @@ bool btd_device_all_services_allowed(struct btd_device *dev)
 			continue;
 
 		if (!btd_adapter_is_uuid_allowed(adapter, profile->remote_uuid))
-			return false;
+			return false;/*此adapter上不容许通行此uuid*/
 	}
 
 	return true;
@@ -2580,6 +2582,7 @@ void btd_device_update_allowed_services(struct btd_device *dev)
 		service = l->data;
 		profile = btd_service_get_profile(service);
 
+		/*通过检查remote uuid是否容许在此adapter运行，以决定此服务是否容许*/
 		is_allowed = btd_adapter_is_uuid_allowed(adapter,
 							profile->remote_uuid);
 		btd_service_set_allowed(service, is_allowed);
@@ -2593,6 +2596,7 @@ static GSList *create_pending_list(struct btd_device *dev, const char *uuid)
 	GSList *l;
 
 	if (uuid) {
+		/*提供了uuid，通过uuid查找到serivce,并添加到dev->pinging准备连接*/
 		service = find_connectable_service(dev, uuid);
 
 		if (!service)
@@ -2605,6 +2609,7 @@ static GSList *create_pending_list(struct btd_device *dev, const char *uuid)
 		return dev->pending;
 	}
 
+	/*未指定service,则遍历设备上关联的所有service,考虑重连*/
 	for (l = dev->services; l != NULL; l = g_slist_next(l)) {
 		service = l->data;
 		p = btd_service_get_profile(service);
@@ -2706,6 +2711,7 @@ int btd_device_connect_services(struct btd_device *dev, GSList *services)
 		return -ENOENT;
 
 	if (services) {
+		/*遍历service,将其均加入dev->pending链表，准备连接*/
 		for (l = services; l; l = g_slist_next(l)) {
 			struct btd_service *service = l->data;
 
@@ -2715,6 +2721,7 @@ int btd_device_connect_services(struct btd_device *dev, GSList *services)
 		dev->pending = create_pending_list(dev, NULL);
 	}
 
+	/*执行连接*/
 	return connect_next(dev);
 }
 
@@ -4608,14 +4615,16 @@ static void device_add_uuids(struct btd_device *device, GSList *uuids)
 		GSList *match = g_slist_find_custom(device->uuids, l->data,
 							bt_uuid_strcmp);
 		if (match)
-			continue;
+			continue;/*此uuids在设备上已存在，跳过*/
 
+		/*不存在新增*/
 		changed = true;
 		device->uuids = g_slist_insert_sorted(device->uuids,
 						g_strdup(l->data),
 						bt_uuid_strcmp);
 	}
 
+	/*通知device上uuids属性已变更*/
 	if (changed)
 		g_dbus_emit_property_changed(dbus_conn, device->path,
 						DEVICE_INTERFACE, "UUIDs");
@@ -5381,6 +5390,7 @@ static void device_remove_stored(struct btd_device *device)
 	g_key_file_free(key_file);
 }
 
+/*移除设备*/
 void device_remove(struct btd_device *device, gboolean remove_stored)
 {
 	DBG("Removing device %s", device->path);
@@ -5628,9 +5638,11 @@ static struct btd_service *probe_service(struct btd_device *device,
 
 static void dev_probe(struct btd_profile *p, void *user_data)
 {
+	/*包含两个成员：1。服务uuid;2.设备*/
 	struct probe_data *d = user_data;
 	struct btd_service *service;
 
+	/*检查服务，设备，profile是否可组合工作*/
 	service = probe_service(d->dev, p, d->uuids);
 	if (!service)
 		return;
@@ -5678,13 +5690,14 @@ void device_remove_profile(gpointer a, gpointer b)
 	service_remove(service);
 }
 
+/*为设备添加一组服务uuid*/
 void device_probe_profiles(struct btd_device *device, GSList *uuids)
 {
 	struct probe_data d = { device, uuids };
 	char addr[18];
 
 	if (!uuids)
-		return;
+		return;/*链表为空，返回*/
 
 	ba2str(&device->bdaddr, addr);
 
@@ -5693,7 +5706,8 @@ void device_probe_profiles(struct btd_device *device, GSList *uuids)
 		goto add_uuids;/*跳过block设备*/
 	}
 
-	btd_profile_foreach(dev_probe, &d);/*遍历所有profile,设备probe profile*/
+	/*利用函数dev_probe遍历所有内置profile及external profile,*/
+	btd_profile_foreach(dev_probe, &d);
 
 add_uuids:
 	device_add_uuids(device, uuids);
@@ -6445,6 +6459,7 @@ static void att_connect_cb(GIOChannel *io, GError *gerr, gpointer user_data)
 	device->att_io = NULL;
 
 	if (gerr) {
+		/*连接失败*/
 		DBG("%s", gerr->message);
 
 		if (g_error_matches(gerr, BT_IO_ERROR, ECONNABORTED))
@@ -6504,6 +6519,7 @@ done:
 	}
 }
 
+/*执行连接*/
 int device_connect_le(struct btd_device *dev)
 {
 	struct btd_adapter *adapter = dev->adapter;
@@ -6516,7 +6532,7 @@ int device_connect_le(struct btd_device *dev)
 	if (dev->att_io || dev->att)
 		return -EALREADY;
 
-	ba2str(&dev->bdaddr, addr);
+	ba2str(&dev->bdaddr, addr);/*设备地址*/
 
 	DBG("Connection attempt to: %s", addr);
 
@@ -6534,16 +6550,17 @@ int device_connect_le(struct btd_device *dev)
 	 */
 	io = bt_io_connect(att_connect_cb, dev, NULL, &gerr,
 			BT_IO_OPT_SOURCE_BDADDR,
-			btd_adapter_get_address(adapter),
+			btd_adapter_get_address(adapter),/*源地址*/
 			BT_IO_OPT_SOURCE_TYPE,
 			btd_adapter_get_address_type(adapter),
-			BT_IO_OPT_DEST_BDADDR, &dev->bdaddr,
+			BT_IO_OPT_DEST_BDADDR, &dev->bdaddr,/*目标地址*/
 			BT_IO_OPT_DEST_TYPE, dev->bdaddr_type,
 			BT_IO_OPT_CID, ATT_CID,
 			BT_IO_OPT_SEC_LEVEL, sec_level,
 			BT_IO_OPT_INVALID);
 
 	if (io == NULL) {
+		/*连接失败*/
 		if (dev->bonding) {
 			DBusMessage *reply = btd_error_failed(
 					dev->bonding->msg, gerr->message);
@@ -7649,8 +7666,9 @@ int device_notify_pincode(struct btd_device *device, gboolean secure,
 	if (!auth)
 		return -EPERM;
 
-	auth->pincode = g_strdup(pincode);
+	auth->pincode = g_strdup(pincode);/*指定pin码*/
 
+	/*使agent显示pin码*/
 	err = agent_display_pincode(auth->agent, device, pincode,
 					display_pincode_cb, auth, NULL);
 	if (err < 0) {
@@ -7809,14 +7827,17 @@ void btd_device_gatt_set_service_changed(struct btd_device *device,
 	 */
 }
 
+/*为设备添加一个服务uuid*/
 void btd_device_add_uuid(struct btd_device *device, const char *uuid)
 {
 	GSList *uuid_list;
 	char *new_uuid;
 
+	/*转换成uuid list，以便调用device_probe_profiles*/
 	new_uuid = g_strdup(uuid);
 	uuid_list = g_slist_append(NULL, new_uuid);
 
+	/*为设备添加一组服务uuid*/
 	device_probe_profiles(device, uuid_list);
 
 	g_free(new_uuid);

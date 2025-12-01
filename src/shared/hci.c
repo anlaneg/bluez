@@ -57,7 +57,7 @@ struct bt_hci {
 	unsigned int next_evt_id;
 	struct queue *cmd_queue;
 	struct queue *rsp_queue;
-	struct queue *evt_list;
+	struct queue *evt_list;/*注册的关注的event链表*/
 	struct queue *data_queue;
 };
 
@@ -248,10 +248,12 @@ static void process_notify(void *data, void *user_data)
 	struct evt *evt = data;
 
 	if (evt->event == hdr->evt)
+		/*此event已被关注，触发event回调*/
 		evt->callback(user_data + sizeof(struct bt_hci_evt_hdr),
 						hdr->plen, evt->user_data);
 }
 
+/*处理收到的event*/
 static void process_event(struct bt_hci *hci, const void *data, size_t size)
 {
 	const struct bt_hci_evt_hdr *hdr = data;
@@ -287,6 +289,7 @@ static void process_event(struct bt_hci *hci, const void *data, size_t size)
 		break;
 
 	default:
+		/*查找关注的event回调，处理此event*/
 		queue_foreach(hci->evt_list, process_notify, (void *) hdr);
 		break;
 	}
@@ -600,6 +603,7 @@ unsigned int bt_hci_register(struct bt_hci *hci, uint8_t event,
 	evt->destroy = destroy;
 	evt->user_data = user_data;
 
+	/*注册hci event*/
 	if (!queue_push_tail(hci->evt_list, evt)) {
 		free(evt);
 		return 0;

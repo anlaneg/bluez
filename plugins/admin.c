@@ -46,6 +46,7 @@ static struct queue *devices; /* List of struct device_data objects */
 static struct btd_admin_policy {
 	struct btd_adapter *adapter;
 	uint16_t adapter_id;
+	/*uuids代表了一组服务，即容许的一组服务*/
 	struct queue *service_allowlist;
 } *policy_data = NULL;
 
@@ -142,15 +143,16 @@ static struct queue *parse_allow_service_list(struct btd_adapter *adapter,
 		dbus_message_iter_next(&arr_iter);
 
 		if (queue_find(uuid_list, uuid_match, uuid)) {
+			/*此uuid已存在，释放*/
 			g_free(uuid);
 			continue;
 		}
 
-		queue_push_head(uuid_list, uuid);
+		queue_push_head(uuid_list, uuid);/*添加新的uuid*/
 
 	} while (true);
 
-	return uuid_list;
+	return uuid_list;/*返回配置的一组uuid*/
 
 failed:
 	queue_destroy(uuid_list, g_free);
@@ -160,12 +162,14 @@ failed:
 static bool service_allowlist_set(struct btd_admin_policy *admin_policy,
 							struct queue *uuid_list)
 {
+	/*取得要设置的	adapter*/
 	struct btd_adapter *adapter = admin_policy->adapter;
 
 	if (!btd_adapter_set_allowed_uuids(adapter, uuid_list))
 		return false;
 
 	free_service_allowlist(admin_policy->service_allowlist);
+	/*这些uuids代表了一组服务，即容许的一组服务*/
 	admin_policy->service_allowlist = uuid_list;
 
 	return true;
@@ -378,7 +382,7 @@ static DBusMessage *set_service_allowlist(DBusConnection *conn,
 	DBG("sender %s", sender);
 
 	/* Parse parameters */
-	uuid_list = parse_allow_service_list(adapter, msg);
+	uuid_list = parse_allow_service_list(adapter, msg);/*取得容许的uuid*/
 	if (!uuid_list) {
 		btd_error(admin_policy->adapter_id,
 				"Failed on parsing allowed service list");
@@ -404,7 +408,7 @@ static DBusMessage *set_service_allowlist(DBusConnection *conn,
 
 static const GDBusMethodTable admin_policy_adapter_methods[] = {
 	{ GDBUS_METHOD("SetServiceAllowList", GDBUS_ARGS({ "UUIDs", "as" }),
-						NULL, set_service_allowlist) },
+						NULL, set_service_allowlist) /*用于配置容许的uuid*/},
 	{ }
 };
 
@@ -518,6 +522,7 @@ static int admin_policy_adapter_probe(struct btd_adapter *adapter)
 	load_policy_settings(policy_data);/*加载policy data*/
 	adapter_path = adapter_get_path(adapter);
 
+	/*用于支持配置支持哪些服务*/
 	if (!g_dbus_register_interface(dbus_conn, adapter_path,
 					ADMIN_POLICY_SET_INTERFACE,
 					admin_policy_adapter_methods, NULL,
@@ -554,7 +559,7 @@ static void admin_policy_device_added(struct btd_adapter *adapter,
 	struct device_data *data;
 
 	if (queue_find(devices, device_data_match, device))
-		return;
+		return;/*要添加的设备已在devices中，返回*/
 
 	data = g_new0(struct device_data, 1);
 	if (!data) {

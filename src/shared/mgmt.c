@@ -529,7 +529,7 @@ struct mgmt *mgmt_new(int fd)
 	return mgmt_ref(mgmt);
 }
 
-/*创建mgmt*/
+/*创建mgmt(hci mgmt socket)*/
 struct mgmt *mgmt_new_default(void)
 {
 	struct mgmt *mgmt;
@@ -695,7 +695,7 @@ static struct mgmt_request *create_request(struct mgmt *mgmt, uint16_t opcode,
 
 	request->callback = callback;
 	request->destroy = destroy;
-	request->user_data = user_data;
+	request->user_data = user_data;/*回调参数*/
 	request->timeout = timeout;/*设置超时时间*/
 
 	return request;
@@ -831,8 +831,8 @@ unsigned int mgmt_send_tlv(struct mgmt *mgmt, uint16_t opcode, uint16_t index,
 /*创建request,并将request添加至mgmt->request_queue*/
 unsigned int mgmt_send_timeout(struct mgmt *mgmt, uint16_t opcode,
 				uint16_t index, uint16_t length/*参数长度*/,
-				const void *param, mgmt_request_func_t callback,
-				void *user_data, mgmt_destroy_func_t destroy,
+				const void *param/*opcode参数*/, mgmt_request_func_t callback/*请求回调*/,
+				void *user_data/*请求回调参数*/, mgmt_destroy_func_t destroy,
 				int timeout)
 {
 	struct mgmt_request *request;

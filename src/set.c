@@ -46,7 +46,7 @@ struct btd_device_set {
 	uint8_t sirk[16];
 	uint8_t size;
 	bool auto_connect;
-	struct queue *devices;
+	struct queue *devices;/*一组device*/
 	struct btd_device *device;
 };
 
@@ -64,6 +64,7 @@ static DBusMessage *set_connect(DBusConnection *conn, DBusMessage *msg,
 	return NULL;
 }
 
+/*空实现的Method*/
 static const GDBusMethodTable set_methods[] = {
 	{ GDBUS_EXPERIMENTAL_ASYNC_METHOD("Disconnect", NULL, NULL,
 						set_disconnect) },
@@ -72,6 +73,7 @@ static const GDBusMethodTable set_methods[] = {
 	{}
 };
 
+/*取adapter path*/
 static gboolean get_adapter(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *data)
 {
@@ -83,6 +85,7 @@ static gboolean get_adapter(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+/*取auto_connect配置*/
 static gboolean get_auto_connect(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *data)
 {
@@ -94,6 +97,7 @@ static gboolean get_auto_connect(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+/*设置auto_connect配置*/
 static void set_auto_connect(const GDBusPropertyTable *property,
 					DBusMessageIter *iter,
 					 GDBusPendingPropertySet id, void *data)
@@ -110,17 +114,19 @@ static void set_auto_connect(const GDBusPropertyTable *property,
 
 	dbus_message_iter_get_basic(iter, &b);
 
-	set->auto_connect = b ? true : false;
+	set->auto_connect = b ? true : false;/*设置auto_connect配置*/
 
 	g_dbus_pending_property_success(id);
 }
 
+/*取这组devices的路径*/
 static void append_device(void *data, void *user_data)
 {
 	struct btd_device *device = data;
 	const char *path = device_get_path(device);
 	DBusMessageIter *entry = user_data;
 
+	/*取此device的path*/
 	dbus_message_iter_append_basic(entry, DBUS_TYPE_OBJECT_PATH, &path);
 }
 
@@ -134,6 +140,7 @@ static gboolean get_devices(const GDBusPropertyTable *property,
 					DBUS_TYPE_OBJECT_PATH_AS_STRING,
 					&entry);
 
+	/*收集devices的路径*/
 	queue_foreach(set->devices, append_device, &entry);
 
 	dbus_message_iter_close_container(iter, &entry);
@@ -141,10 +148,11 @@ static gboolean get_devices(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+/*取set大小*/
 static gboolean get_size(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *data)
 {
-	struct btd_device_set *set = data;
+	struct btd_device_set *set = data;/*取set大小*/
 
 	dbus_message_iter_append_basic(iter, DBUS_TYPE_BYTE, &set->size);
 
@@ -153,13 +161,13 @@ static gboolean get_size(const GDBusPropertyTable *property,
 
 static const GDBusPropertyTable set_properties[] = {
 	{ "Adapter", "o", get_adapter, NULL, NULL,
-			G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
+			G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },/*取adapter path*/
 	{ "AutoConnect", "b", get_auto_connect, set_auto_connect, NULL,
-			G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
+			G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },/*设置auto_connect*/
 	{ "Devices", "ao", get_devices, NULL, NULL,
 			G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
 	{ "Size", "y", get_size, NULL, NULL,
-			G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
+			G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },/*取set大小*/
 	{}
 };
 
@@ -184,6 +192,7 @@ static struct btd_device_set *set_new(struct btd_device *device,
 	set->auto_connect = true;
 	set->devices = queue_new();
 	queue_push_tail(set->devices, device);
+	/*设置set路径*/
 	set->path = g_strdup_printf("%s/set_%02x%02x%02x%02x%02x%02x%02x%02x"
 					"%02x%02x%02x%02x%02x%02x%02x%02x",
 					adapter_get_path(set->adapter),
@@ -194,6 +203,7 @@ static struct btd_device_set *set_new(struct btd_device *device,
 
 	DBG("Creating set %s", set->path);
 
+	/*注册set接口*/
 	if (g_dbus_register_interface(btd_get_dbus_connection(),
 					set->path, BTD_DEVICE_SET_INTERFACE,
 					set_methods, NULL,
@@ -230,6 +240,7 @@ static void set_connect_next(struct btd_device_set *set)
 {
 	const struct queue_entry *entry;
 
+	/*遍历此set所有device,逐个进行连接*/
 	for (entry = queue_get_entries(set->devices); entry;
 					entry = entry->next) {
 		struct btd_device *device = entry->data;
@@ -366,6 +377,7 @@ bool btd_set_remove_device(struct btd_device_set *set,
 	if (!set || !device)
 		return false;
 
+	/*移除此device*/
 	if (!queue_remove_if(set->devices, NULL, device))
 		return false;
 

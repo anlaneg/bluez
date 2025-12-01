@@ -206,6 +206,7 @@ uint8_t *node_uuid_get(struct mesh_node *node)
 	return node->uuid;
 }
 
+/*初始化mesh_node*/
 static void set_defaults(struct mesh_node *node)
 {
 	node->lpn = MESH_MODE_UNSUPPORTED;
@@ -222,6 +223,7 @@ static void set_defaults(struct mesh_node *node)
 	node->seq_number = DEFAULT_SEQUENCE_NUMBER;
 }
 
+/*利用uuid创建mesh_node*/
 static struct mesh_node *node_new(const uint8_t uuid[16])
 {
 	struct mesh_node *node;
@@ -1151,6 +1153,7 @@ bool node_replace_comp(struct mesh_node *node, uint8_t retire, uint8_t with)
 	return status;
 }
 
+/*mesh_node的mesh_net与mesh_io关联*/
 static void attach_io(void *a, void *b)
 {
 	struct mesh_node *node = a;
@@ -1163,6 +1166,7 @@ static void attach_io(void *a, void *b)
 /* Register callbacks for all nodes io */
 void node_attach_io_all(struct mesh_io *io)
 {
+	/*遍历nodes列表，使所有nodes的mesh_net与io关联*/
 	l_queue_foreach(nodes, attach_io, io);
 }
 
@@ -1669,26 +1673,31 @@ static void get_managed_objects_cb(struct l_dbus_message *msg, void *user_data)
 		goto fail;
 	}
 
+	/*解析此一组object*/
 	if (!l_dbus_message_get_arguments(msg, "a{oa{sa{sv}}}", &objects)) {
 		l_error("Failed to parse app's dbus objects");
 		goto fail;
 	}
 
-	while (l_dbus_message_iter_next_entry(&objects, &path, &interfaces)) {
+	/*遍历所有objects,其为一个映射，由'o'和‘a{}’构成*/
+	while (l_dbus_message_iter_next_entry(&objects, &path/*取得路径*/, &interfaces)) {
 		struct l_dbus_message_iter properties;
 		const char *interface;
 
+		/*再遍历映射，分解为接口名称's'及一组属性'a{sv}'*/
 		while (l_dbus_message_iter_next_entry(&interfaces, &interface,
 								&properties)) {
 			bool res;
 
 			if (!strcmp(MESH_ELEMENT_INTERFACE, interface)) {
+				/*element接口*/
 				res = get_element_properties(node, path,
 								&properties);
 				if (!res)
 					goto fail;
 			} else if (!strcmp(MESH_APPLICATION_INTERFACE,
 								interface)) {
+				/*application接口*/
 				if (have_app)
 					goto fail;
 
@@ -1703,6 +1712,7 @@ static void get_managed_objects_cb(struct l_dbus_message *msg, void *user_data)
 
 			} else if (!strcmp(MESH_PROVISION_AGENT_INTERFACE,
 								interface)) {
+				/*agent接口*/
 				const char *sender;
 
 				sender = l_dbus_message_get_sender(msg);
@@ -1831,10 +1841,10 @@ static void send_managed_objects_request(const char *destination,
 
 	msg = l_dbus_message_new_method_call(dbus_get_bus(), destination, path,
 						L_DBUS_INTERFACE_OBJECT_MANAGER,
-						"GetManagedObjects");
+						"GetManagedObjects");/*构造消息*/
 	l_dbus_message_set_arguments(msg, "");
 	dbus_send_with_timeout(dbus_get_bus(), msg, get_managed_objects_cb,
-					req, l_free, DEFAULT_DBUS_TIMEOUT);
+					req/*回调参数*/, l_free, DEFAULT_DBUS_TIMEOUT);/*发送并处理响应*/
 }
 
 /* Establish relationship between application and mesh node */
@@ -2532,7 +2542,7 @@ struct mesh_agent *node_get_agent(struct mesh_node *node)
 	return node->agent;
 }
 
-bool node_load_from_storage(const char *storage_dir)
+bool node_load_from_storage(const char *storage_dir/*配置目录*/)
 {
 	return mesh_config_load_nodes(storage_dir, init_from_storage, NULL);
 }
@@ -2560,5 +2570,5 @@ void node_finalize_new_node(struct mesh_node *node, struct mesh_io *io)
 	node->busy = false;
 
 	/* Register callback for the node's io */
-	attach_io(node, io);
+	attach_io(node, io);/*node的mesh_net与io关联*/
 }

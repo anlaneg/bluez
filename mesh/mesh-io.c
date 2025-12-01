@@ -140,6 +140,7 @@ static struct mesh_io_reg *find_by_filter(struct l_queue *rx_regs,
 
 	entry = l_queue_get_entries(rx_regs);
 
+	/*遍历entry,通过len,filter查找mesh_io_reg*/
 	for (; entry; entry = entry->next) {
 		struct mesh_io_reg *rx_reg = entry->data;
 
@@ -205,8 +206,8 @@ bool mesh_io_get_caps(struct mesh_io *io, struct mesh_io_caps *caps)
 	return false;
 }
 
-bool mesh_io_register_recv_cb(struct mesh_io *io, const uint8_t *filter,
-				uint8_t len, mesh_io_recv_func_t cb,
+bool mesh_io_register_recv_cb(struct mesh_io *io, const uint8_t *filter/*AD Structure结构体标记*/,
+				uint8_t len/*结构体filter长度*/, mesh_io_recv_func_t cb,
 				void *user_data)
 {
 	struct mesh_io_reg *rx_reg;
@@ -217,19 +218,21 @@ bool mesh_io_register_recv_cb(struct mesh_io *io, const uint8_t *filter,
 	if (io != default_io || !cb || !filter || !len)
 		return false;
 
-	rx_reg = find_by_filter(io->rx_regs, filter, len);
+	rx_reg = find_by_filter(io->rx_regs, filter, len);/*查找旧的*/
 
 	l_free(rx_reg);
-	l_queue_remove(io->rx_regs, rx_reg);
+	l_queue_remove(io->rx_regs, rx_reg);/*移除旧的*/
 
+	/*创建rx_reg*/
 	rx_reg = l_malloc(sizeof(struct mesh_io_reg) + len);
 	rx_reg->cb = cb;
 	rx_reg->len = len;
 	rx_reg->user_data = user_data;
-	memcpy(rx_reg->filter, filter, len);
+	memcpy(rx_reg->filter, filter, len);/*填写filter*/
 
-	l_queue_push_head(io->rx_regs, rx_reg);
+	l_queue_push_head(io->rx_regs, rx_reg);/*添加新的*/
 
+	/*注册此filter*/
 	if (io && io->api && io->api->reg)
 		return io->api->reg(io, filter, len, cb, user_data);
 
@@ -288,7 +291,7 @@ static void loop_unprv_beacon(const uint8_t *data, uint16_t len)
 }
 
 bool mesh_io_send(struct mesh_io *io, struct mesh_io_send_info *info,
-					const uint8_t *data, uint16_t len)
+					const uint8_t *data, uint16_t len/*data长度*/)
 {
 	if (io && io != default_io)
 		return false;
@@ -301,6 +304,7 @@ bool mesh_io_send(struct mesh_io *io, struct mesh_io_send_info *info,
 		loop_unprv_beacon(data, len);
 
 	if (io && io->api && io->api->send)
+		/*发送data*/
 		return io->api->send(io, info, data, len);
 
 	return false;

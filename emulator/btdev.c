@@ -60,10 +60,10 @@
 #define INV_HANDLE 0xffff
 
 struct hook {
-	btdev_hook_func handler;
-	void *user_data;
-	enum btdev_hook_type type;
-	uint16_t opcode;
+	btdev_hook_func handler;/*hook回调*/
+	void *user_data;/*handler回调参数*/
+	enum btdev_hook_type type;/*hook类型*/
+	uint16_t opcode;/*hook关注的opcode*/
 };
 
 #define MAX_HOOK_ENTRIES 16
@@ -293,11 +293,11 @@ static int get_hook_index(struct btdev *btdev, enum btdev_hook_type type,
 
 	for (i = 0; i < MAX_HOOK_ENTRIES; i++) {
 		if (btdev->hook_list[i] == NULL)
-			continue;
+			continue;/*跳过不存在的hook*/
 
 		if (btdev->hook_list[i]->type == type &&
 					btdev->hook_list[i]->opcode == opcode)
-			return i;
+			return i;/*命中此hook*/
 	}
 
 	return -1;
@@ -308,8 +308,9 @@ static bool run_hooks(struct btdev *btdev, enum btdev_hook_type type,
 {
 	int index = get_hook_index(btdev, type, opcode);
 	if (index < 0)
-		return true;
+		return true;/*无对应hook,直接返回*/
 
+	/*调用hook*/
 	return btdev->hook_list[index]->handler(data, len,
 					btdev->hook_list[index]->user_data);
 }
@@ -743,8 +744,8 @@ static int cmd_disconnect(struct btdev *dev, const void *data, uint8_t len)
 	return 0;
 }
 
-static void send_event(struct btdev *btdev, uint8_t event,
-						const void *data, uint8_t len)
+static void send_event(struct btdev *btdev, uint8_t event/*事件编号*/,
+						const void *data/*event参数*/, uint8_t len/*event参数长度*/)
 {
 	struct bt_hci_evt_hdr hdr;
 	struct iovec iov[3];
@@ -753,17 +754,17 @@ static void send_event(struct btdev *btdev, uint8_t event,
 	util_debug(btdev->debug_callback, btdev->debug_data,
 				"event 0x%02x", event);
 
-	iov[0].iov_base = &pkt;
+	iov[0].iov_base = &pkt;/*指明报文类型*/
 	iov[0].iov_len = sizeof(pkt);
 
 	hdr.evt = event;
 	hdr.plen = len;
 
-	iov[1].iov_base = &hdr;
+	iov[1].iov_base = &hdr;/*指明event header*/
 	iov[1].iov_len = sizeof(hdr);
 
 	if (len > 0) {
-		iov[2].iov_base = (void *) data;
+		iov[2].iov_base = (void *) data;/*指明event参数*/
 		iov[2].iov_len = len;
 	}
 
@@ -8236,9 +8237,10 @@ void btdev_receive_h4(struct btdev *btdev, const void *data, uint16_t len)
 	}
 }
 
-int btdev_add_hook(struct btdev *btdev, enum btdev_hook_type type,
-				uint16_t opcode, btdev_hook_func handler,
-				void *user_data)
+/*添加hook*/
+int btdev_add_hook(struct btdev *btdev, enum btdev_hook_type type/*hook类型*/,
+				uint16_t opcode/*hook关注的opcode*/, btdev_hook_func handler/*hook回调*/,
+				void *user_data/*hook回调参数*/)
 {
 	int i;
 
@@ -8246,8 +8248,9 @@ int btdev_add_hook(struct btdev *btdev, enum btdev_hook_type type,
 		return -1;
 
 	if (get_hook_index(btdev, type, opcode) > 0)
-		return -1;
+		return -1;/*已有此类hook*/
 
+	/*注册hook*/
 	for (i = 0; i < MAX_HOOK_ENTRIES; i++) {
 		if (btdev->hook_list[i] == NULL) {
 			btdev->hook_list[i] = malloc(sizeof(struct hook));

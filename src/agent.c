@@ -874,6 +874,7 @@ static int display_pincode_request_new(struct agent_request *req,
 	struct agent *agent = req->agent;
 	const char *path;
 
+	/*调用agent的DisplayPinCode方法，显示pin码*/
 	req->msg = dbus_message_new_method_call(agent->owner, agent->path,
 					AGENT_INTERFACE, "DisplayPinCode");
 	if (req->msg == NULL) {
@@ -914,6 +915,7 @@ int agent_display_pincode(struct agent *agent, struct btd_device *device,
 	DBG("Calling Agent.DisplayPinCode: name=%s, path=%s, pincode=%s",
 					agent->owner, agent->path, pincode);
 
+	/*要求agent显示pin码*/
 	req = agent_request_new(agent, device, AGENT_REQUEST_DISPLAY_PINCODE,
 				cb, user_data, destroy);
 

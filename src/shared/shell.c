@@ -43,6 +43,7 @@
 #define print_menu(cmd, args, desc) \
 		printf(COLOR_HIGHLIGHT "%s %-*s " COLOR_OFF "%s\n", \
 			cmd, (int)(CMD_LENGTH - strlen(cmd)), args, desc)
+/*显示命令及描述*/
 #define print_submenu(cmd, desc) \
 		printf(COLOR_BLUE "%s %-*s " COLOR_OFF "%s\n", \
 			cmd, (int)(CMD_LENGTH - strlen(cmd)), "", desc)
@@ -92,12 +93,12 @@ static struct {
 
 	struct queue *prompts;
 
-	const struct bt_shell_menu *menu;
-	const struct bt_shell_menu *main;/*主菜单*/
+	const struct bt_shell_menu *menu;/*当前生效的主菜单*/
+	const struct bt_shell_menu *main;/*主菜单（根菜单）*/
 	struct queue *submenus;/*子菜单*/
 	const struct bt_shell_menu_entry *exec;
 
-	struct queue *envs;
+	struct queue *envs;/*环境变量列表*/
 } data;
 
 static void shell_print_menu(void);
@@ -105,16 +106,19 @@ static void shell_print_menu_zsh_complete(void);
 
 static void cmd_version(int argc, char *argv[])
 {
+	/*显示版本*/
 	bt_shell_printf("Version %s\n", VERSION);
 
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 }
 
+/*进程退出*/
 static void cmd_quit(int argc, char *argv[])
 {
 	mainloop_quit();
 }
 
+/*显示命令列表*/
 static void print_cmds(void)
 {
 	const struct bt_shell_menu_entry *entry;
@@ -125,17 +129,20 @@ static void print_cmds(void)
 
 	printf("Commands:\n");
 
+	/*显示主菜单命令*/
 	for (entry = data.menu->entries; entry->cmd; entry++) {
 		printf("\t%s%s\t%s\n", entry->cmd,
 			strlen(entry->cmd) < 8 ? "\t" : "", entry->desc);
 	}
 
+	/*显示子菜单命令*/
 	for (submenu = queue_get_entries(data.submenus); submenu;
 					submenu = submenu->next) {
 		struct bt_shell_menu *menu = submenu->data;
 
-		printf("\n\t%s.:\n", menu->name);
+		printf("\n\t%s.:\n", menu->name);/*子菜单名*/
 
+		/*显示子菜单名称*/
 		for (entry = menu->entries; entry->cmd; entry++) {
 			printf("\t\t%s%s\t%s\n", entry->cmd,
 				strlen(entry->cmd) < 8 ? "\t" : "",
@@ -147,6 +154,7 @@ static void print_cmds(void)
 static void cmd_help(int argc, char *argv[])
 {
 	if (argv[0] == cmplt)
+		/*执行help命令*/
 		print_cmds();
 	else
 		shell_print_menu();
@@ -160,18 +168,19 @@ static const struct bt_shell_menu *find_menu(const char *name, size_t len,
 	const struct queue_entry *entry;
 	int i;
 
+	/*遍历所有子菜单*/
 	for (i = 0, entry = queue_get_entries(data.submenus); entry;
 						entry = entry->next, i++) {
 		struct bt_shell_menu *menu = entry->data;
 
 		if (index) {
 			if (i < *index)
-				continue;
+				continue;/*跳过index*/
 			(*index)++;
 		}
 
 		if (!strncmp(menu->name, name, len))
-			return menu;
+			return menu;/*名称匹配，返回命中的menu*/
 	}
 
 	return NULL;
@@ -207,18 +216,22 @@ static void cmd_menu(int argc, char *argv[])
 	const struct bt_shell_menu *menu;
 
 	if (argc < 2 || !strlen(argv[1])) {
+		/*必须提供两个选项*/
 		bt_shell_printf("Missing name argument\n");
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 	}
 
+	/*查找参数给定的submenu*/
 	menu = find_menu(argv[1], strlen(argv[1]), NULL);
 	if (!menu) {
 		bt_shell_printf("Unable find menu with name: %s\n", argv[1]);
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 	}
 
+	/*设置此menu为主菜单*/
 	bt_shell_set_menu(menu);
 
+	/*显示menu*/
 	shell_print_menu();
 
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
@@ -238,10 +251,12 @@ static bool cmd_menu_exists(const struct bt_shell_menu *menu)
 static void cmd_back(int argc, char *argv[])
 {
 	if (data.menu == data.main) {
+		/*已回到主菜单，不能再退了*/
 		bt_shell_printf("Already on main menu\n");
 		return;
 	}
 
+	/*退到根菜单*/
 	bt_shell_set_menu(data.main);
 
 	shell_print_menu();
@@ -256,6 +271,7 @@ static bool cmd_back_exists(const struct bt_shell_menu *menu)
 	return true;
 }
 
+/*显示环境变量及其取值*/
 static void cmd_export(int argc, char *argv[])
 {
 	const struct queue_entry *entry;
@@ -273,7 +289,7 @@ static int bt_shell_queue_exec(char *line)
 
 	/* Ignore comments */
 	if (line[0] == '#')
-		return 0;
+		return 0;/*跳过注释行*/
 
 	/* Queue if already executing */
 	if (data.line) {
@@ -323,6 +339,7 @@ static bool bt_shell_input_line(struct input *input)
 		}
 	}
 
+	/*读取line*/
 	nread = getline(&line, &len, input->f);
 	if (nread > 0) {
 		int err;
@@ -330,6 +347,7 @@ static bool bt_shell_input_line(struct input *input)
 		if (line[nread - 1] == '\n')
 			line[nread - 1] = '\0';
 
+		/*执行line*/
 		err = bt_shell_queue_exec(line);
 		if (err < 0)
 			printf("%s: %s (%d)\n", line, strerror(-err), -err);
@@ -360,6 +378,7 @@ static bool input_hup(struct io *io, void *user_data)
 	return false;
 }
 
+/*利用fd创建struct input*/
 static struct input *input_new(int fd)
 {
 	struct input *input;
@@ -403,10 +422,12 @@ static bool bt_shell_input_attach(int fd)
 	return true;
 }
 
+/*执行argv[1]指明的脚本*/
 static void cmd_script(int argc, char *argv[])
 {
 	int fd;
 
+	/*打开文件*/
 	fd = open(argv[1], O_RDONLY);
 	if (fd < 0) {
 		printf("Unable to open %s: %s (%d)\n", argv[1],
@@ -423,21 +444,22 @@ static void cmd_script(int argc, char *argv[])
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 }
 
+/*默认命令（shell的主要管理命令）*/
 static const struct bt_shell_menu default_menu = {
 	.entries = {
-	{ "back",         NULL,       cmd_back, "Return to main menu", NULL,
+	{ "back",         NULL,       cmd_back/*回退“根菜单”到“主菜单”*/, "Return to main menu", NULL,
 							NULL, cmd_back_exists },
-	{ "menu",         "<name>",   cmd_menu, "Select submenu",
+	{ "menu",         "<name>",   cmd_menu/*设置"某个子菜单"为“主菜单”*/, "Select submenu",
 							menu_generator, NULL,
 							cmd_menu_exists},
-	{ "version",      NULL,       cmd_version, "Display version" },
-	{ "quit",         NULL,       cmd_quit, "Quit program" },
-	{ "exit",         NULL,       cmd_quit, "Quit program" },
-	{ "help",         NULL,       cmd_help,
+	{ "version",      NULL,       cmd_version, "Display version" },/*显示版本号*/
+	{ "quit",         NULL,       cmd_quit, "Quit program" },/*进程退出*/
+	{ "exit",         NULL,       cmd_quit, "Quit program" },/*进程退出*/
+	{ "help",         NULL,       cmd_help,/*显示帮助信息*/
 					"Display help about this program" },
-	{ "export",       NULL,       cmd_export,
+	{ "export",       NULL,       cmd_export,/*显示环境变量*/
 						"Print environment variables" },
-	{ "script",       "<filename>", cmd_script, "Run script" },
+	{ "script",       "<filename>", cmd_script, "Run script" },/*执行脚本*/
 	{} },
 };
 
@@ -456,18 +478,19 @@ static void shell_print_menu(void)
 	const struct queue_entry *submenu;
 
 	if (!data.menu)
-		return;
+		return;/*未设置主菜单，退出*/
 
 	if (data.zsh) {
 		shell_print_menu_zsh_complete();
 		return;
 	}
 
-	print_text(COLOR_HIGHLIGHT, "Menu %s:", data.menu->name);
+	print_text(COLOR_HIGHLIGHT, "Menu %s:", data.menu->name);/*显示主menu名称*/
 	print_text(COLOR_HIGHLIGHT, "Available commands:");
 	print_text(COLOR_HIGHLIGHT, "-------------------");
 
 	if (data.menu == data.main) {
+		/*仅当前生效的为根menu,显示子菜单*/
 		for (submenu = queue_get_entries(data.submenus); submenu;
 						submenu = submenu->next) {
 			struct bt_shell_menu *menu = submenu->data;
@@ -477,10 +500,12 @@ static void shell_print_menu(void)
 		}
 	}
 
+	/*显示主菜单命令*/
 	for (entry = data.menu->entries; entry->cmd; entry++) {
 		print_menu(entry->cmd, entry->arg ? : "", entry->desc ? : "");
 	}
 
+	/*显示default菜单命令*/
 	for (entry = default_menu.entries; entry->cmd; entry++) {
 		if (entry->exists && !entry->exists(data.menu))
 			continue;
@@ -546,6 +571,7 @@ static int cmd_exec(const struct bt_shell_menu_entry *entry,
 
 	if (!entry->arg || entry->arg[0] == '\0') {
 		if (argc > 1) {
+			/*命令不需要参数，但输入提供了参数，报错*/
 			print_text(COLOR_HIGHLIGHT, "Too many arguments");
 			return -EINVAL;
 		}
@@ -637,15 +663,15 @@ static int menu_exec(const struct bt_shell_menu *menu,
 
 	for (; entry->cmd; entry++) {
 		if (strcmp(argv[0], entry->cmd))
-			continue;
+			continue;/*跳过不匹配的cmd*/
 
 		/* Skip menu command if not on main menu */
 		if (data.menu != data.main && !strcmp(entry->cmd, "menu"))
-			continue;
+			continue;/*当前非“根菜单”，跳过"menu"命令*/
 
 		/* Skip back command if on main menu */
 		if (data.menu == data.main && !strcmp(entry->cmd, "back"))
-			continue;
+			continue;/*当前为“根菜单”，跳过"back"命令*/
 
 		if (data.mode == MODE_NON_INTERACTIVE && menu->pre_run)
 			menu->pre_run(menu);
@@ -696,15 +722,16 @@ static int shell_exec(int argc, char *argv[])
 	if (!argsisutf8(argc, argv))
 		return -EINVAL;
 
-	/*在default menu中查找并执行*/
+	/*先在default menu中查找并执行*/
 	err  = menu_exec(&default_menu, argc, argv);
 	if (err == -ENOENT) {
-		/*命令不在default menu中，在data.menu中查找并执行*/
+		/*命令不在default menu中，在data.menu（主菜单）中查找并执行*/
 		err  = menu_exec(data.menu, argc, argv);
 		if (err == -ENOENT) {
 			/*命令不在data.menu中，在submenu中查找并执行*/
 			err = submenu_exec(argc, argv);
 			if (err == -ENOENT) {
+				/*命令仍未查找到，报错*/
 				print_text(COLOR_HIGHLIGHT,
 					"Invalid command in menu %s: %s",
 					data.menu->name , argv[0]);
@@ -944,11 +971,12 @@ static void rl_handler(char *input)
 
 	/* Ignore empty/comment lines */
 	if (!strlen(input) || input[0] == '#')
-		goto done;
+		goto done;/*跳过注释内容*/
 
 	if (!bt_shell_release_prompt(input))
 		goto done;
 
+	/*执行输入内容*/
 	bt_shell_exec(input);
 
 done:
@@ -1295,7 +1323,7 @@ static void rl_init(void)
 	rl_attempted_completion_function = shell_completion;
 
 	rl_erase_empty_line = 1;
-	rl_callback_handler_install(NULL, rl_handler);
+	rl_callback_handler_install(NULL, rl_handler/*指定命令行处理方式*/);
 
 	rl_init_history();
 }
@@ -1451,6 +1479,7 @@ static void rl_cleanup(void)
 	rl_callback_handler_remove();
 }
 
+/*释放bt_shell_env*/
 static void env_destroy(void *data)
 {
 	struct bt_shell_env *env = data;
@@ -1470,9 +1499,11 @@ int bt_shell_run(void)
 	if (data.mode == MODE_NON_INTERACTIVE)
 		goto done;
 
+	/*执行主菜单pre_run回调*/
 	if (data.menu && data.menu->pre_run)
 		data.menu->pre_run(data.menu);
 
+	/*遍历子菜单，执行子菜单pre_run回调*/
 	for (submenu = queue_get_entries(data.submenus); submenu;
 	     submenu = submenu->next) {
 		struct bt_shell_menu *menu = submenu->data;
@@ -1482,6 +1513,7 @@ int bt_shell_run(void)
 	}
 
 done:
+	/*执行mainloop*/
 	status = mainloop_run_with_signal(signal_callback, NULL);
 
 	bt_shell_cleanup();
@@ -1496,7 +1528,7 @@ int bt_shell_exec(const char *input)
 	int err;
 
 	if (!input)
-		return 0;
+		return 0;/*内容为空*/
 
 	last = history_get(history_length + history_base - 1);
 	/* append only if input is different from previous command */
@@ -1593,18 +1625,19 @@ void bt_shell_noninteractive_quit(int status)
 	if (status == -EINPROGRESS)
 		return;
 
-	bt_shell_quit(status);
+	bt_shell_quit(status);/*进程退出*/
 }
 
+/*设置主菜单*/
 bool bt_shell_set_menu(const struct bt_shell_menu *menu)
 {
 	if (!menu)
 		return false;
 
-	data.menu = menu;
+	data.menu = menu;/*指定当前应生效的menu*/
 
 	if (!data.main)
-		data.main = menu;
+		data.main = menu;/*指定根menu*/
 
 	return true;
 }
@@ -1712,21 +1745,24 @@ void bt_shell_set_env(const char *name, void *value)
 	struct bt_shell_env *env;
 
 	if (!data.envs) {
+		/*envs未初始化*/
 		if (!value)
 			return;
 		data.envs = queue_new();
 		goto done;
 	}
 
+	/*移除envs链表中环境变量$name*/
 	env = queue_remove_if(data.envs, match_env, (void *) name);
 	if (env)
 		env_destroy(env);
 
 	/* Don't create an env if value is not set */
 	if (!value)
-		return;
+		return;/*无value,不创建*/
 
 done:
+	/*创建bt_shell_env,并添加进data.envs链表*/
 	env = new0(struct bt_shell_env, 1);
 	env->name = strdup(name);
 	env->value = value;
@@ -1734,6 +1770,7 @@ done:
 	queue_push_tail(data.envs, env);
 }
 
+/*取指定环境变量*/
 void *bt_shell_get_env(const char *name)
 {
 	const struct bt_shell_env *env;

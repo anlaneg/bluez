@@ -35,6 +35,7 @@ struct bluetooth_plugin {
 	const struct bluetooth_plugin_desc *desc;/*插件描述(元数据)*/
 };
 
+/*按优先级从小到大排列*/
 static int compare_priority(gconstpointer a, gconstpointer b)
 {
 	const struct bluetooth_plugin_desc *plugin1 = a;
@@ -120,32 +121,32 @@ static void add_plugin(void *data, void *user_data)
 	DBG("Plugin %s loaded", desc->name);
 }
 
-static gboolean enable_plugin(const char *name, char **cli_enable,
-							char **cli_disable)
+static gboolean enable_plugin(const char *name, char **cli_enable/*开启的插件列表*/,
+							char **cli_disable/*禁用的插件列表*/)
 {
 	if (cli_disable) {
-		/*遍历所有cli disable,如果要使能的插件名称不被包含,则跳过,否则禁用*/
+		/*遍历所有disable插件列表,如果匹配,则禁用*/
 		for (; *cli_disable; cli_disable++)
 			if (g_pattern_match_simple(*cli_disable, name))
 				break;
 		if (*cli_disable) {
 			info("Excluding (cli) %s", name);
-			return FALSE;
+			return FALSE;/*禁用*/
 		}
 	}
 
 	if (cli_enable) {
-		/*遍历所有cli enable,如果要使能的插件名称不被包含,则禁用;否则使能*/
+		/*遍历所有enable插件列表,如果匹配，则使能*/
 		for (; *cli_enable; cli_enable++)
 			if (g_pattern_match_simple(*cli_enable, name))
 				break;
 		if (!*cli_enable) {
-			info("Ignoring (cli) %s", name);
+			info("Ignoring (cli) %s", name);/*未在enable列表中，失配*/
 			return FALSE;
 		}
 	}
 
-	return TRUE;
+	return TRUE;/*使能*/
 }
 
 
@@ -226,13 +227,16 @@ void plugin_init(const char *enable/*白名单*/, const char *disable/*黑名单
 	bt_io_error_quark();
 
 	if (enable)
+		/*获取enabled插件名称列表*/
 		cli_enabled = g_strsplit_set(enable, ", ", -1);
 
 	if (disable)
+		/*获取disable插件名称列表*/
 		cli_disabled = g_strsplit_set(disable, ", ", -1);
 
 	DBG("Loading builtin plugins");
 
+	/*遍历内建的插件*/
 	for (i = 0; __bluetooth_builtin[i]; i++) {
 		if (!enable_plugin(__bluetooth_builtin[i]->name, cli_enabled,
 								cli_disabled))
@@ -244,6 +248,7 @@ void plugin_init(const char *enable/*白名单*/, const char *disable/*黑名单
 			(void *) __bluetooth_builtin[i], compare_priority);
 	}
 
+	/*遍历加入内置插件*/
 	g_slist_foreach(builtins, add_plugin, NULL);
 
 	if IS_ENABLED(EXTERNAL_PLUGINS)

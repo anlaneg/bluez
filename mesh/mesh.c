@@ -51,15 +51,21 @@ struct bt_mesh {
 	struct l_queue *filters;
 	prov_rx_cb_t prov_rx;
 	void *prov_data;
+	//"General/ProvTimeout"配置设置
 	uint32_t prov_timeout;
+	//"General/Beacon"配置设置
 	bool beacon_enabled;
+	//"General/Friendship"配置设置
 	bool friend_support;
+	//"General/Relay"配置设置
 	bool relay_support;
 	bool lpn_support;
 	bool proxy_support;
+	//"General/CRPL"配置设置
 	uint16_t crpl;
 	uint16_t algorithms;
 	uint16_t req_index;
+	//"General/FriendQueueSize"配置设置
 	uint8_t friend_queue_sz;
 	uint8_t max_filters;
 	bool initialized;
@@ -95,7 +101,7 @@ static struct bt_mesh mesh = {
 static struct join_data *join_pending;
 
 /* Pending method requests */
-static struct l_queue *pending_queue;
+static struct l_queue *pending_queue;/*用于挂接待处理message*/
 
 static const char *storage_dir;
 
@@ -103,6 +109,7 @@ static const char *storage_dir;
 static void def_attach(struct l_timeout *timeout, void *user_data);
 static void def_leave(struct l_timeout *timeout, void *user_data);
 
+/*按指针值进行匹配*/
 static bool simple_match(const void *a, const void *b)
 {
 	return a == b;
@@ -111,7 +118,7 @@ static bool simple_match(const void *a, const void *b)
 /* Used for any outbound traffic that doesn't have Friendship Constraints */
 /* This includes Beacons, Provisioning and unrestricted Network Traffic */
 bool mesh_send_pkt(uint8_t count, uint16_t interval,
-					void *data, uint16_t len)
+					void *data, uint16_t len/*数据长度*/)
 {
 	struct mesh_io_send_info info = {
 		.type = MESH_IO_TIMING_TYPE_GENERAL,
@@ -133,7 +140,7 @@ static void prov_rx(void *user_data, struct mesh_io_recv_info *info,
 					const uint8_t *data, uint16_t len)
 {
 	if (user_data != &mesh)
-		return;
+		return;/*函数参数必须为mesh*/
 
 	if (mesh.prov_rx)
 		mesh.prov_rx(mesh.prov_data, data, len);
@@ -147,9 +154,9 @@ bool mesh_reg_prov_rx(prov_rx_cb_t cb, void *user_data)
 		return false;
 
 	mesh.prov_rx = cb;
-	mesh.prov_data = user_data;
+	mesh.prov_data = user_data;/*记录回调叁数*/
 
-	return mesh_io_register_recv_cb(mesh.io, prov_filter,
+	return mesh_io_register_recv_cb(mesh.io, prov_filter/*关注的AD structure为PB-ADV*/,
 					sizeof(prov_filter), prov_rx, &mesh);
 }
 
@@ -207,6 +214,7 @@ uint8_t mesh_get_friend_queue_size(void)
 	return mesh.friend_queue_sz;
 }
 
+/*解析配置文件，设置mesh*/
 static void parse_settings(const char *mesh_conf_fname)
 {
 	struct l_settings *settings;
@@ -214,12 +222,15 @@ static void parse_settings(const char *mesh_conf_fname)
 	uint32_t value;
 
 	settings = l_settings_new();
+	/*加载配置文件，产生settings*/
 	if (!l_settings_load_from_file(settings, mesh_conf_fname))
 		goto done;
 
+	/*取Beacon配置*/
 	str = l_settings_get_string(settings, "General", "Beacon");
 	if (str) {
 		if (!strcasecmp(str, "true"))
+			/*仅当value指定为True时，此值置为true*/
 			mesh.beacon_enabled = true;
 		l_free(str);
 	}
@@ -253,7 +264,7 @@ done:
 	l_settings_free(settings);
 }
 
-bool mesh_init(const char *config_dir, const char *mesh_conf_fname,
+bool mesh_init(const char *config_dir/*配置文件目录*/, const char *mesh_conf_fname/*配置文件*/,
 					enum mesh_io_type type, void *opts,
 					mesh_ready_func_t cb, void *user_data)
 {
@@ -261,6 +272,7 @@ bool mesh_init(const char *config_dir, const char *mesh_conf_fname,
 	struct mesh_init_request *req;
 
 	if (mesh.io)
+		/*已初始化*/
 		return true;
 
 	mesh_model_init();
@@ -270,13 +282,14 @@ bool mesh_init(const char *config_dir, const char *mesh_conf_fname,
 	mesh.prov_timeout = DEFAULT_PROV_TIMEOUT;
 	mesh.algorithms = DEFAULT_ALGORITHMS;
 
-	storage_dir = config_dir ? config_dir : MESH_STORAGEDIR;
+	storage_dir = config_dir ? config_dir : MESH_STORAGEDIR;/*使用默认目录*/
 
 	l_info("Loading node configuration from %s", storage_dir);
 
 	if (!mesh_conf_fname)
-		mesh_conf_fname = CONFIGDIR "/mesh-main.conf";
+		mesh_conf_fname = CONFIGDIR "/mesh-main.conf";/*使用默认配置文件名称*/
 
+	/*解析mesh配置文件*/
 	parse_settings(mesh_conf_fname);
 
 	if (!node_load_from_storage(storage_dir))
@@ -746,11 +759,13 @@ static void create_node_ready_cb(void *user_data, int status,
 	const char *path;
 	const uint8_t *token;
 
+	/*取得参数指定的pending_msg*/
 	pending_msg = l_queue_remove_if(pending_queue, simple_match, user_data);
 	if (!pending_msg)
 		return;
 
 	if (status != MESH_ERROR_NONE) {
+		/*状态有误，响应响应消息*/
 		reply = dbus_error(pending_msg, status, NULL);
 		l_dbus_send(dbus_get_bus(), reply);
 		l_dbus_message_unref(pending_msg);
@@ -759,7 +774,7 @@ static void create_node_ready_cb(void *user_data, int status,
 
 	reply = l_dbus_message_new_method_return(pending_msg);
 
-	l_dbus_send(dbus, reply);
+	l_dbus_send(dbus, reply);/*发送响应*/
 
 	owner = l_dbus_message_get_sender(pending_msg);
 	path = node_get_app_path(node);
@@ -788,19 +803,21 @@ static struct l_dbus_message *create_network_call(struct l_dbus *dbus,
 
 	l_debug("Create network request");
 
+	/*解析参数app_path,iter_uuid*/
 	if (!l_dbus_message_get_arguments(msg, "oay", &app_path,
 								&iter_uuid))
 		return dbus_error(msg, MESH_ERROR_INVALID_ARGS, NULL);
 
 	if (!l_dbus_message_iter_get_fixed_array(&iter_uuid, &uuid, &n) ||
 					n != 16 || !l_uuid_is_valid(uuid))
+		/*参数iter_uuid格式有误或者长度有误*/
 		return dbus_error(msg, MESH_ERROR_INVALID_ARGS,
 							"Bad device UUID");
 
-	sender = l_dbus_message_get_sender(msg);
+	sender = l_dbus_message_get_sender(msg);/*取得发送方*/
 
 	pending_msg = l_dbus_message_ref(msg);
-	l_queue_push_tail(pending_queue, pending_msg);
+	l_queue_push_tail(pending_queue, pending_msg);/*添加进pending_queue*/
 
 	node_create(app_path, sender, uuid, create_node_ready_cb,
 								pending_msg);
@@ -907,7 +924,7 @@ static void setup_network_interface(struct l_dbus_interface *iface)
 								"token");
 
 	l_dbus_interface_method(iface, "CreateNetwork", 0, create_network_call,
-					"", "oay", "app", "uuid");
+					"", "oay", "app", "uuid");/*注册CreateNetwork方法*/
 
 	l_dbus_interface_method(iface, "Import", 0,
 					import_call,

@@ -82,24 +82,25 @@ static ssize_t wii_pincb(struct btd_adapter *adapter, struct btd_device *device,
 
 	for (i = 0; i < G_N_ELEMENTS(wii_ids); ++i) {
 		if (vendor == wii_ids[i][0] && product == wii_ids[i][1])
-			goto found;
+			goto found;/*vendor及product匹配*/
 	}
 
 	for (i = 0; i < G_N_ELEMENTS(wii_names); ++i) {
 		if (g_str_equal(name, wii_names[i]))
-			goto found;
+			goto found;/*设备名称匹配*/
 	}
 
 	return 0;
 
 found:
 	DBG("Forcing fixed pin on detected wiimote %s", addr);
-	memcpy(pinbuf, btd_adapter_get_address(adapter), 6);
+	memcpy(pinbuf, btd_adapter_get_address(adapter), 6);/*产生pin码*/
 	return 6;
 }
 
 static int wii_probe(struct btd_adapter *adapter)
 {
+	/*注册pin码产生回调*/
 	btd_adapter_register_pin_cb(adapter, wii_pincb);
 
 	return 0;

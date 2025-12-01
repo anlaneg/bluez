@@ -165,6 +165,7 @@ static bool parse_properties(struct mesh_agent *agent,
 
 	memset(&agent->caps, 0, sizeof(agent->caps));
 
+	/*遍历属性组，获得key,variant*/
 	while (l_dbus_message_iter_next_entry(properties, &key, &variant)) {
 		if (!strcmp(key, "Capabilities")) {
 			if (!parse_prov_caps(&agent->caps, &variant))
@@ -259,6 +260,7 @@ void mesh_agent_cleanup(void)
 
 }
 
+/*初始化agents队列*/
 void mesh_agent_init(void)
 {
 	if (!agents)

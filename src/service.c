@@ -36,12 +36,12 @@
 
 struct btd_service {
 	int			ref;/*引用计数*/
-	struct btd_device	*device;/*对应的device*/
+	struct btd_device	*device;/*此服务从属于哪个device*/
 	struct btd_profile	*profile;/*对应的profile*/
-	void			*user_data;/*对应的私有数据*/
+	void			*user_data;/*对应的私有数据（不同服务其对应的私有数据不同）*/
 	btd_service_state_t	state;/*服务状态*/
-	int			err;
-	bool			is_allowed;
+	int			err;/*出错时，设置此服务的错误码*/
+	bool			is_allowed;/*此服务是否被容许*/
 	bool			initiator;/*标记是否已初始化*/
 };
 
@@ -51,7 +51,7 @@ struct service_state_callback {
 	unsigned int		id;/*唯一编号*/
 };
 
-/*添加系统所有state_cb*/
+/*用于记录系统注册的所有服务状态变更回调*/
 static GSList *state_callbacks = NULL;
 
 /*service状态变更*/
@@ -73,7 +73,7 @@ static const char *state2str(btd_service_state_t state)
 	return NULL;
 }
 
-/*变更service状态*/
+/*变更service状态，触发所有注册的服务状态变更回调*/
 static void change_state(struct btd_service *service, btd_service_state_t state/*新状态*/,
 									int err)
 {
@@ -88,7 +88,7 @@ static void change_state(struct btd_service *service, btd_service_state_t state/
 	btd_assert(service->profile != NULL);
 
 	service->state = state;/*更新为新的state*/
-	service->err = err;
+	service->err = err;/*设置此服务的错误码*/
 
 	ba2str(device_get_address(service->device), addr);
 	DBG("%p: device %s profile %s state changed: %s -> %s (%d)", service,
@@ -145,7 +145,7 @@ struct btd_service *service_create(struct btd_device *device,
 	service->device = device; /* Weak ref */
 	service->profile = profile;
 	service->state = BTD_SERVICE_STATE_UNAVAILABLE;
-	service->is_allowed = true;
+	service->is_allowed = true;/*默认容许此服务*/
 
 	return service;
 }
@@ -359,6 +359,7 @@ void btd_service_set_user_data(struct btd_service *service, void *user_data)
 	service->user_data = user_data;
 }
 
+/*取服务的私有数据*/
 void *btd_service_get_user_data(const struct btd_service *service)
 {
 	return service->user_data;
@@ -370,6 +371,7 @@ btd_service_state_t btd_service_get_state(const struct btd_service *service)
 	return service->state;
 }
 
+/*用于获到此服务的错误码*/
 int btd_service_get_error(const struct btd_service *service)
 {
 	return service->err;
@@ -414,7 +416,7 @@ bool btd_service_remove_state_cb(unsigned int id/*要移除的编号*/)
 	return false;
 }
 
-/*设置service is_allowed*/
+/*设置service是否被容许*/
 void btd_service_set_allowed(struct btd_service *service, bool allowed)
 {
 	if (allowed == service->is_allowed)

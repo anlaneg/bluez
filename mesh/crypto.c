@@ -515,7 +515,7 @@ static bool mesh_crypto_network_clarify(uint8_t *packet,
 
 	*src = l_get_be16(net_hdr + 4);
 	*seq = l_get_be32(net_hdr) & SEQ_MASK;
-	*ttl = net_hdr[0] & TTL_MASK;
+	*ttl = net_hdr[0] & TTL_MASK;/*取ttl*/
 	*ctl = !!(net_hdr[0] & CTL);
 
 	return true;
@@ -602,7 +602,7 @@ static bool network_header_parse(const uint8_t *packet, uint8_t packet_len,
 		*ctl = !!(packet[1] & CTL);
 
 	if (ttl)
-		*ttl = packet[1] & TTL_MASK;
+		*ttl = packet[1] & TTL_MASK;/*取ttl*/
 
 	if (seq)
 		*seq = l_get_be32(packet + 1) & SEQ_MASK;
@@ -922,7 +922,7 @@ bool mesh_crypto_packet_decode(const uint8_t *packet, uint8_t packet_len,
 	if (packet_len < 14)
 		return false;
 
-	memcpy(out, packet, packet_len);
+	memcpy(out, packet, packet_len);/*填充到out*/
 
 	if (!mesh_crypto_network_clarify(out, privacy_key, iv_index,
 						&ctl, &ttl, &seq, &src))
@@ -1021,6 +1021,7 @@ static const uint8_t crypto_test_result[] = {
 	0x9a, 0x2a, 0xbf, 0x96
 };
 
+/*检查加密是否有效*/
 bool mesh_crypto_check_avail(void)
 {
 	void *cipher;
@@ -1055,6 +1056,7 @@ bool mesh_crypto_check_avail(void)
 				u.crypto.nonce, sizeof(u.crypto.nonce),
 				out_msg, sizeof(out_msg));
 
+	/*检查加密结果*/
 	if (result)
 		result = !memcmp(out_msg, crypto_test_result, sizeof(out_msg));
 

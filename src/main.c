@@ -65,7 +65,7 @@
 #define SHUTDOWN_GRACE_SECONDS 10
 
 struct btd_opts btd_opts;
-static GKeyFile *main_conf;
+static GKeyFile *main_conf;/*主配置文件，例如默认为：main.conf*/
 static char main_conf_file_path[PATH_MAX];
 
 static const char *supported_options[] = {
@@ -239,6 +239,7 @@ static size_t hex2bin(const char *hexstr, uint8_t *buf, size_t buflen)
 	return len;
 }
 
+/*取main config*/
 GKeyFile *btd_get_main_conf(void)
 {
 	return main_conf;

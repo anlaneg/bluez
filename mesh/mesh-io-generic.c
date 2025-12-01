@@ -61,14 +61,15 @@ struct tx_pattern {
 	uint8_t				len;
 };
 
+/*取当前时间ms时间*/
 static uint32_t get_instant(void)
 {
 	struct timeval tm;
 	uint32_t instant;
 
-	gettimeofday(&tm, NULL);
+	gettimeofday(&tm, NULL);/*取当前时间*/
 	instant = tm.tv_sec * 1000;
-	instant += tm.tv_usec / 1000;
+	instant += tm.tv_usec / 1000;/*转为ms*/
 
 	return instant;
 }
@@ -85,6 +86,7 @@ static void process_rx_callbacks(void *v_reg, void *v_rx)
 	struct process_data *rx = v_rx;
 
 	if (!memcmp(rx->data, rx_reg->filter, rx_reg->len))
+		/*AD Structure结构体与filter匹配，调用此CB*/
 		rx_reg->cb(rx_reg->user_data, &rx->info, rx->data, rx->len);
 }
 
@@ -102,6 +104,7 @@ static void process_rx(struct mesh_io_private *pvt, int8_t rssi,
 		.info.rssi = rssi,
 	};
 
+	/*遍历rx_regs，处理此报文*/
 	l_queue_foreach(pvt->io->rx_regs, process_rx_callbacks, &rx);
 }
 
@@ -115,6 +118,7 @@ static void event_adv_report(struct mesh_io *io, const void *buf, uint8_t size)
 	uint16_t len = 0;
 	int8_t rssi;
 
+	/*不处理非0x03的event：Non connectable undirected advertising (ADV_NONCONN_IND)*/
 	if (evt->event_type != 0x03)
 		return;
 
@@ -126,34 +130,37 @@ static void event_adv_report(struct mesh_io *io, const void *buf, uint8_t size)
 	/* rssi is just beyond last byte of data */
 	rssi = (int8_t) adv[adv_len];
 
+	/*data是由一组AD Structure组成的，AD Structure由1字节的Length + N字节的data组成*/
 	while (len < adv_len - 1) {
-		uint8_t field_len = adv[0];
+		uint8_t field_len = adv[0];/*取data长度*/
 
 		/* Check for the end of advertising data */
 		if (field_len == 0)
-			break;
+			break;/*指明为最后一个AD Structure*/
 
 		len += field_len + 1;
 
 		/* Do not continue data parsing if got incorrect length */
 		if (len > adv_len)
-			break;
+			break;/*提供的格式有误*/
 
 		/* TODO: Create an Instant to use */
-		process_rx(io->pvt, rssi, instant, addr, adv + 1, adv[0]);
+		process_rx(io->pvt, rssi, instant/*当前时间*/, addr/*地址*/, adv + 1/*AD Structure结构体*/, adv[0]/*长度*/);
 
-		adv += field_len + 1;
+		adv += field_len + 1;/*跳到下一个AD Structure*/
 	}
 }
 
+/*处理关注的LE_META_EVENT事件*/
 static void event_callback(const void *buf, uint8_t size, void *user_data)
 {
-	uint8_t event = l_get_u8(buf);
+	uint8_t event = l_get_u8(buf);/*取event子类型*/
 	struct mesh_io *io = user_data;
 
 	switch (event) {
+	/*收到le_advertising_report事件*/
 	case BT_HCI_EVT_LE_ADV_REPORT:
-		event_adv_report(io, buf + 1, size - 1);
+		event_adv_report(io, buf + 1/*跳过subevent header*/, size - 1);
 		break;
 
 	default:
@@ -396,7 +403,7 @@ static void hci_init(void *user_data)
 		configure_hci(io->pvt);
 
 		bt_hci_register(io->pvt->hci, BT_HCI_EVT_LE_META_EVENT,
-						event_callback, io, NULL);
+						event_callback, io, NULL);/*关注LE_META_EVENT事件*/
 
 		l_debug("Started mesh on hci %u", io->index);/*在此设备上开启mesh*/
 
@@ -599,6 +606,7 @@ static void tx_to(struct l_timeout *timeout, void *user_data)
 
 	tx = l_queue_pop_head(pvt->tx_pkts);
 	if (!tx) {
+		/*队列为空*/
 		l_timeout_remove(timeout);
 		pvt->tx_timeout = NULL;
 		send_cancel(pvt);
@@ -617,7 +625,7 @@ static void tx_to(struct l_timeout *timeout, void *user_data)
 
 	tx->delete = !!(count == 1);
 
-	send_pkt(pvt, tx, ms);
+	send_pkt(pvt, tx/*待发送内容*/, ms);
 
 	if (count == 1) {
 		/* Recalculate wakeup if we are responding to POLL */
@@ -643,7 +651,7 @@ static void tx_worker(void *user_data)
 	struct tx_pkt *tx;
 	uint32_t delay;
 
-	tx = l_queue_peek_head(pvt->tx_pkts);
+	tx = l_queue_peek_head(pvt->tx_pkts);/*取得要发送的报文*/
 	if (!tx)
 		return;
 
@@ -683,6 +691,7 @@ static void tx_worker(void *user_data)
 	}
 
 	if (!delay)
+		/*延迟时间为0，直接发送*/
 		tx_to(pvt->tx_timeout, pvt);
 	else if (pvt->tx_timeout)
 		l_timeout_modify_ms(pvt->tx_timeout, delay);
@@ -699,6 +708,7 @@ static bool send_tx(struct mesh_io *io, struct mesh_io_send_info *info,
 	if (!info || !data || !len || len > sizeof(tx->pkt))
 		return false;
 
+	/*创建tx_pkt*/
 	tx = l_new(struct tx_pkt, 1);
 
 	memcpy(&tx->info, info, sizeof(tx->info));
@@ -706,7 +716,7 @@ static bool send_tx(struct mesh_io *io, struct mesh_io_send_info *info,
 	tx->len = len;
 
 	if (info->type == MESH_IO_TIMING_TYPE_POLL_RSP)
-		l_queue_push_head(pvt->tx_pkts, tx);
+		l_queue_push_head(pvt->tx_pkts, tx);/*添加到head*/
 	else {
 		/*
 		 * If transmitter is idle, send packets at least twice to
@@ -718,13 +728,14 @@ static bool send_tx(struct mesh_io *io, struct mesh_io_send_info *info,
 					tx->info.u.gen.cnt == 1)
 			tx->info.u.gen.cnt++;
 
-		l_queue_push_tail(pvt->tx_pkts, tx);
+		l_queue_push_tail(pvt->tx_pkts, tx);/*添加到tail*/
 	}
 
 	/* If not already sending, schedule the tx worker */
 	if (!pvt->tx) {
 		l_timeout_remove(pvt->tx_timeout);
 		pvt->tx_timeout = NULL;
+		/*执行tx工作*/
 		l_idle_oneshot(tx_worker, pvt, NULL);
 	}
 
@@ -829,7 +840,7 @@ const struct mesh_io_api mesh_io_generic = {
 	.init = dev_init,
 	.destroy = dev_destroy,
 	.caps = dev_caps,
-	.send = send_tx,
+	.send = send_tx,/*报文发送*/
 	.reg = recv_register,
 	.dereg = recv_deregister,
 	.cancel = tx_cancel,

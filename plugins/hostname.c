@@ -58,30 +58,32 @@ static const char *get_hostname(void)
 {
 	if (pretty_hostname) {
 		if (g_str_equal(pretty_hostname, "") == FALSE)
-			return pretty_hostname;
+			return pretty_hostname;/*不为空，返回pretty_hostname*/
 
 		if (static_hostname &&
 				g_str_equal(static_hostname, "") == FALSE)
-			return static_hostname;
+			return static_hostname;/*不为空，返回static_hostname*/
 
 		if (transient_hostname &&
 				g_str_equal(transient_hostname, "") == FALSE)
-			return transient_hostname;
+			return transient_hostname;/*不为空，返回transient_hostname*/
 	}
 
 	return NULL;
 }
 
+/*更新adapter名称*/
 static void update_name(struct btd_adapter *adapter, gpointer user_data)
 {
 	const char *hostname = get_hostname();
 
 	if (hostname == NULL)
-		return;
+		return;/*主机名称为空，直接返回*/
 
 	if (btd_adapter_is_default(adapter)) {
 		DBG("name: %s", hostname);
 
+		/*将default adapter名称设置为主机名称*/
 		adapter_set_name(adapter, hostname);
 	} else {
 		uint16_t index = btd_adapter_get_index(adapter);
@@ -92,6 +94,7 @@ static void update_name(struct btd_adapter *adapter, gpointer user_data)
 
 		DBG("name: %s", str);
 
+		/*将其它adapter名称设置为“$hostname #$index"*/
 		adapter_set_name(adapter, str);
 
 		g_free(str);
@@ -140,7 +143,7 @@ static void property_changed(GDBusProxy *proxy, const char *name,
 			g_free(pretty_hostname);
 			pretty_hostname = g_strdup(str);
 
-			adapter_foreach(update_name, NULL);
+			adapter_foreach(update_name, NULL);/*遍历所有adapter变更adapter name为空*/
 		}
 	} else if (g_str_equal(name, "StaticHostname") == TRUE) {
 		if (iter == NULL) {
@@ -158,7 +161,7 @@ static void property_changed(GDBusProxy *proxy, const char *name,
 			g_free(static_hostname);
 			static_hostname = g_strdup(str);
 
-			adapter_foreach(update_name, NULL);
+			adapter_foreach(update_name, NULL);/*遍历所有adapter变更adapter name为空*/
 		}
 	} else if (g_str_equal(name, "Chassis") == TRUE) {
 		if (iter == NULL) {
@@ -199,6 +202,7 @@ static void read_transient_hostname(void)
 		return;
 	}
 
+	/*设置主机名称*/
 	g_free(transient_hostname);
 	transient_hostname = g_strdup(u.nodename);
 
@@ -248,7 +252,7 @@ static void read_dmi_fallback(void)
 	type = atoi(contents);
 	g_free(contents);
 	if (type < 0 || type > 0x1D)
-		return;
+		return;/*范围有误*/
 
 	/* from systemd hostname chassis list */
 	switch (type) {
@@ -272,7 +276,7 @@ static void read_dmi_fallback(void)
 		str = "server";
 		break;
 	default:
-		return;
+		return;/*直接返回*/
 	}
 
 	DBG("chassis: %s", str);
@@ -291,6 +295,7 @@ static void read_dmi_fallback(void)
 static GDBusClient *hostname_client = NULL;
 static GDBusProxy *hostname_proxy = NULL;
 
+/*负责设置adapter名称*/
 static int hostname_init(void)
 {
 	DBusConnection *conn = btd_get_dbus_connection();

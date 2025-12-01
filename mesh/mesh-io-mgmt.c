@@ -60,7 +60,7 @@ struct process_data {
 struct tx_pkt {
 	struct mesh_io_send_info	info;
 	bool				delete;
-	uint8_t				len;/*长度*/
+	uint8_t				len;/*pkt长度*/
 	uint8_t				pkt[MESH_AD_MAX_LEN];/*报文内容*/
 };
 
@@ -197,7 +197,7 @@ static void process_rx_callbacks(void *v_reg, void *v_rx)
 	struct process_data *rx = v_rx;
 
 	if (!memcmp(rx->data, rx_reg->filter, rx_reg->len))
-		rx_reg->cb(rx_reg->user_data, &rx->info, rx->data, rx->len);
+		rx_reg->cb(rx_reg->user_data, &rx->info, rx->data/*收到的内容*/, rx->len/*报文长度*/);
 }
 
 static void process_rx(uint16_t index, struct mesh_io_private *pvt, int8_t rssi,
@@ -271,6 +271,7 @@ static void event_device_found(uint16_t index, uint16_t length,
 	}
 }
 
+/*指针比对*/
 static bool simple_match(const void *a, const void *b)
 {
 	return a == b;
@@ -444,7 +445,7 @@ static bool dev_init(struct mesh_io *io, void *opts, void *user_data)
 	pvt->tx_pkts = l_queue_new();
 
 	pvt->io = io;
-	io->pvt = pvt;
+	io->pvt = pvt;/*设置私有数据*/
 
 	return true;
 }
@@ -466,7 +467,7 @@ static bool dev_destroy(struct mesh_io *io)
 	l_queue_destroy(pvt->dup_filters, l_free);
 	l_queue_destroy(pvt->tx_pkts, l_free);
 	io->pvt = NULL;
-	l_free(pvt);
+	l_free(pvt);/*释放私有结构*/
 	pvt = NULL;
 
 	return true;
@@ -513,6 +514,7 @@ static void send_queued(uint8_t status, uint16_t length,
 		pvt->handle = *(uint8_t *) param;
 
 	if (tx->delete) {
+		/*自tx_pkts中移除tx*/
 		l_queue_remove_if(pvt->tx_pkts, simple_match, tx);
 		l_free(tx);
 		pvt->tx = NULL;
@@ -584,6 +586,7 @@ static void tx_to(struct l_timeout *timeout, void *user_data)
 
 	tx->delete = (count == 1);
 
+	/*对外发送*/
 	send_pkt(pvt, tx, ms);
 
 	if (count == 1) {
@@ -612,7 +615,7 @@ static void tx_worker(void *user_data)
 
 	tx = l_queue_peek_head(pvt->tx_pkts);
 	if (!tx)
-		return;
+		return;/*队列为空，退出*/
 
 	switch (tx->info.type) {
 	case MESH_IO_TIMING_TYPE_GENERAL:
@@ -673,14 +676,14 @@ static bool send_tx(struct mesh_io *io, struct mesh_io_send_info *info,
 	tx->len = len;
 
 	if (info->type == MESH_IO_TIMING_TYPE_POLL_RSP)
-		l_queue_push_head(pvt->tx_pkts, tx);
+		l_queue_push_head(pvt->tx_pkts, tx);/*将tx存入到pvt->tx_pkts队首*/
 	else {
 		if (pvt->tx)
 			sending = true;
 		else
 			sending = !l_queue_isempty(pvt->tx_pkts);
 
-		l_queue_push_tail(pvt->tx_pkts, tx);
+		l_queue_push_tail(pvt->tx_pkts, tx);/*将tx存入到pvt->tx_pkts队尾*/
 	}
 
 	if (!sending) {

@@ -32,22 +32,26 @@ static void l_sig_func(uint32_t signo, void *user_data)
 		sig_func(signo, user_data);
 }
 
+/*初始化mainloop*/
 void mainloop_init(void)
 {
 	is_initialized = l_main_init();
 }
 
+/*退出mainloop*/
 void mainloop_quit(void)
 {
 	l_main_quit();
 }
 
+/*退出mainloop,并使exit状态为success*/
 void mainloop_exit_success(void)
 {
 	exit_status = EXIT_SUCCESS;
 	l_main_quit();
 }
 
+/*退出mainloop,并使exit状态为failure*/
 void mainloop_exit_failure(void)
 {
 	exit_status = EXIT_FAILURE;
@@ -64,13 +68,13 @@ int mainloop_run(void)
 	is_initialized = false;
 	sig_func = NULL;
 
-	return exit_status;
+	return exit_status;/*返回exit状态*/
 }
 
 int mainloop_run_with_signal(mainloop_signal_func func, void *user_data)
 {
 	if (!is_initialized || !func)
-		return -EINVAL;
+		return -EINVAL;/*未初始化，报错*/
 
 	/* Workaround for sign discrepancy in ell and bluez */
 	sig_func = func;

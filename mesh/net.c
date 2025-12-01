@@ -180,8 +180,8 @@ struct net_queue_data {
 	struct mesh_io_recv_info *info;
 	struct mesh_net *net;
 	const uint8_t *data;
-	uint8_t *out;
-	size_t out_size;
+	uint8_t *out;/*报文内容*/
+	size_t out_size;/*报文长度*/
 	enum _relay_advice relay_advice;
 	uint32_t net_key_id;
 	uint32_t iv_index;
@@ -193,8 +193,8 @@ struct oneshot_tx {
 	struct mesh_net *net;
 	uint16_t interval;
 	uint8_t cnt;
-	uint8_t size;
-	uint8_t packet[MESH_AD_MAX_LEN];
+	uint8_t size;/*报文长度*/
+	uint8_t packet[MESH_AD_MAX_LEN];/*报文内容*/
 };
 
 struct net_beacon_data {
@@ -612,6 +612,7 @@ static void refresh_beacon(void *a, void *b)
 									false);
 }
 
+/*创建mesh_net*/
 struct mesh_net *mesh_net_new(struct mesh_node *node)
 {
 	struct mesh_net *net;
@@ -635,15 +636,18 @@ struct mesh_net *mesh_net_new(struct mesh_node *node)
 	net->app_keys = l_queue_new();
 	net->replay_cache = l_queue_new();
 
+	/*检查并初始化nets*/
 	if (!nets)
 		nets = l_queue_new();
 
+	/*检查并初始化fast_cache*/
 	if (!fast_cache)
 		fast_cache = l_queue_new();
 
 	return net;
 }
 
+/*用于释放mesh_net*/
 void mesh_net_free(void *user_data)
 {
 	struct mesh_net *net = user_data;
@@ -869,7 +873,7 @@ static struct mesh_subnet *add_key(struct mesh_net *net, uint16_t idx,
 		net_key_beacon_enable(subnet->net_key_tx, true,
 							net->mpb_period);
 
-	l_queue_push_tail(net->subnets, subnet);
+	l_queue_push_tail(net->subnets, subnet);/*添加subnet*/
 
 	return subnet;
 }
@@ -1800,6 +1804,7 @@ static uint16_t key_id_to_net_idx(struct mesh_net *net,
 	if (frnd)
 		*frnd = false;
 
+	/*取得subnet*/
 	subnet = l_queue_find(net->subnets, match_key_id,
 						L_UINT_TO_PTR(net_key_id));
 
@@ -2235,7 +2240,7 @@ static bool match_by_dst(const void *a, const void *b)
 	return dest->dst == dst;
 }
 
-static void send_relay_pkt(struct mesh_net *net, uint8_t *data, uint8_t size)
+static void send_relay_pkt(struct mesh_net *net, uint8_t *data, uint8_t size/*data长度*/)
 {
 	uint8_t packet[MESH_AD_MAX_LEN];
 	struct mesh_io *io = net->io;
@@ -2247,7 +2252,7 @@ static void send_relay_pkt(struct mesh_net *net, uint8_t *data, uint8_t size)
 		.u.gen.max_delay = DEFAULT_MAX_DELAY
 	};
 
-	packet[0] = BT_AD_MESH_DATA;
+	packet[0] = BT_AD_MESH_DATA;/*利用一个字节指明报文类型*/
 	memcpy(packet + 1, data, size);
 
 	mesh_io_send(io, &info, packet, size + 1);
@@ -2271,7 +2276,7 @@ static void send_msg_pkt_oneshot(void *user_data)
 	};
 
 	/* Send to local nodes first */
-	l_queue_foreach(nets, net_rx, &net_data);
+	l_queue_foreach(nets, net_rx, &net_data/*收到的报文*/);
 
 	/* Make sure specific network still valid */
 	net = l_queue_find(nets, simple_match, tx->net);
@@ -2309,7 +2314,7 @@ static void send_msg_pkt(struct mesh_net *net, uint8_t cnt, uint16_t interval,
 static enum _relay_advice packet_received(struct mesh_net *net,
 				uint32_t net_key_id, uint16_t net_idx,
 				bool frnd, uint32_t iv_index,
-				const uint8_t *data, uint8_t size, int8_t rssi)
+				const uint8_t *data/*收到的报文*/, uint8_t size/*报文长度*/, int8_t rssi)
 {
 	const uint8_t *msg;
 	uint8_t app_msg_len;
@@ -2318,6 +2323,7 @@ static enum _relay_advice packet_received(struct mesh_net *net,
 	uint16_t net_src, net_dst, net_seqZero;
 	bool net_ctl, net_segmented, net_szmic, net_relay;
 
+	/*显示收到的报文*/
 	print_packet("RX: Network [clr] :", data, size);
 
 	if (!mesh_crypto_packet_parse(data, size, &net_ctl, &net_ttl,
@@ -2443,7 +2449,7 @@ static enum _relay_advice packet_received(struct mesh_net *net,
 		return RELAY_NONE;
 }
 
-static void net_rx(void *net_ptr, void *user_data)
+static void net_rx(void *net_ptr, void *user_data/*收到的报文*/)
 {
 	struct net_queue_data *data = user_data;
 	struct mesh_net *net = net_ptr;
@@ -2460,14 +2466,15 @@ static void net_rx(void *net_ptr, void *user_data)
 	/* if IVI flag differs, use previous IV Index */
 	uint32_t iv_index = net->iv_index - (ivi_pkt ^ ivi_net);
 
-	net_key_id = net_key_decrypt(iv_index, data->data, data->len,
-							&out, &out_size);
+	net_key_id = net_key_decrypt(iv_index, data->data/*原始报文*/, data->len,
+							&out/*解密后报文*/, &out_size);
 
 	if (!net_key_id)
 		return;
 
 	if (!data->seen) {
 		data->seen = true;
+		/*显示收到的报文*/
 		print_packet("RX: Network [enc] :", data->data, data->len);
 	}
 
@@ -2502,7 +2509,7 @@ static void net_rx(void *net_ptr, void *user_data)
 }
 
 static void net_msg_recv(void *user_data, struct mesh_io_recv_info *info,
-					const uint8_t *data, uint16_t len)
+					const uint8_t *data/*报文内容*/, uint16_t len/*data长度*/)
 {
 	uint64_t hash;
 	bool isNew;
@@ -2524,7 +2531,7 @@ static void net_msg_recv(void *user_data, struct mesh_io_recv_info *info,
 	if (!isNew)
 		return;
 
-	l_queue_foreach(nets, net_rx, &net_data);
+	l_queue_foreach(nets, net_rx, &net_data/*收到的数据*/);
 
 	if (net_data.relay_advice == RELAY_ALWAYS ||
 			net_data.relay_advice == RELAY_ALLOWED) {
@@ -2534,6 +2541,7 @@ static void net_msg_recv(void *user_data, struct mesh_io_recv_info *info,
 		net_data.out[1] |= ttl - 1;
 		net_key_encrypt(net_data.net_key_id, net_data.iv_index,
 					net_data.out, net_data.out_size);
+		/*发送响应报文*/
 		send_relay_pkt(net_data.net, net_data.out, net_data.out_size);
 	}
 }
@@ -2982,6 +2990,7 @@ bool mesh_net_set_key(struct mesh_net *net, uint16_t idx, const uint8_t *key,
 	return true;
 }
 
+/*net与io关联*/
 bool mesh_net_attach(struct mesh_net *net, struct mesh_io *io)
 {
 	bool first;
@@ -2991,14 +3000,17 @@ bool mesh_net_attach(struct mesh_net *net, struct mesh_io *io)
 
 	first = l_queue_isempty(nets);
 	if (first) {
+		/*nets队列为空*/
 		const uint8_t snb[] = {BT_AD_MESH_BEACON, 1};
 		const uint8_t mpb[] = {BT_AD_MESH_BEACON, 2};
 		const uint8_t pkt[] = {BT_AD_MESH_DATA};
 
 		if (!nets)
+			/*初始化nets队列*/
 			nets = l_queue_new();
 
 		if (!fast_cache)
+			/*初始化fast_cache队列*/
 			fast_cache = l_queue_new();
 
 		mesh_io_register_recv_cb(io, snb, sizeof(snb),
@@ -3010,9 +3022,9 @@ bool mesh_net_attach(struct mesh_net *net, struct mesh_io *io)
 	}
 
 	if (l_queue_find(nets, simple_match, net))
-		return false;
+		return false;/*此net存在，返回*/
 
-	l_queue_push_head(nets, net);
+	l_queue_push_head(nets, net);/*添加新的mesh net*/
 
 	net->io = io;
 

@@ -32,7 +32,7 @@ struct error_entry {
 
 struct send_info {
 	struct l_dbus *dbus;
-	struct l_timeout *timeout;
+	struct l_timeout *timeout;/*发送超时定时器*/
 	l_dbus_message_func_t cb;
 	l_dbus_destroy_func_t destroy;
 	void *user_data;
@@ -151,8 +151,8 @@ static void send_reply(struct l_dbus_message *message, void *user_data)
 {
 	struct send_info *info = user_data;
 
-	l_timeout_remove(info->timeout);
-	info->cb(message, info->user_data);
+	l_timeout_remove(info->timeout);/*停止发送超时定时器*/
+	info->cb(message, info->user_data);/*处理响应*/
 
 	if (info->destroy)
 		info->destroy(info->user_data);
@@ -164,15 +164,15 @@ static void send_timeout(struct l_timeout *timeout, void *user_data)
 {
 	struct send_info *info = user_data;
 
-	l_dbus_cancel(info->dbus, info->serial);
-	send_reply(NULL, info);
+	l_dbus_cancel(info->dbus, info->serial);/*取消此消息*/
+	send_reply(NULL/*无响应*/, info);
 }
 
 void dbus_send_with_timeout(struct l_dbus *dbus, struct l_dbus_message *msg,
-						l_dbus_message_func_t cb,
+						l_dbus_message_func_t cb/*响应消息处理*/,
 						void *user_data,
 						l_dbus_destroy_func_t destroy,
-						unsigned int seconds)
+						unsigned int seconds/*发送超时时间*/)
 {
 	struct send_info *info = l_new(struct send_info, 1);
 
@@ -180,7 +180,8 @@ void dbus_send_with_timeout(struct l_dbus *dbus, struct l_dbus_message *msg,
 	info->cb = cb;
 	info->user_data = user_data;
 	info->destroy = destroy;
+	/*发送并读取响应*/
 	info->serial = l_dbus_send_with_reply(dbus, msg, send_reply,
 								info, NULL);
-	info->timeout = l_timeout_create(seconds, send_timeout, info, NULL);
+	info->timeout = l_timeout_create(seconds, send_timeout/*发送超时处理*/, info, NULL);
 }

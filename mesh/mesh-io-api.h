@@ -37,7 +37,7 @@ struct mesh_io_api {
 struct mesh_io_reg {
 	mesh_io_recv_func_t cb;
 	void *user_data;
-	uint8_t len;
+	uint8_t len;/*filter长度*/
 	uint8_t filter[];
 };
 
@@ -46,7 +46,7 @@ struct mesh_io {
 	int				favored_index;
 	mesh_io_ready_func_t		ready;
 	struct l_queue			*rx_regs;
-	struct mesh_io_private		*pvt;
+	struct mesh_io_private		*pvt;/*私有数据*/
 	void				*user_data;
 	const struct mesh_io_api	*api;
 };

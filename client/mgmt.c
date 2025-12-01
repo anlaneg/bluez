@@ -75,6 +75,7 @@ static void mgmt_menu_pre_run(const struct bt_shell_menu *menu);
 
 #define PROMPT_ON	COLOR_BLUE "[mgmt]" COLOR_OFF "> "
 
+/*更新prompt*/
 static void update_prompt(uint16_t index)
 {
 	char str[32];
@@ -91,9 +92,9 @@ void mgmt_set_index(const char *arg)
 {
 	if (!arg || !strcmp(arg, "none") || !strcmp(arg, "any") ||
 						!strcmp(arg, "all"))
-		mgmt_index = MGMT_INDEX_NONE;
+		mgmt_index = MGMT_INDEX_NONE;/*所有设备*/
 	else if (strlen(arg) > 3 && !strncasecmp(arg, "hci", 3))
-		mgmt_index = atoi(&arg[3]);
+		mgmt_index = atoi(&arg[3]);/*指定设备*/
 	else
 		mgmt_index = atoi(arg);
 
@@ -263,6 +264,7 @@ static void controller_error(uint16_t index, uint16_t len,
 	print("hci%u error 0x%02x", index, ev->error_code);
 }
 
+/*hci设备增加*/
 static void index_added(uint16_t index, uint16_t len,
 				const void *param, void *user_data)
 {
@@ -424,6 +426,7 @@ static void discovering(uint16_t index, uint16_t len, const void *param,
 		return;
 	}
 
+	/*指出hci设备处于discovering*/
 	print("hci%u type %u discovering %s", index, ev->type,
 					ev->discovering ? "on" : "off");
 
@@ -533,7 +536,7 @@ static void auth_failed(uint16_t index, uint16_t len, const void *param,
 
 	ba2str(&ev->addr.bdaddr, addr);
 	print("hci%u %s auth failed with status 0x%02x (%s)",
-			index, addr, ev->status, mgmt_errstr(ev->status));
+			index, addr, ev->status, mgmt_errstr(ev->status));/*显示失败通知*/
 }
 
 static void class_of_dev_changed(uint16_t index, uint16_t len,
@@ -5931,13 +5934,14 @@ static void cmd_advmon_remove(int argc, char **argv)
 	}
 }
 
-static void register_mgmt_callbacks(struct mgmt *mgmt, uint16_t index)
+/*注册内核事件通知处理*/
+static void register_mgmt_callbacks(struct mgmt *mgmt, uint16_t index/*关注的设备index*/)
 {
 	mgmt_register(mgmt, MGMT_EV_CONTROLLER_ERROR, index, controller_error,
 								NULL, NULL);
-	mgmt_register(mgmt, MGMT_EV_INDEX_ADDED, index, index_added,
+	mgmt_register(mgmt, MGMT_EV_INDEX_ADDED, index, index_added/*hci设备增加*/,
 								NULL, NULL);
-	mgmt_register(mgmt, MGMT_EV_INDEX_REMOVED, index, index_removed,
+	mgmt_register(mgmt, MGMT_EV_INDEX_REMOVED, index, index_removed/*hci设备移除*/,
 								NULL, NULL);
 	mgmt_register(mgmt, MGMT_EV_NEW_SETTINGS, index, new_settings,
 								NULL, NULL);
@@ -5945,13 +5949,13 @@ static void register_mgmt_callbacks(struct mgmt *mgmt, uint16_t index)
 								NULL, NULL);
 	mgmt_register(mgmt, MGMT_EV_NEW_LINK_KEY, index, new_link_key,
 								NULL, NULL);
-	mgmt_register(mgmt, MGMT_EV_DEVICE_CONNECTED, index, connected,
+	mgmt_register(mgmt, MGMT_EV_DEVICE_CONNECTED, index, connected/*连接建立通知*/,
 								NULL, NULL);
 	mgmt_register(mgmt, MGMT_EV_DEVICE_DISCONNECTED, index, disconnected,
 								NULL, NULL);
 	mgmt_register(mgmt, MGMT_EV_CONNECT_FAILED, index, conn_failed,
 								NULL, NULL);
-	mgmt_register(mgmt, MGMT_EV_AUTH_FAILED, index, auth_failed,
+	mgmt_register(mgmt, MGMT_EV_AUTH_FAILED, index, auth_failed/*授权失败通知*/,
 								NULL, NULL);
 	mgmt_register(mgmt, MGMT_EV_CLASS_OF_DEV_CHANGED, index,
 					class_of_dev_changed, NULL, NULL);
@@ -5983,6 +5987,7 @@ static void register_mgmt_callbacks(struct mgmt *mgmt, uint16_t index)
 								NULL, NULL);
 }
 
+/*关注指定设备的event通知*/
 static void cmd_select(int argc, char **argv)
 {
 	mgmt_cancel_all(mgmt);
@@ -5990,6 +5995,7 @@ static void cmd_select(int argc, char **argv)
 
 	mgmt_set_index(argv[1]);
 
+	/*关注内核event通知*/
 	register_mgmt_callbacks(mgmt, mgmt_index);
 
 	print("Selected index %u", mgmt_index);
@@ -6018,7 +6024,7 @@ static const struct bt_shell_menu mgmt_menu = {
 	.pre_run = mgmt_menu_pre_run,
 	.entries = {
 	{ "select",		"<index>",
-		cmd_select,		"Select a different index"	},
+		cmd_select,		"Select a different index"	},/**/
 	{ "revision",		NULL,
 		cmd_revision,		"Get the MGMT Revision"		},
 	{ "commands",		NULL,
@@ -6204,6 +6210,7 @@ static void mgmt_menu_pre_run(const struct bt_shell_menu *menu)
 	if (getenv("MGMT_DEBUG"))
 		mgmt_set_debug(mgmt, mgmt_debug, "mgmt: ", NULL);
 
+	/*注册内核mgmt事件通知*/
 	register_mgmt_callbacks(mgmt, mgmt_index);
 }
 

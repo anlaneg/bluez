@@ -65,19 +65,23 @@
 #define AVCTP_RESPONSE		1
 
 /* Packet types */
+/*非分片包*/
 #define AVCTP_PACKET_SINGLE	0
+/*分片包：首个*/
 #define AVCTP_PACKET_START	1
+/*分片包：中间包*/
 #define AVCTP_PACKET_CONTINUE	2
+/*分片包：尾包*/
 #define AVCTP_PACKET_END	3
 
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 
 struct avctp_header {
-	uint8_t ipid:1;
-	uint8_t cr:1;
-	uint8_t packet_type:2;
-	uint8_t transaction:4;
-	uint16_t pid;
+	uint8_t ipid:1;/*有两个值:在command帧中，总为0；在response帧中如为1，表示pid无效；否则pid有效*/
+	uint8_t cr:1;/*有两个值：0指command帧；1指response帧；对于command帧需要响应response帧*/
+	uint8_t packet_type:2;/*报文类型，见AVCTP_PACKET_SINGLE等定义*/
+	uint8_t transaction:4;/*事务id,会传递给应用，用于表示报文发送序列*/
+	uint16_t pid;/*用于指代Profile Identifier*/
 } __attribute__ ((packed));
 #define AVCTP_HEADER_LENGTH 3
 
@@ -120,10 +124,10 @@ struct avctp_state_callback {
 };
 
 struct avctp_server {
-	struct btd_adapter *adapter;
+	struct btd_adapter *adapter;/*对应的adapter*/
 	GIOChannel *control_io;
 	GIOChannel *browsing_io;
-	GSList *sessions;
+	GSList *sessions;/*记录从属于此server的session*/
 };
 
 struct avctp_control_req {
@@ -174,7 +178,7 @@ struct avctp_channel {
 	uint16_t omtu;
 	uint8_t *buffer;
 	GSList *handlers;
-	GSList *queues;
+	GSList *queues;/*用于串连创建的avctp_queue结构体*/
 	GSList *processed;
 	GDestroyNotify destroy;
 };
@@ -186,10 +190,10 @@ struct key_pressed {
 };
 
 struct avctp {
-	struct avctp_server *server;
-	struct btd_device *device;
+	struct avctp_server *server;/*所属的server*/
+	struct btd_device *device;/*对应的device*/
 
-	avctp_state_t state;
+	avctp_state_t state;/*session状态*/
 
 	int uinput;
 
@@ -291,6 +295,7 @@ static const struct {
 	{ NULL }
 };
 
+/*通过avctp_add_state_cb记录系统中注册的所有avctp_state_callback*/
 static GSList *callbacks = NULL;
 static GSList *servers = NULL;
 
@@ -490,6 +495,7 @@ static size_t handle_subunit_info(struct avctp *session,
 	return operand_count;
 }
 
+/*利用opcode查询list表，获得匹配的avctp_pdu_handler*/
 static struct avctp_pdu_handler *find_handler(GSList *list, uint8_t opcode)
 {
 	for (; list; list = list->next) {
@@ -593,15 +599,15 @@ static void avctp_set_state(struct avctp *session, avctp_state_t new_state,
 	GSList *l;
 	avctp_state_t old_state = session->state;
 
-	session->state = new_state;
+	session->state = new_state;/*更新状态*/
 
 	for (l = callbacks; l != NULL; l = l->next) {
 		struct avctp_state_callback *cb = l->data;
 
 		if (cb->dev && cb->dev != session->device)
-			continue;
+			continue;/*跳过device不一致的*/
 
-		cb->cb(session->device, old_state, new_state, err,
+		cb->cb(session->device/*关联的设备*/, old_state/*旧状态*/, new_state/*新状态*/, err,
 								cb->user_data);
 	}
 
@@ -1091,6 +1097,7 @@ static gboolean session_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 		goto failed;
 	}
 
+	/*收到的消息，设置avctp header指针*/
 	avctp = (struct avctp_header *) buf;
 
 	ret -= AVCTP_HEADER_LENGTH;
@@ -1099,6 +1106,7 @@ static gboolean session_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 		goto failed;
 	}
 
+	/*设置avc header指针,其位于avctp header之后*/
 	avc = (struct avc_header *) (buf + AVCTP_HEADER_LENGTH);
 
 	ret -= AVC_HEADER_LENGTH;
@@ -1107,24 +1115,30 @@ static gboolean session_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 	operand_count = ret;
 
 	if (avctp->cr == AVCTP_RESPONSE) {
+		/*处理响应消息*/
 		control_response(control, avctp, avc, operands, operand_count);
 		return TRUE;
 	}
 
+	/*收到的是command,需要构造response并响应*/
 	packet_size = AVCTP_HEADER_LENGTH + AVC_HEADER_LENGTH;
-	avctp->cr = AVCTP_RESPONSE;
+	avctp->cr = AVCTP_RESPONSE;/*在原buffer上直接修改为response帧*/
 
 	if (avctp->packet_type != AVCTP_PACKET_SINGLE) {
+		/*遇到非分片报文，这种报文没有实现*/
 		avc->code = AVC_CTYPE_NOT_IMPLEMENTED;
 		goto done;
 	}
 
 	if (avctp->pid != htons(AV_REMOTE_SVCLASS_ID)) {
+		/*command提供的pid不是预期id,响应报文中ipid置为1，
+		 *indicate an invalid Profile Identifier received*/
 		avctp->ipid = 1;
 		packet_size = AVCTP_HEADER_LENGTH;
 		goto done;
 	}
 
+	/*查询此opcode处理*/
 	handler = find_handler(control->handlers, avc->opcode);
 	if (!handler) {
 		DBG("handler not found for 0x%02x", avc->opcode);
@@ -1136,7 +1150,8 @@ static gboolean session_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 	code = avc->code;
 	subunit = avc->subunit_type;
 
-	packet_size += handler->cb(session, avctp->transaction, &code,
+	/*处理此opcode并发送响应*/
+	packet_size += handler->cb(session, avctp->transaction, &code/*入出参*/,
 					&subunit, operands, operand_count,
 					handler->user_data);
 
@@ -1144,6 +1159,7 @@ static gboolean session_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 	avc->subunit_type = subunit;
 
 done:
+	/*发送响应报文*/
 	ret = write(sock, buf, packet_size);
 	if (ret != packet_size)
 		goto failed;
@@ -1258,6 +1274,7 @@ static void init_uinput(struct avctp *session)
 		DBG("AVRCP: uinput initialized for %s", name);
 }
 
+/*创建avctp_queue*/
 static struct avctp_queue *avctp_queue_create(struct avctp_channel *chan)
 {
 	struct avctp_queue *queue;
@@ -1269,9 +1286,10 @@ static struct avctp_queue *avctp_queue_create(struct avctp_channel *chan)
 	return queue;
 }
 
+/*创建avctp_channel*/
 static struct avctp_channel *avctp_channel_create(struct avctp *session,
 							GIOChannel *io,
-							int queues,
+							int queues/*要创建的队列数*/,
 							GDestroyNotify destroy)
 {
 	struct avctp_channel *chan;
@@ -1281,6 +1299,7 @@ static struct avctp_channel *avctp_channel_create(struct avctp *session,
 	chan->io = g_io_channel_ref(io);
 	chan->destroy = destroy;
 
+	/*创建queues个队列*/
 	while (queues--) {
 		struct avctp_queue *queue;
 
@@ -1379,6 +1398,7 @@ static void avctp_connect_cb(GIOChannel *chan, GError *err, gpointer data)
 	GError *gerr = NULL;
 
 	if (err) {
+		/*连接失败*/
 		avctp_set_state(session, AVCTP_STATE_DISCONNECTED, -EIO);
 		error("%s", err->message);
 		return;
@@ -1390,6 +1410,7 @@ static void avctp_connect_cb(GIOChannel *chan, GError *err, gpointer data)
 			BT_IO_OPT_OMTU, &omtu,
 			BT_IO_OPT_INVALID);
 	if (gerr) {
+		/*取对端信息失败*/
 		avctp_set_state(session, AVCTP_STATE_DISCONNECTED, -EIO);
 		error("%s", gerr->message);
 		g_error_free(gerr);
@@ -1405,9 +1426,10 @@ static void avctp_connect_cb(GIOChannel *chan, GError *err, gpointer data)
 	session->control->omtu = omtu;
 	session->control->buffer = g_malloc0(MAX(imtu, omtu));
 	session->control->watch = g_io_add_watch(session->control->io,
-				G_IO_IN | G_IO_ERR | G_IO_HUP | G_IO_NVAL,
+				G_IO_IN/*数据可读*/ | G_IO_ERR | G_IO_HUP | G_IO_NVAL,
 				(GIOFunc) session_cb, session);
 
+	/*注册pdu handle函数*/
 	session->passthrough_id = avctp_register_pdu_handler(session,
 						AVC_OP_PASSTHROUGH,
 						handle_panel_passthrough,
@@ -1452,6 +1474,7 @@ static void auth_cb(DBusError *derr, void *user_data)
 	}
 }
 
+/*遍历servers（avctp_server)检查其对应的adapter是否与参数给的一致*/
 static struct avctp_server *find_server(GSList *list, struct btd_adapter *a)
 {
 	for (; list; list = list->next) {
@@ -1464,6 +1487,7 @@ static struct avctp_server *find_server(GSList *list, struct btd_adapter *a)
 	return NULL;
 }
 
+/*遍历sessions列表，检查其对应的device是否与查找的有一致*/
 static struct avctp *find_session(GSList *list, struct btd_device *device)
 {
 	for (; list != NULL; list = g_slist_next(list)) {
@@ -1476,6 +1500,7 @@ static struct avctp *find_session(GSList *list, struct btd_device *device)
 	return NULL;
 }
 
+/*取此device对应的session*/
 static struct avctp *avctp_get_internal(struct btd_device *device)
 {
 	struct avctp_server *server;
@@ -1483,20 +1508,22 @@ static struct avctp *avctp_get_internal(struct btd_device *device)
 
 	server = find_server(servers, device_get_adapter(device));
 	if (server == NULL)
-		return NULL;
+		return NULL;/*没有查找到server*/
 
 	session = find_session(server->sessions, device);
 	if (session)
-		return session;
+		return session;/*找到session,返回*/
 
+	/*未找到session,创建*/
 	session = g_new0(struct avctp, 1);
 
 	session->server = server;
 	session->device = btd_device_ref(device);
-	session->state = AVCTP_STATE_DISCONNECTED;
+	session->state = AVCTP_STATE_DISCONNECTED;/*初始化disconnected*/
 	session->uinput = -1;
 	session->key.op = AVC_INVALID;
 
+	/*注册此session*/
 	server->sessions = g_slist_append(server->sessions, session);
 
 	return session;
@@ -1947,7 +1974,7 @@ unsigned int avctp_add_state_cb(struct btd_device *dev, avctp_state_cb cb,
 	state_cb->id = ++id;
 	state_cb->user_data = user_data;
 
-	callbacks = g_slist_append(callbacks, state_cb);
+	callbacks = g_slist_append(callbacks, state_cb);/*增加state_callback节点到callbacks链表中*/
 
 	return state_cb->id;
 }
@@ -2014,8 +2041,9 @@ bool avctp_unregister_passthrough_handler(unsigned int id)
 	return false;
 }
 
-unsigned int avctp_register_pdu_handler(struct avctp *session, uint8_t opcode,
-						avctp_control_pdu_cb cb,
+/*注册指定操作码处理函数*/
+unsigned int avctp_register_pdu_handler(struct avctp *session, uint8_t opcode/*操作码*/,
+						avctp_control_pdu_cb cb/*操作码处理回调*/,
 						void *user_data)
 {
 	struct avctp_channel *control = session->control;
@@ -2147,20 +2175,24 @@ struct avctp *avctp_connect(struct btd_device *device)
 		return NULL;
 
 	if (session->state > AVCTP_STATE_DISCONNECTED)
-		return session;
+		return session;/*非新创建的session,直接返回*/
 
+	/*更新到connecting状态*/
 	avctp_set_state(session, AVCTP_STATE_CONNECTING, 0);
 
+	/*指明源地址*/
 	src = btd_adapter_get_address(session->server->adapter);
 
+	/*连接对端设备AVCTP_CONTROL_PSM*/
 	io = bt_io_connect(avctp_connect_cb, session, NULL, &err,
 				BT_IO_OPT_SOURCE_BDADDR, src,
 				BT_IO_OPT_DEST_BDADDR,
-				device_get_address(session->device),
+				device_get_address(session->device),/*指明目的地址*/
 				BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_MEDIUM,
-				BT_IO_OPT_PSM, AVCTP_CONTROL_PSM,
+				BT_IO_OPT_PSM, AVCTP_CONTROL_PSM,/*指定目的psm*/
 				BT_IO_OPT_INVALID);
 	if (err) {
+		/*连接失败*/
 		avctp_set_state(session, AVCTP_STATE_DISCONNECTED, -EIO);
 		error("%s", err->message);
 		g_error_free(err);
@@ -2219,6 +2251,7 @@ void avctp_disconnect(struct avctp *session)
 	avctp_set_state(session, AVCTP_STATE_DISCONNECTED, -EIO);
 }
 
+/*取此device对应的session*/
 struct avctp *avctp_get(struct btd_device *device)
 {
 	return avctp_get_internal(device);

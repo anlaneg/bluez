@@ -1982,6 +1982,7 @@ done:
 	return n;
 }
 
+/*初始化mesh_virtuals队列*/
 void mesh_model_init(void)
 {
 	mesh_virtuals = l_queue_new();

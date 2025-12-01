@@ -142,7 +142,7 @@ static DBusMessage *display_pincode(DBusConnection *conn,
 	dbus_message_get_args(msg, NULL, DBUS_TYPE_OBJECT_PATH, &device,
 				DBUS_TYPE_STRING, &pincode, DBUS_TYPE_INVALID);
 
-	bt_shell_printf(AGENT_PROMPT "PIN code: %s\n", pincode);
+	bt_shell_printf(AGENT_PROMPT "PIN code: %s\n", pincode);/*通过shell显示pin*/
 
 	return dbus_message_new_method_return(msg);
 }
@@ -268,7 +268,7 @@ static const GDBusMethodTable agent_methods[] = {
 			GDBUS_ARGS({ "pincode", "s" }), request_pincode) },
 	{ GDBUS_METHOD("DisplayPinCode",
 			GDBUS_ARGS({ "device", "o" }, { "pincode", "s" }),
-			NULL, display_pincode) },
+			NULL, display_pincode) },/*响应显示pin码*/
 	{ GDBUS_ASYNC_METHOD("RequestPasskey",
 			GDBUS_ARGS({ "device", "o" }),
 			GDBUS_ARGS({ "passkey", "u" }), request_passkey) },
@@ -340,7 +340,7 @@ static const GDBusMethodTable auto_methods[] = {
 			GDBUS_ARGS({ "pincode", "s" }), request_pincode) },
 	{ GDBUS_METHOD("DisplayPinCode",
 			GDBUS_ARGS({ "device", "o" }, { "pincode", "s" }),
-			NULL, display_pincode) },
+			NULL, display_pincode) },/*显示pin码*/
 	{ GDBUS_ASYNC_METHOD("RequestPasskey",
 			GDBUS_ARGS({ "device", "o" }),
 			GDBUS_ARGS({ "passkey", "u" }), request_passkey) },
