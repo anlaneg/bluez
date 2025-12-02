@@ -95,6 +95,7 @@ size_t hex2str(const uint8_t *in, size_t in_len, char *out, size_t out_len)
 	return i;
 }
 
+/*创建目录*/
 int create_dir(const char *dir_name)
 {
 	struct stat st;
@@ -170,6 +171,7 @@ void enable_debug(void)
 #include <string.h>
 const char *mesh_basename(const char *path)
 {
+	/*取basename*/
 	const char *base = strrchr(path, '/');
 
 	return base ? base + 1 : path;

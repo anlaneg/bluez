@@ -115,8 +115,8 @@ struct mesh_sar_msg {
 	uint8_t		ttl;
 	uint8_t		segN;
 	uint8_t		activity_cnt;
-	bool		ctl;
-	bool		segmented;
+	bool		ctl;/*是否为Control Message（1时），否则为Access message*/
+	bool		segmented;/*是否分片*/
 	bool		szmic;
 	bool		proxy;
 	uint8_t		data[20]; /* Open ended, min 20 */
@@ -130,32 +130,53 @@ struct mesh_destination {
 /* Network Packet Layer based Offsets */
 #define AKF_BIT			0x40
 
+/*Network PDU format*/
+/*取IVI字段*/
 #define PKT_IVI(p)		!!((p)[0] & 0x80)
+/*设置IVI字段，先将IVI清零，再依据v的值，设置IVI*/
 #define SET_PKT_IVI(p,v)	do {(p)[0] &= 0x7f; \
 					(p)[0] |= ((v) ? 0x80 : 0);} while(0)
+/*取NID字段*/
 #define PKT_NID(p)		((p)[0] & 0x7f)
+/*设置NID字段，先将NID清零，再依据v的值，设置NID*/
 #define SET_PKT_NID(p,v)	do {(p)[0] &= 0x80; (p)[0] |= (v);} while(0)
+/*取CTL字段*/
 #define PKT_CTL(p)		(!!((p)[1] & 0x80))
+/*设置CTL字段，先将CTL清零，再依据v的值，设置CTL*/
 #define SET_PKT_CTL(p,v)	do {(p)[1] &= 0x7f; \
 					(p)[1] |= ((v) ? 0x80 : 0);} while(0)
+/*取TTL字段*/
 #define PKT_TTL(p)		((p)[1] & 0x7f)
+/*设置TTL字段，先将TTL清零，再依据v的值，设置TTL*/
 #define SET_PKT_TTL(p,v)	do {(p)[1] &= 0x80; (p)[1] |= (v);} while(0)
+/*取SEQ字段*/
 #define PKT_SEQ(p)		(get_be32((p) + 1) & 0xffffff)
+/*设置SEQ字段*/
 #define SET_PKT_SEQ(p,v)	put_be32(((p)[1] << 24) + ((v) & 0xffffff), \
 									(p) + 1)
+/*取SRC字段*/
 #define PKT_SRC(p)		get_be16((p) + 5)
 #define SET_PKT_SRC(p,v)	put_be16(v, (p) + 5)
+/*取DST字段*/
 #define PKT_DST(p)		get_be16((p) + 7)
 #define SET_PKT_DST(p,v)	put_be16(v, (p) + 7)
+/*取TransportPDU*/
 #define PKT_TRANS(p)		((p) + 9)
+/*取TransportPDU长度*/
 #define PKT_TRANS_LEN(l)	((l) - 9)
 
+/*取segment字段*/
 #define PKT_SEGMENTED(p)	(!!((p)[9] & 0x80))
+/*设置segment字段*/
 #define SET_PKT_SEGMENTED(p,v)	do {(p)[9] &= 0x7f; \
 					(p)[9] |= ((v) ? 0x80 : 0);} while(0)
+/*Access message消息取得Application Key Flag（1个bit)和Application key identifier（6个bits)*/
 #define PKT_AKF_AID(p)		((p)[9] & 0x7f)
+/*Access message消息设置Application Key Flag（1个bit)和Application key identifier（6个bits)*/
 #define SET_PKT_AKF_AID(p,v)	do {(p)[9] &= 0x80; (p)[9] |= (v);} while(0)
+/*Control message消息情况下，取opcode*/
 #define PKT_OPCODE(p)		((p)[9] & 0x7f)
+/*Control message消息情况下，opcode占用7个bits，设置opcode*/
 #define SET_PKT_OPCODE(p,v)	do {(p)[9] &= 0x80; (p)[9] |= (v);} while(0)
 #define PKT_OBO(p)		(!!((p)[10] & 0x80))
 #define PKT_SZMIC(p)		(!!(PKT_SEGMENTED(p) ? ((p)[10] & 0x40) : 0))
@@ -1236,6 +1257,7 @@ static void send_mesh_pkt(struct mesh_pkt *pkt)
 			send_pkt_cmplt, pkt);
 }
 
+/*生成seq number*/
 static uint32_t get_next_seq()
 {
 	uint32_t this_seq = net.seq_num++;
@@ -1274,30 +1296,38 @@ static void send_seg(struct mesh_sar_msg *sar, uint8_t seg)
 	/* leave extra byte at start for GATT Proxy type */
 	data = pkt->data + 1;
 
+	/*填充Network PDU*/
 	SET_PKT_NID(data, part->nid);
 	SET_PKT_IVI(data, sar->iv_index & 1);
 	SET_PKT_CTL(data, sar->ctl);
-	SET_PKT_TTL(data, sar->ttl);
-	SET_PKT_SEQ(data, get_next_seq());
+	SET_PKT_TTL(data, sar->ttl);/*设置ttl*/
+	SET_PKT_SEQ(data, get_next_seq());/*填充seq number*/
 	SET_PKT_SRC(data, sar->src);
-	SET_PKT_DST(data, sar->dst);
-	SET_PKT_SEGMENTED(data, sar->segmented);
+	SET_PKT_DST(data, sar->dst);/*设置目的地址 7-8*/
+
+	SET_PKT_SEGMENTED(data, sar->segmented);/*设置segmented标记*/
 
 	if (sar->ctl)
+		/*当前为ctrl消息，设置opcode*/
 		SET_PKT_OPCODE(data, sar->data[0]);
 	else
+		/*当前为Access message，填充Application Key Flag及Application key identifier*/
 		SET_PKT_AKF_AID(data, sar->akf_aid);
 
 	if (sar->segmented) {
 
 		if (!sar->ctl)
+			/*当前为Segmented Access Message，设置Size of TransMIC（占用1个bit)*/
 			SET_PKT_SZMIC(data, sar->szmic);
 
+		/*无论Segmented Control message 或者Segmented Access Message，
+		 * 其后均为SeqZero(13bits),SegO(5bits),SegN(5bits)*/
 		SET_PKT_SEQ0(data, sar->seqAuth);
 		SET_PKT_SEGO(data, seg);
 		SET_PKT_SEGN(data, sar->segN);
 
-		memcpy(PKT_TRANS(data) + 4,
+		/*Segment m of the Upper Transport Access PDU*/
+		memcpy(PKT_TRANS(data) + 4/*跳过以上填充的字段*/,
 				sar->data + sar->ctl + (seg * 12), 12);
 
 		pkt->len = 9 + 4;
@@ -1309,12 +1339,23 @@ static void send_seg(struct mesh_sar_msg *sar, uint8_t seg)
 			pkt->len += 12;
 
 	} else {
+		/*当前为Unegmented * Message
+		 * 填充
+		 * The Upper Transport Access PDU 或者
+		 * Parameters for the Transport Control message
+		 * */
 		memcpy(PKT_TRANS(data) + 1,
 				sar->data + sar->ctl, 15);
 
 		pkt->len = 9 + 1 + sar->len - sar->ctl;
 	}
 
+	/* If the CTL field is set to 0,
+	 *   the NetMIC is a 32-bit value and the Lower Transport PDU contains an Access Message.
+	 * If the CTL field is set to 1,
+	 *   the NetMIC is a 64-bit value and the Lower Transport PDU contains a Control Message.
+	 * 变更长度
+	 **/
 	pkt->len += (sar->ctl ? 8 : 4);
 	mesh_crypto_packet_encode(data, pkt->len,
 			part->enc_key,

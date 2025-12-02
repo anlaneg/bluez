@@ -590,16 +590,17 @@ bool mesh_crypto_packet_build(bool ctl, uint8_t ttl,
 	return true;
 }
 
+/*解析报文内容，获得填充的以下字段*/
 static bool network_header_parse(const uint8_t *packet, uint8_t packet_len,
-				bool *ctl, uint8_t *ttl, uint32_t *seq,
-				uint16_t *src, uint16_t *dst)
+				bool *ctl, uint8_t *ttl, uint32_t *seq/*出参，序号*/,
+				uint16_t *src/*出参，源地址*/, uint16_t *dst/*出参，目的地址*/)
 {
 	if (packet_len < 10)
 		return false;
 
 	/* Try to keep bits in the order they exist within the packet */
 	if (ctl)
-		*ctl = !!(packet[1] & CTL);
+		*ctl = !!(packet[1] & CTL);/*取是否控制消息*/
 
 	if (ttl)
 		*ttl = packet[1] & TTL_MASK;/*取ttl*/
@@ -619,9 +620,9 @@ static bool network_header_parse(const uint8_t *packet, uint8_t packet_len,
 
 bool mesh_crypto_packet_parse(const uint8_t *packet, uint8_t packet_len,
 				bool *ctl, uint8_t *ttl, uint32_t *seq,
-				uint16_t *src, uint16_t *dst,
+				uint16_t *src/*出参，源地址*/, uint16_t *dst/*出参，目的地址*/,
 				uint32_t *cookie, uint8_t *opcode,
-				bool *segmented, uint8_t *key_aid,
+				bool *segmented/*出参，是否分段报文*/, uint8_t *key_aid,
 				bool *szmic, bool *relay, uint16_t *seqZero,
 				uint8_t *segO, uint8_t *segN,
 				const uint8_t **payload, uint8_t *payload_len)
@@ -647,7 +648,8 @@ bool mesh_crypto_packet_parse(const uint8_t *packet, uint8_t packet_len,
 		*segmented = is_segmented;
 
 	if (*ctl) {
-		uint8_t this_opcode = packet[9] & OPCODE_MASK;
+		/*遇到的是control message*/
+		uint8_t this_opcode = packet[9] & OPCODE_MASK;/*取opcode*/
 
 		/* NetMIC */
 		packet_len -= 8;

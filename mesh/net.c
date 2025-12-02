@@ -96,10 +96,10 @@ struct mesh_net {
 	unsigned int beacon_id;
 	unsigned int sar_id_next;
 
-	bool friend_enable;
+	bool friend_enable;/*是否开启friend功能*/
 	bool snb_enable;
 	bool mpb_enable;
-	bool proxy_enable;
+	bool proxy_enable;/*是否开启proxy功能*/
 	bool friend_seq;
 	struct l_timeout *iv_update_timeout;
 	enum _iv_upd_state iv_upd_state;
@@ -118,7 +118,7 @@ struct mesh_net {
 	uint8_t mpb_period;
 
 	struct {
-		bool enable;
+		bool enable;/*是否开启relay功能*/
 		uint16_t interval;
 		uint8_t count;
 	} relay;
@@ -129,7 +129,7 @@ struct mesh_net {
 	uint16_t features;
 
 	struct l_queue *subnets;
-	struct l_queue *msg_cache;
+	struct l_queue *msg_cache;/*用于记录哪些message在cache中*/
 	struct l_queue *replay_cache;
 	struct l_queue *sar_in;
 	struct l_queue *sar_out;
@@ -194,7 +194,7 @@ struct oneshot_tx {
 	uint16_t interval;
 	uint8_t cnt;
 	uint8_t size;/*报文长度*/
-	uint8_t packet[MESH_AD_MAX_LEN];/*报文内容*/
+	uint8_t packet[MESH_AD_MAX_LEN];/*要发送的报文内容*/
 };
 
 struct net_beacon_data {
@@ -254,7 +254,7 @@ static void send_hb_publication(void *data)
 
 	msg[n++] = NET_OP_HEARTBEAT;
 	msg[n++] = pub->ttl;
-	l_put_be16(net->features, msg + n);
+	l_put_be16(net->features, msg + n);/*填写features*/
 	n += 2;
 
 	mesh_net_transport_send(net, 0, 0, mesh_net_get_iv_index(net),
@@ -267,11 +267,13 @@ static void trigger_heartbeat(struct mesh_net *net, uint16_t feature,
 	l_debug("HB: %4.4x --> %d", feature, enable);
 
 	if (enable) {
+		/*开启，添加feature flag*/
 		if (net->features & feature)
 			return; /* no change */
 
 		net->features |= feature;
 	} else {
+		/*禁用，移除feature flag*/
 		if (!(net->features & feature))
 			return; /* no change */
 
@@ -627,7 +629,7 @@ struct mesh_net *mesh_net_new(struct mesh_node *node)
 	net->tx_interval = DEFAULT_TRANSMIT_INTERVAL;
 
 	net->subnets = l_queue_new();
-	net->msg_cache = l_queue_new();
+	net->msg_cache = l_queue_new();/*初始化msg cache*/
 	net->sar_in = l_queue_new();
 	net->sar_out = l_queue_new();
 	net->sar_queue = l_queue_new();
@@ -656,7 +658,7 @@ void mesh_net_free(void *user_data)
 		return;
 
 	l_queue_destroy(net->subnets, subnet_free);
-	l_queue_destroy(net->msg_cache, l_free);
+	l_queue_destroy(net->msg_cache, l_free);/*释放msg cache*/
 	l_queue_destroy(net->replay_cache, l_free);
 	l_queue_destroy(net->sar_in, mesh_sar_free);
 	l_queue_destroy(net->sar_out, mesh_sar_free);
@@ -726,7 +728,7 @@ uint16_t mesh_net_get_address(struct mesh_net *net)
 bool mesh_net_register_unicast(struct mesh_net *net,
 					uint16_t address, uint8_t num_ele)
 {
-	if (!net || !IS_UNICAST(address) || !num_ele)
+	if (!net || !IS_UNICAST(address)/*非unicast地址*/ || !num_ele)
 		return false;
 
 	net->src_addr = address;
@@ -1028,11 +1030,13 @@ static bool match_cache(const void *a, const void *b)
 
 	if (msg->seq != tst->seq || msg->mic != tst->mic ||
 					msg->src != tst->src)
+		/*seq,mic,src匹配则认为是同一个mesh message*/
 		return false;
 
 	return true;
 }
 
+/*检查(src,seq,mic)对应的message是否在cache中，如果不存则添加*/
 static bool msg_in_cache(struct mesh_net *net, uint16_t src, uint32_t seq,
 								uint32_t mic)
 {
@@ -1043,9 +1047,11 @@ static bool msg_in_cache(struct mesh_net *net, uint16_t src, uint32_t seq,
 		.mic = mic,
 	};
 
+	/*通过tst查询mesh msg*/
 	msg = l_queue_find(net->msg_cache, match_cache, &tst);
 
 	if (msg) {
+		/*此msg已存在，不进行处理*/
 		l_debug("Suppressing duplicate %4.4x + %6.6x + %8.8x",
 							src, seq, mic);
 		return true;
@@ -1053,10 +1059,11 @@ static bool msg_in_cache(struct mesh_net *net, uint16_t src, uint32_t seq,
 
 	msg = l_new(struct mesh_msg, 1);
 	*msg = tst;
-	l_queue_push_head(net->msg_cache, msg);
+	l_queue_push_head(net->msg_cache, msg);/*保存此message对应的msh_msg*/
 	l_debug("Add %4.4x + %6.6x + %8.8x", src, seq, mic);
 
 	if (l_queue_length(net->msg_cache) > MSG_CACHE_SIZE) {
+		/*cache数量过多，移除队尾最后一端msg*/
 		msg = l_queue_peek_tail(net->msg_cache);
 		/* Remove Tail (oldest msg in cache) */
 		l_debug("Remove %4.4x + %6.6x + %8.8x",
@@ -1142,14 +1149,16 @@ static bool is_lpn_friend(struct mesh_net *net, uint16_t addr)
 	return tst != NULL;
 }
 
-static bool is_us(struct mesh_net *net, uint16_t addr, bool src)
+static bool is_us(struct mesh_net *net, uint16_t addr/*目地地址*/, bool src)
 {
 	void *tst;
 
 	if (IS_ALL_NODES(addr))
+		/*目的地址指向所有地址，故发送给我们*/
 		return true;
 
 	if (addr == FRIENDS_ADDRESS)
+		/*仅我们开启friend_enable功能时，发送给我们*/
 		return net->friend_enable;
 
 	if (addr == RELAYS_ADDRESS)
@@ -1330,6 +1339,7 @@ static bool friend_packet_queue(struct mesh_net *net,
 	frnd_msg = mesh_friend_msg_new(seg_max);
 
 	if (IS_SEGMENTED(hdr)) {
+		/*报文为segmented*/
 		uint32_t seqAuth = seq_auth(seq, hdr >> SEQ_ZERO_HDR_SHIFT);
 		uint8_t i;
 
@@ -1346,6 +1356,7 @@ static bool friend_packet_queue(struct mesh_net *net,
 		if (!frnd_msg->last_len)
 			frnd_msg->last_len = 12;
 	} else {
+		/*报文为unsegmented*/
 		uint8_t opcode = hdr >> OPCODE_HDR_SHIFT;
 
 		if (ctl && opcode != NET_OP_SEG_ACKNOWLEDGE) {
@@ -2270,7 +2281,7 @@ static void send_msg_pkt_oneshot(void *user_data)
 	struct mesh_io_send_info info;
 	struct net_queue_data net_data = {
 		.info = NULL,
-		.data = tx->packet + 1,
+		.data = tx->packet + 1,/*跳过报文类型*/
 		.len = tx->size - 1,
 		.relay_advice = RELAY_NONE,
 	};
@@ -2351,7 +2362,7 @@ static enum _relay_advice packet_received(struct mesh_net *net,
 	 * The "cache_cookie" should be unique part of App message.
 	 */
 	if (msg_in_cache(net, net_src, net_seq, cache_cookie))
-		return RELAY_NONE;
+		return RELAY_NONE;/*此消息已存在*/
 
 	l_debug("RX: Network %04x -> %04x : TTL 0x%02x : IV : %8.8x SEQ 0x%06x",
 			net_src, net_dst, net_ttl, iv_index, net_seq);
@@ -2571,7 +2582,7 @@ static void iv_upd_to(struct l_timeout *upd_timeout, void *user_data)
 							net->iv_index, false);
 		l_queue_foreach(net->subnets, refresh_beacon, net);
 		queue_friend_update(net);
-		l_queue_clear(net->msg_cache, l_free);
+		l_queue_clear(net->msg_cache, l_free);/*移除所有msg_cache元素*/
 		break;
 
 	case IV_UPD_INIT:
@@ -3285,7 +3296,7 @@ bool mesh_net_app_send(struct mesh_net *net, bool frnd_cred, uint16_t src,
 	 * If TTL is set to 1, message shall be dropped.
 	 */
 	if (ttl == 1)
-		return true;
+		return true;/*rtt为1，则丢包*/
 
 	/* Setup OTA Network send */
 	payload = mesh_sar_new(msg_len);
@@ -3400,7 +3411,7 @@ void mesh_net_ack_send(struct mesh_net *net, uint32_t net_key_id,
 void mesh_net_transport_send(struct mesh_net *net, uint32_t net_key_id,
 				uint16_t net_idx, uint32_t iv_index,
 				uint8_t ttl, uint32_t seq, uint16_t src,
-				uint16_t dst, const uint8_t *msg,
+				uint16_t dst, const uint8_t *msg/*要发送的消息*/,
 				uint16_t msg_len)
 {
 	uint8_t pkt_len;
@@ -3428,7 +3439,7 @@ void mesh_net_transport_send(struct mesh_net *net, uint32_t net_key_id,
 	 * If TTL is set to 1, message shall be dropped.
 	 */
 	if (ttl == 1)
-		return;
+		return;/*ttl为1，丢包*/
 
 	/* Enqueue for Friend if forwardable and from us */
 	if (!net_key_id && src >= net->src_addr && src <= net->last_addr) {
@@ -3460,7 +3471,7 @@ void mesh_net_transport_send(struct mesh_net *net, uint32_t net_key_id,
 			return;
 	}
 
-	pkt[0] = BT_AD_MESH_DATA;
+	pkt[0] = BT_AD_MESH_DATA;/*标记报文类型*/
 	if (!mesh_crypto_packet_build(true, ttl, seq, src, dst, msg[0],
 				false, 0, false, 0, 0, 0, msg + 1, msg_len - 1,
 				pkt + 1, &pkt_len))
@@ -3473,7 +3484,7 @@ void mesh_net_transport_send(struct mesh_net *net, uint32_t net_key_id,
 
 	if (!(IS_UNASSIGNED(dst)))
 		send_msg_pkt(net, net->tx_cnt, net->tx_interval, pkt,
-								pkt_len + 1);
+								pkt_len + 1/*包含报文类型*/);
 }
 
 int mesh_net_key_refresh_phase_set(struct mesh_net *net, uint16_t idx,

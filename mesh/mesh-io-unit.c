@@ -61,7 +61,7 @@ struct tx_pkt {
 	struct mesh_io_send_info	info;
 	bool				delete;
 	uint8_t				len;
-	uint8_t				pkt[MESH_AD_MAX_LEN];
+	uint8_t				pkt[MESH_AD_MAX_LEN];/*要发送的报文*/
 };
 
 struct tx_pattern {
@@ -93,6 +93,7 @@ static void process_rx_callbacks(void *v_reg, void *v_rx)
 	struct process_data *rx = v_rx;
 
 	if (!memcmp(rx->data, rx_reg->filter, rx_reg->len))
+		/*rx_reg->filter与收到的报文匹配，调用rx_reg->cb进行处理*/
 		rx_reg->cb(rx_reg->user_data, &rx->info, rx->data, rx->len);
 }
 
@@ -113,6 +114,7 @@ static void process_rx(struct mesh_io_private *pvt, int8_t rssi,
 	l_queue_foreach(pvt->rx_regs, process_rx_callbacks, &rx);
 }
 
+/*收到读事件时，此回调被触发*/
 static bool incoming(struct l_io *sio, void *user_data)
 {
 	struct mesh_io_private *pvt = user_data;
@@ -125,6 +127,7 @@ static bool incoming(struct l_io *sio, void *user_data)
 	size = recv(pvt->fd, buf, sizeof(buf), MSG_DONTWAIT);
 
 	if (size > 9 && buf[0]) {
+		/*读取到的长度超过9字节*/
 		process_rx(pvt, -20, instant, NULL, buf + 1, (uint8_t)size);
 	} else if (size == 1 && !buf[0] && pvt->unique_name) {
 
@@ -212,6 +215,7 @@ static void unit_up(void *user_data)
 	l_timeout_create_ms(1, get_name, pvt, NULL);
 }
 
+/*初始化mesh_io_private*/
 static bool unit_init(struct mesh_io *io, void *opt, void *user_data)
 {
 	struct mesh_io_private *pvt;
@@ -230,6 +234,7 @@ static bool unit_init(struct mesh_io *io, void *opt, void *user_data)
 	snprintf(pvt->addr.sun_path, sizeof(pvt->addr.sun_path), "%s",
 								sk_path);
 
+	/*创建unix socket*/
 	pvt->fd = socket(PF_LOCAL, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	if (pvt->fd < 0)
 		goto fail;
@@ -238,11 +243,13 @@ static bool unit_init(struct mesh_io *io, void *opt, void *user_data)
 	size = offsetof(struct sockaddr_un, sun_path) +
 						strlen(pvt->addr.sun_path);
 
+	/*绑定地址*/
 	if (bind(pvt->fd, (struct sockaddr *) &pvt->addr, size) < 0)
 		goto fail;
 
 	/* Setup socket handlers */
 	pvt->sio = l_io_new(pvt->fd);
+	/*设置此fd的读事件处理incoming回调*/
 	if (!l_io_set_read_handler(pvt->sio, incoming, pvt, NULL))
 		goto fail;
 
@@ -252,7 +259,7 @@ static bool unit_init(struct mesh_io *io, void *opt, void *user_data)
 	pvt->io = io;
 	pvt->user_data = user_data;
 
-	io->pvt = pvt;
+	io->pvt = pvt;/*设置对应的私有数据*/
 
 	l_idle_oneshot(unit_up, pvt, NULL);
 
@@ -307,10 +314,12 @@ static bool simple_match(const void *a, const void *b)
 static void send_pkt(struct mesh_io_private *pvt, struct tx_pkt *tx,
 							uint16_t interval)
 {
+	/*对外发送*/
 	if (send(pvt->fd, tx->pkt, tx->len, MSG_DONTWAIT) < 0)
 		l_error("Failed to send(%d)", errno);
 
 	if (tx->delete) {
+		/*自队列中删除此tx_pkt，并释放*/
 		l_queue_remove_if(pvt->tx_pkts, simple_match, tx);
 		l_free(tx);
 	}
@@ -328,6 +337,7 @@ static void tx_to(struct l_timeout *timeout, void *user_data)
 
 	tx = l_queue_pop_head(pvt->tx_pkts);
 	if (!tx) {
+		/*队列为空*/
 		l_timeout_remove(timeout);
 		pvt->tx_timeout = NULL;
 		return;
@@ -359,9 +369,11 @@ static void tx_to(struct l_timeout *timeout, void *user_data)
 		l_queue_push_tail(pvt->tx_pkts, tx);
 
 	if (timeout) {
+		/*已有timeout,仅变更超时时间为ms*/
 		pvt->tx_timeout = timeout;
 		l_timeout_modify_ms(timeout, ms);
 	} else
+		/*无timeout,设置超时时间为ms,并创建timeout*/
 		pvt->tx_timeout = l_timeout_create_ms(ms, tx_to, pvt, NULL);
 }
 
@@ -373,7 +385,7 @@ static void tx_worker(void *user_data)
 
 	tx = l_queue_peek_head(pvt->tx_pkts);
 	if (!tx)
-		return;
+		return;/*队列为空，直接返回*/
 
 	switch (tx->info.type) {
 	case MESH_IO_TIMING_TYPE_GENERAL:
@@ -411,10 +423,13 @@ static void tx_worker(void *user_data)
 	}
 
 	if (!delay)
+		/*无delay事件，直接发送*/
 		tx_to(pvt->tx_timeout, pvt);
 	else if (pvt->tx_timeout)
+		/*变更超时时间为delay*/
 		l_timeout_modify_ms(pvt->tx_timeout, delay);
 	else
+		/*创建tx_timeout,使其在delay之后调用tx_to*/
 		pvt->tx_timeout = l_timeout_create_ms(delay, tx_to, pvt, NULL);
 }
 
@@ -437,12 +452,13 @@ static bool send_tx(struct mesh_io *io, struct mesh_io_send_info *info,
 	if (info->type == MESH_IO_TIMING_TYPE_POLL_RSP)
 		l_queue_push_head(pvt->tx_pkts, tx);
 	else {
-		sending = !l_queue_isempty(pvt->tx_pkts);
+		sending = !l_queue_isempty(pvt->tx_pkts);/*队列是否不为空*/
 
 		l_queue_push_tail(pvt->tx_pkts, tx);
 	}
 
 	if (!sending) {
+		/*pvt->tx_pkts队列为空*/
 		l_timeout_remove(pvt->tx_timeout);
 		pvt->tx_timeout = NULL;
 		l_idle_oneshot(tx_worker, pvt, NULL);
@@ -491,7 +507,7 @@ static bool tx_cancel(struct mesh_io *io, const uint8_t *data, uint8_t len)
 static bool recv_register(struct mesh_io *io, const uint8_t *filter,
 			uint8_t len, mesh_io_recv_func_t cb, void *user_data)
 {
-	return true;
+	return true;/*无处理*/
 }
 
 static bool recv_deregister(struct mesh_io *io, const uint8_t *filter,
@@ -500,6 +516,7 @@ static bool recv_deregister(struct mesh_io *io, const uint8_t *filter,
 	return true;
 }
 
+/*MESH_IO_TYPE_UNIT_TEST对应的io api*/
 const struct mesh_io_api mesh_io_unit = {
 	.init = unit_init,
 	.destroy = unit_destroy,

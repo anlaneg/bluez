@@ -73,15 +73,28 @@
 #define MESH_STATUS_UNSPECIFIED_ERROR	0x10
 #define MESH_STATUS_INVALID_BINDING	0x11
 
+/*Unassigned Address类型地址*/
 #define UNASSIGNED_ADDRESS	0x0000
+/*发送给所有proxy节点（节点需开启proxy功能）*/
 #define PROXIES_ADDRESS	0xfffc
+/*发送给所有friends节点（节点需开启friends功能）*/
 #define FRIENDS_ADDRESS	0xfffd
+/*发送给所有relay节点（节点需开启relay功能）*/
 #define RELAYS_ADDRESS		0xfffe
+/*发送给所有节点*/
 #define ALL_NODES_ADDRESS	0xffff
 #define VIRTUAL_ADDRESS_LOW	0x8000
 #define VIRTUAL_ADDRESS_HIGH	0xbfff
+/*
+ * 一般目的组地址
+ * addresses in the range 0xC000
+ * through 0xFEFF are generally available for other usage.*/
 #define GROUP_ADDRESS_LOW	0xc000
 #define GROUP_ADDRESS_HIGH	0xfeff
+/*预留的固定组地址：
+ * Group addresses in the range 0xFF00
+ * through 0xFFFF are reserved for Fixed Group addresses
+*/
 #define FIXED_GROUP_LOW		0xff00
 #define FIXED_GROUP_HIGH	0xffff
 
@@ -114,15 +127,22 @@
 #define DEFAULT_SEQUENCE_NUMBER 0x000000
 #define SEQ_MASK		0xffffff
 
+/*Unassigned Address指的是纯零地址*/
 #define IS_UNASSIGNED(x)	((x) == UNASSIGNED_ADDRESS)
+/*Unicast Address类型指的是首bit为0的地址，且不能为UNASSIGNED_ADDRESS*/
 #define IS_UNICAST(x)		(((x) > UNASSIGNED_ADDRESS) && \
 					((x) < VIRTUAL_ADDRESS_LOW))
+/*x,c范围内是否均为Unicast Address*/
 #define IS_UNICAST_RANGE(x, c)	(IS_UNICAST(x) && IS_UNICAST(x + c - 1))
+/*Virtual Address类型指的是首bit为1，次bit为0的地址，即最小地址为0x8000,最大地址为0xBFFF
+ * A virtual address represents a set of destination addresses.*/
 #define IS_VIRTUAL(x)		(((x) >= VIRTUAL_ADDRESS_LOW) && \
 					((x) <= VIRTUAL_ADDRESS_HIGH))
+/*Group Address类型指的是首bit为1，次bit为1的地址，即最小地址为0xC000,最大地址0xFFFF*/
 #define IS_GROUP(x)		((((x) >= GROUP_ADDRESS_LOW) && \
 					((x) < FIXED_GROUP_HIGH)) || \
 					((x) == ALL_NODES_ADDRESS))
 
 #define IS_FIXED_GROUP_ADDRESS(x)	((x) >= PROXIES_ADDRESS)
+/*指代所有NODES*/
 #define IS_ALL_NODES(x)	((x) == ALL_NODES_ADDRESS)

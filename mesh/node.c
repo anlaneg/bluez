@@ -81,7 +81,7 @@ struct mesh_node {
 	char *obj_path;
 	struct mesh_agent *agent;
 	struct mesh_config *cfg;
-	char *storage_dir;
+	char *storage_dir;/*配置目录*/
 	uint32_t disc_watch;
 	uint32_t seq_number;
 	bool busy;
@@ -337,7 +337,7 @@ static bool add_element_from_storage(struct mesh_node *node,
 	ele->idx = db_ele->index;
 	ele->location = db_ele->location;
 	ele->models = l_queue_new();
-	l_queue_push_tail(node->elements, ele);
+	l_queue_push_tail(node->elements, ele);/*串连element*/
 
 	if (!mesh_model_add_from_storage(node, ele->idx, ele->models,
 							db_ele->models))
@@ -399,22 +399,23 @@ static bool init_storage_dir(struct mesh_node *node)
 	char dir_name[PATH_MAX];
 
 	if (node->storage_dir)
-		return true;
+		return true;/*已初始化*/
 
 	if (!hex2str(node->uuid, 16, uuid, sizeof(uuid)))
 		return false;
 
+	/*构成目录名称*/
 	snprintf(dir_name, PATH_MAX, "%s/%s", mesh_get_storage_dir(), uuid);
 
 	if (strlen(dir_name) >= PATH_MAX)
 		return false;
 
-	create_dir(dir_name);
+	create_dir(dir_name);/*创建目录*/
 
 	node->storage_dir = l_strdup(dir_name);
 
 	/* Initialize directory for storing RPL info */
-	return rpl_init(node->storage_dir);
+	return rpl_init(node->storage_dir);/*创建rpl目录*/
 }
 
 static void init_net_settings(struct mesh_node *node)
@@ -444,7 +445,7 @@ static bool init_from_storage(struct mesh_config_node *db_node,
 	if (!nodes)
 		nodes = l_queue_new();
 
-	l_queue_push_tail(nodes, node);
+	l_queue_push_tail(nodes, node);/*增加node*/
 
 	node->comp.cid = db_node->cid;
 	node->comp.pid = db_node->pid;
@@ -2434,6 +2435,7 @@ static bool addresses_getter(struct l_dbus *dbus, struct l_dbus_message *msg,
 
 static void setup_node_interface(struct l_dbus_interface *iface)
 {
+	/*注册node接口*/
 	l_dbus_interface_method(iface, "Send", 0, send_call, "", "oqqa{sv}ay",
 						"element_path", "destination",
 						"key_index", "options", "data");
@@ -2476,6 +2478,7 @@ void node_property_changed(struct mesh_node *node, const char *property)
 
 bool node_dbus_init(struct l_dbus *bus)
 {
+	/*注册Node接口*/
 	if (!l_dbus_register_interface(bus, MESH_NODE_INTERFACE,
 						setup_node_interface,
 						NULL, false)) {

@@ -154,7 +154,7 @@ static void signal_handler(uint32_t signo, void *user_data)
 	terminated = true;/*标记terminated*/
 }
 
-static bool parse_io(const char *optarg, enum mesh_io_type *type/*出参，类型*/, void **opts/*出参，类型参数*/)
+static bool parse_io(const char *optarg, enum mesh_io_type *type/*出参，io类型*/, void **opts/*出参，类型参数*/)
 {
 	if (strstr(optarg, "auto") == optarg) {
 		/*auto情况下*/

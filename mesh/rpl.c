@@ -145,8 +145,9 @@ static void get_entries(const char *iv_path, struct l_queue *rpl_list)
 	dir = opendir(iv_path);
 
 	if (!dir)
-		return;
+		return;/*打开目录失败*/
 
+	/*取iv_path对应的basename*/
 	iv_txt = mesh_basename(iv_path);
 	if (sscanf(iv_txt, "%08x", &iv_index) != 1) {
 		closedir(dir);
@@ -158,18 +159,20 @@ static void get_entries(const char *iv_path, struct l_queue *rpl_list)
 	while ((entry = readdir(dir)) != NULL) {
 		/* RPL sequences are stored in src files under iv_index */
 		if (entry->d_type == DT_REG) {
+			/*仅处理普通文件*/
 			if (sscanf(entry->d_name, "%04hx", &src) != 1)
 				continue;
 
 			snprintf(src_path, PATH_MAX, "%s/%4.4x", iv_path, src);
-			fd = open(src_path, O_RDONLY);
+			fd = open(src_path, O_RDONLY);/*打开此普通文件*/
 
 			if (fd < 0)
 				continue;
 
 			if (read(fd, seq_txt, 6) == 6 &&
-					sscanf(seq_txt, "%06x", &seq) == 1) {
+					sscanf(seq_txt, "%06x", &seq) == 1) {/*读取seq*/
 
+				/*通过src查找rpl*/
 				rpl = l_queue_find(rpl_list, match_src,
 						L_UINT_TO_PTR(src));
 
@@ -185,7 +188,7 @@ static void get_entries(const char *iv_path, struct l_queue *rpl_list)
 					rpl->iv_index = iv_index;
 					rpl->seq = seq;
 
-					l_queue_push_head(rpl_list, rpl);
+					l_queue_push_head(rpl_list, rpl);/*添加新的rpl*/
 				}
 			}
 			close(fd);
@@ -216,6 +219,7 @@ bool rpl_get_list(struct mesh_node *node, struct l_queue *rpl_list)
 	rpl_path = l_malloc(len);
 	snprintf(rpl_path, len, "%s%s", node_path, rpl_dir);
 
+	/*打开rpl目录*/
 	dir = opendir(rpl_path);
 
 	if (!dir) {
@@ -227,6 +231,7 @@ bool rpl_get_list(struct mesh_node *node, struct l_queue *rpl_list)
 	while ((entry = readdir(dir)) != NULL) {
 		/* RPL sequences are stored in files under iv_indexs */
 		if (entry->d_type == DT_DIR && entry->d_name[0] != '.') {
+			/*处理不以'.'开头的目录，构造成rpl_path*/
 			snprintf(rpl_path, len, "%s%s/%s",
 					node_path, rpl_dir, entry->d_name);
 			get_entries(rpl_path, rpl_list);
@@ -286,6 +291,7 @@ void rpl_update(struct mesh_node *node, uint32_t cur)
 	closedir(dir);
 }
 
+/*创建rpl目录*/
 bool rpl_init(const char *node_path)
 {
 	char path[PATH_MAX];

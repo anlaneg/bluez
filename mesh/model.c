@@ -132,7 +132,7 @@ static bool match_model_id(const void *a, const void *b)
 	const struct mesh_model *mod = a;
 	uint32_t id = L_PTR_TO_UINT(b);
 
-	return (mod->id == id);
+	return (mod->id == id);/*按id进行匹配*/
 }
 
 static int compare_model_id(const void *a, const void *b, void *user_data)
@@ -1744,12 +1744,14 @@ bool mesh_model_add_from_storage(struct mesh_node *node, uint8_t ele_idx,
 						SET_ID(SIG_VENDOR, db_mod->id);
 
 		if (l_queue_find(mods, match_model_id, L_UINT_TO_PTR(id)))
-			return false;
+			return false;/*mod已存在*/
 
+		/*新建mesh_model*/
 		mod = model_setup(net, ele_idx, db_mod);
 		if (!mod)
 			return false;
 
+		/*添加进mods*/
 		l_queue_insert(mods, mod, compare_model_id, NULL);
 	}
 

@@ -2525,6 +2525,7 @@ static bool load_node(const char *fname, const uint8_t uuid[16],
 		cfg->idles = l_queue_new();
 		gettimeofday(&cfg->write_time, NULL);
 
+		/*触发回调*/
 		result = cb(&node, uuid, cfg, user_data);
 
 		if (!result) {
@@ -2650,7 +2651,7 @@ bool mesh_config_load_nodes(const char *cfgdir_name/*配置目录*/, mesh_config
 	if (!cfgdir) {
 		l_error("Failed to open mesh node storage directory: %s",
 								cfgdir_name);
-		return false;
+		return false;/*打开目录失败*/
 	}
 
 	while ((entry = readdir(cfgdir)) != NULL) {

@@ -151,7 +151,8 @@ static struct mesh_io_reg *find_by_filter(struct l_queue *rx_regs,
 	return NULL;
 }
 
-struct mesh_io *mesh_io_new(enum mesh_io_type type, void *opts,
+/*创建并初始化default_io*/
+struct mesh_io *mesh_io_new(enum mesh_io_type type/*io类型*/, void *opts,
 				mesh_io_ready_func_t cb, void *user_data)
 {
 	const struct mesh_io_api *api = NULL;
@@ -176,9 +177,9 @@ struct mesh_io *mesh_io_new(enum mesh_io_type type, void *opts,
 	api = io_api(type);
 
 	if (!api || !api->init)
-		goto fail;
+		goto fail;/*api不存在或者api没有init函数*/
 
-	default_io->api = api;
+	default_io->api = api;/*设置default_io对应的api*/
 
 	if (!api->init(default_io, opts, user_data))
 		goto fail;

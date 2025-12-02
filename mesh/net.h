@@ -37,6 +37,7 @@ struct mesh_node;
 #define SEGMENTED	0x80
 #define UNSEGMENTED	0x00
 #define SEG_HDR_SHIFT	31
+/*是否为segmented报文*/
 #define IS_SEGMENTED(hdr)	(!!((hdr) & ((uint32_t) 0x1 << SEG_HDR_SHIFT)))
 
 #define KEY_ID_MASK	0x7f

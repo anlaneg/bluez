@@ -179,7 +179,7 @@ static void io_ready_callback(void *user_data, bool result)
 	if (mesh.initialized)
 		return;
 
-	mesh.initialized = true;
+	mesh.initialized = true;/*指明已初始化*/
 
 	if (result)
 		node_attach_io_all(mesh.io);
@@ -265,7 +265,7 @@ done:
 }
 
 bool mesh_init(const char *config_dir/*配置文件目录*/, const char *mesh_conf_fname/*配置文件*/,
-					enum mesh_io_type type, void *opts,
+					enum mesh_io_type type/*io类型*/, void *opts/*io类型对应参数*/,
 					mesh_ready_func_t cb, void *user_data)
 {
 	struct mesh_io_caps caps;
@@ -293,7 +293,7 @@ bool mesh_init(const char *config_dir/*配置文件目录*/, const char *mesh_co
 	parse_settings(mesh_conf_fname);
 
 	if (!node_load_from_storage(storage_dir))
-		return false;
+		return false;/*加载配置失败，直接退出*/
 
 	req = l_new(struct mesh_init_request, 1);
 	req->cb = cb;
@@ -909,6 +909,7 @@ static struct l_dbus_message *import_call(struct l_dbus *dbus,
 	return NULL;
 }
 
+/*注册接口方法*/
 static void setup_network_interface(struct l_dbus_interface *iface)
 {
 	l_dbus_interface_method(iface, "Join", 0, join_network_call, "",
@@ -936,6 +937,7 @@ static void setup_network_interface(struct l_dbus_interface *iface)
 
 bool mesh_dbus_init(struct l_dbus *dbus)
 {
+	/*注册MESH_NETWORK_INTERFACE接口*/
 	if (!l_dbus_register_interface(dbus, MESH_NETWORK_INTERFACE,
 						setup_network_interface,
 						NULL, false)) {
@@ -944,6 +946,7 @@ bool mesh_dbus_init(struct l_dbus *dbus)
 		return false;
 	}
 
+	/*obj path与interface关联*/
 	if (!l_dbus_object_add_interface(dbus, BLUEZ_MESH_PATH,
 						MESH_NETWORK_INTERFACE, NULL)) {
 		l_info("Unable to register the mesh object on '%s'",
@@ -957,6 +960,7 @@ bool mesh_dbus_init(struct l_dbus *dbus)
 	return true;
 }
 
+/*取配置目录*/
 const char *mesh_get_storage_dir(void)
 {
 	return storage_dir;
