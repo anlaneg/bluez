@@ -2423,7 +2423,7 @@ struct hci_dev_req {
 };
 
 struct hci_dev_list_req {
-	uint16_t dev_num;
+	uint16_t dev_num;/*设备总数，即dev_req的数组长度*/
 	struct hci_dev_req dev_req[];	/* hci_dev_req structures */
 };
 

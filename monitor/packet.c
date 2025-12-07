@@ -322,6 +322,7 @@ static void assign_handle(uint16_t index, uint16_t handle, uint8_t type,
 	}
 }
 
+/*利用handle查询packet_conn_data*/
 struct packet_conn_data *packet_get_conn_data(uint16_t handle)
 {
 	int i;

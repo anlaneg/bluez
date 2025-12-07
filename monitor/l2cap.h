@@ -31,6 +31,7 @@ void l2cap_frame_init(struct l2cap_frame *frame, uint16_t index, bool in,
 				uint16_t cid, uint16_t psm,
 				const void *data, uint16_t size);
 
+/*初始化frame*/
 static inline void l2cap_frame_clone_size(struct l2cap_frame *frame,
 				const struct l2cap_frame *source,
 				uint16_t size)
@@ -65,6 +66,7 @@ static inline void *l2cap_frame_pull(struct l2cap_frame *frame,
 	if (source->size < len)
 		return NULL;
 
+	/*data指针位置前移*/
 	data = (void *)frame->data;
 	frame->data = source->data + len;
 	frame->size = source->size - len;
@@ -133,11 +135,12 @@ static inline bool l2cap_frame_get_le16(struct l2cap_frame *frame,
 								uint16_t *value)
 {
 	if (frame->size < sizeof(*value))
-		return false;
+		return false;/*内容长度不足以读取*/
 
 	if (value)
-		*value = get_le16(frame->data);
+		*value = get_le16(frame->data);/*取u16*/
 
+	/*内容已读取，数据位置前移*/
 	l2cap_frame_pull(frame, frame, sizeof(*value));
 
 	return true;

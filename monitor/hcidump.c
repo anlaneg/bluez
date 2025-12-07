@@ -123,6 +123,7 @@ static void device_callback(int fd, uint32_t events, void *user_data)
 		int dir = -1;
 		ssize_t len;
 
+		/*收取消息*/
 		len = recvmsg(fd, &msg, MSG_DONTWAIT);
 		if (len < 0)
 			break;
@@ -146,20 +147,25 @@ static void device_callback(int fd, uint32_t events, void *user_data)
 		if (dir < 0 || len < 1)
 			continue;
 
+		/*按pkt类型进行区分*/
 		switch (buf[0]) {
 		case HCI_COMMAND_PKT:
+			/*command处理*/
 			packet_hci_command(tv, NULL, data->index,
 							buf + 1, len - 1);
 			break;
 		case HCI_EVENT_PKT:
+			/*event处理*/
 			packet_hci_event(tv, NULL, data->index,
 							buf + 1, len - 1);
 			break;
 		case HCI_ACLDATA_PKT:
+			/*acldata处理*/
 			packet_hci_acldata(tv, NULL, data->index, !!dir,
 							buf + 1, len - 1);
 			break;
 		case HCI_SCODATA_PKT:
+			/*scodata处理*/
 			packet_hci_scodata(tv, NULL, data->index, !!dir,
 							buf + 1, len - 1);
 			break;
@@ -178,13 +184,14 @@ static void open_device(uint16_t index)
 	memset(data, 0, sizeof(*data));
 	data->index = index;
 
+	/*打开指定设备$index*/
 	data->fd = open_hci_dev(index);
 	if (data->fd < 0) {
 		free(data);
 		return;
 	}
 
-	if (mainloop_add_fd(data->fd, EPOLLIN, device_callback,
+	if (mainloop_add_fd(data->fd, EPOLLIN, device_callback/*设备可读时调用*/,
 						data, free_data) < 0) {
 		close(data->fd);
 		free(data);
@@ -228,6 +235,7 @@ static void device_list(int fd, int max_dev)
 
 	dr = dl->dev_req;
 
+	/*取设备列表*/
 	if (ioctl(fd, HCIGETDEVLIST, (void *) dl) < 0) {
 		perror("Failed to get device list");
 		goto done;
@@ -260,6 +268,7 @@ static int open_stack_internal(void)
 	struct hci_filter flt;
 	int fd, opt = 1;
 
+	/*创建hci socket*/
 	fd = socket(AF_BLUETOOTH, SOCK_RAW | SOCK_CLOEXEC, BTPROTO_HCI);
 	if (fd < 0) {
 		perror("Failed to open channel");
@@ -271,6 +280,7 @@ static int open_stack_internal(void)
 	hci_filter_set_ptype(HCI_EVENT_PKT, &flt);
 	hci_filter_set_event(EVT_STACK_INTERNAL, &flt);
 
+	/*设置filter*/
 	if (setsockopt(fd, SOL_HCI, HCI_FILTER, &flt, sizeof(flt)) < 0) {
 		perror("Failed to set HCI filter");
 		close(fd);
@@ -288,6 +298,7 @@ static int open_stack_internal(void)
 	addr.hci_dev = HCI_DEV_NONE;
 	addr.hci_channel = HCI_CHANNEL_RAW;
 
+	/*绑定raw channel*/
 	if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
 		perror("Failed to bind channel");
 		close(fd);

@@ -73,6 +73,7 @@ unsigned int bt_att_chan_send(struct bt_att_chan *chan, uint8_t opcode,
 					bt_att_response_func_t callback,
 					void *user_data,
 					bt_att_destroy_func_t destroy);
+/*发送响应，回调等均为空*/
 #define bt_att_chan_send_rsp(chan, opcode, pdu, len) \
 	bt_att_chan_send(chan, opcode, pdu, len, NULL, NULL, NULL)
 bool bt_att_chan_cancel(struct bt_att_chan *chan, unsigned int id);

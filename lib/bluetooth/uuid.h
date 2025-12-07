@@ -258,7 +258,7 @@ typedef struct {
 		uint16_t  u16;
 		uint32_t  u32;
 		uint128_t u128;
-	} value;
+	} value;/*uuid取值*/
 } bt_uuid_t;
 
 int bt_uuid_strcmp(const void *a, const void *b);
@@ -278,6 +278,7 @@ int bt_string_to_uuid(bt_uuid_t *uuid, const char *string);
 
 int bt_uuid_to_le(const bt_uuid_t *uuid, void *dst);
 
+/*返回uuid占用的字节长度*/
 static inline int bt_uuid_len(const bt_uuid_t *uuid)
 {
 	return uuid->type / 8;

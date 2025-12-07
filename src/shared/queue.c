@@ -119,6 +119,7 @@ bool queue_push_head(struct queue *queue, void *data)
 	return true;
 }
 
+/*创建新的queue_entry并将其加入到queue中，且使其位于entry之后*/
 bool queue_push_after(struct queue *queue, void *entry, void *data)
 {
 	struct queue_entry *qentry, *tmp, *new_entry;
@@ -136,13 +137,14 @@ bool queue_push_after(struct queue *queue, void *entry, void *data)
 	}
 
 	if (!qentry)
-		return false;
+		return false;/*队列中未找到entry*/
 
 	new_entry = queue_entry_new(data);
 
 	new_entry->next = qentry->next;
 
 	if (!qentry->next)
+		/*qentry原来为最后一个，现在不是了，需要更新为new_entry*/
 		queue->tail = new_entry;
 
 	qentry->next = new_entry;
@@ -364,6 +366,7 @@ unsigned int queue_remove_all(struct queue *queue, queue_match_func_t function,
 	return count;/*返回释放数*/
 }
 
+/*返回队首*/
 const struct queue_entry *queue_get_entries(struct queue *queue)
 {
 	if (!queue)

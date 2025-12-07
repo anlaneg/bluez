@@ -74,7 +74,7 @@ struct bt_gatt_client {
 
 	struct gatt_db *db;
 	bool in_init;
-	bool ready;
+	bool ready;/*标志client是否已准备好，可以发送消息*/
 
 	/*
 	 * Queue of long write requests. An error during "prepare write"
@@ -109,25 +109,26 @@ struct bt_gatt_client {
 	 * across multiple PDUs, this list provides a mapping from an operation
 	 * id to an ATT request id.
 	 */
-	struct queue *pending_requests;
-	unsigned int next_request_id;
+	struct queue *pending_requests;/*用于记录未绝的request*/
+	unsigned int next_request_id;/*用于分配request id*/
 
 	struct bt_gatt_request *discovery_req;
 	unsigned int mtu_req_id;
 };
 
 struct request {
-	struct bt_gatt_client *client;
+	struct bt_gatt_client *client;/*所属的client*/
 	bool long_write;
 	bool prep_write;
 	bool removed;
-	int ref_count;
-	unsigned int id;
+	int ref_count;/*引用计数*/
+	unsigned int id;/*request编号*/
 	unsigned int att_id;
-	void *data;
-	void (*destroy)(void *);
+	void *data;/*私有数据*/
+	void (*destroy)(void *);/*request销毁时调用*/
 };
 
+/*增加引用*/
 static struct request *request_ref(struct request *req)
 {
 	__sync_fetch_and_add(&req->ref_count, 1);
@@ -135,6 +136,7 @@ static struct request *request_ref(struct request *req)
 	return req;
 }
 
+/*申请并创建request*/
 static struct request *request_create(struct bt_gatt_client *client)
 {
 	struct request *req;
@@ -147,7 +149,7 @@ static struct request *request_create(struct bt_gatt_client *client)
 	if (client->next_request_id < 1)
 		client->next_request_id = 1;
 
-	queue_push_tail(client->pending_requests, req);
+	queue_push_tail(client->pending_requests, req);/*串连request*/
 	req->client = client;
 	req->id = client->next_request_id++;
 
@@ -1200,7 +1202,7 @@ static bool discovery_parse_services(struct discovery_op *op, bool primary,
 		bt_uuid128_create(&uuid, u128);
 
 		/* Log debug message */
-		bt_uuid_to_string(&uuid, uuid_str, sizeof(uuid_str));
+		bt_uuid_to_string(&uuid, uuid_str, sizeof(uuid_str));/*uuid转换为字符串*/
 		DBG(client, "start: 0x%04x, end: 0x%04x, uuid: %s",
 				start, end, uuid_str);
 
@@ -1296,6 +1298,7 @@ done:
 	discovery_op_complete(op, success, att_ecode);
 }
 
+/*当请求服务完成后，此回调被调用*/
 static void discover_primary_cb(bool success, uint8_t att_ecode,
 						struct bt_gatt_result *result,
 						void *user_data)
@@ -1311,7 +1314,7 @@ static void discover_primary_cb(bool success, uint8_t att_ecode,
 		switch (att_ecode) {
 		case BT_ATT_ERROR_ATTRIBUTE_NOT_FOUND:
 			success = true;
-			att_ecode = 0;
+			att_ecode = 0;/*获取结束*/
 			goto secondary;
 		default:
 			DBG(client, "Primary service discovery failed."
@@ -1328,6 +1331,7 @@ static void discover_primary_cb(bool success, uint8_t att_ecode,
 	DBG(client, "Primary services found: %u",
 					bt_gatt_result_service_count(result));
 
+	/*解析服务*/
 	if (!discovery_parse_services(op, true, &iter)) {
 		success = false;
 		goto done;
@@ -1383,7 +1387,7 @@ static void notify_client_ready(struct bt_gatt_client *client, bool success,
 	if (client->ready)
 		goto done;
 
-	client->ready = success;
+	client->ready = success;/*标记client是否已ready*/
 
 	if (client->parent)
 		client->features = client->parent->features;
@@ -1414,7 +1418,7 @@ static void discover_all(struct discovery_op *op)
 	struct bt_gatt_client *client = op->client;
 
 	client->discovery_req = bt_gatt_discover_all_primary_services(
-							client->att, NULL,
+							client->att, NULL/*不提供uuid*/,
 							discover_primary_cb,
 							discovery_op_ref(op),
 							discovery_op_unref);
@@ -1469,14 +1473,15 @@ static void db_hash_read_cb(bool success, uint8_t att_ecode,
 							handle, len);
 
 	if (len != 16)
-		goto discover;
+		goto discover;/*value值必须为16字节*/
 
 	/* Read stored value in the db */
 	gatt_db_attribute_read(op->hash, 0, BT_ATT_OP_READ_REQ, NULL,
-					db_hash_read_value_cb, &hash);
+					db_hash_read_value_cb, &hash);/*读取hash*/
 
 	/* Check if the has has changed since last time */
 	if (hash && !memcmp(hash, value, len)) {
+		/*检查与上次记录的是否有变更*/
 		DBG(client, "DB Hash match: skipping discovery");
 		queue_remove_all(op->pending_svcs, NULL, NULL, NULL);
 		discovery_op_complete(op, true, 0);
@@ -1490,7 +1495,7 @@ static void db_hash_read_cb(bool success, uint8_t att_ecode,
 
 	/* Store ithe new hash in the db */
 	gatt_db_attribute_write(op->hash, 0, value, len, 0, NULL,
-					db_hash_write_value_cb, client);
+					db_hash_write_value_cb, client);/*更新本次获得的hash值到op->hash中*/
 
 discover:
 	if (!op->success) {
@@ -1501,15 +1506,16 @@ discover:
 	discovery_op_complete(op, true, 0);
 }
 
+/*记录首次命中的属性*/
 static void get_first_attribute(struct gatt_db_attribute *attrib,
 								void *user_data)
 {
 	struct gatt_db_attribute **stored = user_data;
 
 	if (*stored)
-		return;
+		return;/*已设置，不再重复设置*/
 
-	*stored = attrib;
+	*stored = attrib;/*首次设置*/
 }
 
 static bool read_db_hash(struct discovery_op *op)
@@ -1523,12 +1529,14 @@ static bool read_db_hash(struct discovery_op *op)
 	if (op->hash || !queue_isempty(client->svc_chngd_queue))
 		return false;
 
+	/*在db中查询DB_HASH,填充op->hash*/
 	bt_uuid16_create(&uuid, GATT_CHARAC_DB_HASH);
 	gatt_db_find_by_type(client->db, 0x0001, 0xffff, &uuid,
 						get_first_attribute, &op->hash);
 	if (!op->hash)
 		return false;
 
+	/*在db中查询失败，向远端按type请求读取*/
 	if (!bt_gatt_read_by_type(client->att, 0x0001, 0xffff, &uuid,
 							db_hash_read_cb,
 							discovery_op_ref(op),
@@ -1540,6 +1548,7 @@ static bool read_db_hash(struct discovery_op *op)
 	return true;
 }
 
+/*获得GATT_CHARAC_SERVER_FEAT属性值后被调用*/
 static void db_server_feat_read(bool success, uint8_t att_ecode,
 				struct bt_gatt_result *result, void *user_data)
 {
@@ -1559,9 +1568,10 @@ static void db_server_feat_read(bool success, uint8_t att_ecode,
 				"length 0x%04x value 0x%02x", handle, len,
 				value[0]);
 
-	op->server_feat = value[0];
+	op->server_feat = value[0];/*填充server功能列表*/
 }
 
+/*本端已存入此属性，直接取值即可*/
 static void server_feat_read_value(struct gatt_db_attribute *attrib,
 						int err, const uint8_t *value,
 						size_t length, void *user_data)
@@ -1574,6 +1584,7 @@ static void server_feat_read_value(struct gatt_db_attribute *attrib,
 	*feat = value;
 }
 
+/*读取服务端features*/
 static void read_server_feat(struct discovery_op *op)
 {
 	struct bt_gatt_client *client = op->client;
@@ -1581,18 +1592,22 @@ static void read_server_feat(struct discovery_op *op)
 	const uint8_t *feat = NULL;
 	bt_uuid_t uuid;
 
+	/*设置属性type*/
 	bt_uuid16_create(&uuid, GATT_CHARAC_SERVER_FEAT);
 
+	/*利用属性type查找首个满足要求的属性：所有handle(从0x1指到0xffff)，*/
 	gatt_db_find_by_type(client->db, 0x0001, 0xffff, &uuid,
 						get_first_attribute, &attr);
 	if (attr) {
 		/* Read stored value in the db */
+		//已有此属性，直接自db中直接读取即可。
 		gatt_db_attribute_read(attr, 0, BT_ATT_OP_READ_REQ, NULL,
 					server_feat_read_value, &feat);
 		if (feat)
 			return;
 	}
 
+	/*向远端请求并填充此属性*/
 	if (!bt_gatt_read_by_type(client->att, 0x0001, 0xffff, &uuid,
 							db_server_feat_read,
 							discovery_op_ref(op),
@@ -1609,6 +1624,7 @@ static void exchange_mtu_cb(bool success, uint8_t att_ecode, void *user_data)
 	client->mtu_req_id = 0;
 
 	if (!success) {
+		/*交换mtu失败*/
 		DBG(client, "MTU Exchange failed. ATT ECODE: 0x%02x",
 				att_ecode);
 
@@ -1631,8 +1647,10 @@ static void exchange_mtu_cb(bool success, uint8_t att_ecode, void *user_data)
 					bt_att_get_mtu(client->att));
 
 discover:
+	/*读取服务端功能*/
 	read_server_feat(op);
 
+	/*读取db hash*/
 	if (read_db_hash(op)) {
 		op->success = false;
 		return;
@@ -2018,7 +2036,7 @@ static void write_server_features(struct bt_gatt_client *client, uint8_t feat)
 	gatt_db_find_by_type(client->db, 0x0001, 0xffff, &uuid,
 						get_first_attribute, &attr);
 	if (!attr)
-		return;
+		return;/*此属性不存在*/
 
 	/* Store value in the DB */
 	if (!gatt_db_attribute_write(attr, 0, &feat, sizeof(feat),
@@ -2051,6 +2069,7 @@ static void write_client_features(struct bt_gatt_client *client)
 	gatt_db_find_by_type(client->db, 0x0001, 0xffff, &uuid,
 						get_first_attribute, &attr);
 	if (attr) {
+		/*本端db中已有此属性，直接读取*/
 		/* Read stored value in the db */
 		gatt_db_attribute_read(attr, 0, BT_ATT_OP_READ_REQ,
 						NULL, server_feat_read_value,
@@ -2128,7 +2147,7 @@ static bool gatt_client_init(struct bt_gatt_client *client, uint16_t mtu)
 		goto discover;
 
 	/* Configure the MTU */
-	client->mtu_req_id = bt_gatt_exchange_mtu(client->att, mtu,
+	client->mtu_req_id = bt_gatt_exchange_mtu(client->att, mtu/*本端mtu*/,
 						exchange_mtu_cb,
 						discovery_op_ref(op),
 						discovery_op_unref);
@@ -2242,7 +2261,7 @@ static void notify_cb(struct bt_att_chan *chan, uint16_t mtu, uint8_t opcode,
 	bt_gatt_client_ref(client);
 
 	if (queue_isempty(client->notify_list))
-		goto done;
+		goto done;/*队列为空，退出*/
 
 	memset(&data, 0, sizeof(data));
 
@@ -2339,6 +2358,7 @@ static void att_disconnect_cb(int err, void *user_data)
 		notify_client_ready(client, false, 0);
 }
 
+/*创建bt_gatt_client结构体*/
 static struct bt_gatt_client *gatt_client_new(struct gatt_db *db,
 							struct bt_att *att,
 							uint8_t features)
@@ -2809,13 +2829,13 @@ unsigned int bt_gatt_client_read_multiple(struct bt_gatt_client *client,
 }
 
 struct read_long_op {
-	struct bt_gatt_client *client;
+	struct bt_gatt_client *client;/*所属的client*/
 	int ref_count;
 	uint16_t value_handle;
 	uint16_t offset;
 	struct iovec iov;
 	bt_gatt_client_read_callback_t callback;
-	void *user_data;
+	void *user_data;/*回调参数*/
 	bt_gatt_client_destroy_func_t destroy;
 };
 
@@ -2823,6 +2843,7 @@ static void destroy_read_long_op(void *data)
 {
 	struct read_long_op *op = data;
 
+	/*通过destroy触发回调*/
 	if (op->destroy)
 		op->destroy(op->user_data);
 
@@ -2931,13 +2952,13 @@ unsigned int bt_gatt_client_read_long_value(struct bt_gatt_client *client,
 		return 0;
 
 	op = new0(struct read_long_op, 1);
-
 	req = request_create(client);
 	if (!req) {
 		free(op);
 		return 0;
 	}
 
+	/*初始化私有数据*/
 	op->client = client;
 	op->value_handle = value_handle;
 	op->offset = offset;
@@ -2948,7 +2969,7 @@ unsigned int bt_gatt_client_read_long_value(struct bt_gatt_client *client,
 	req->data = op;
 	req->destroy = destroy_read_long_op;
 
-	put_le16(value_handle, pdu);
+	put_le16(value_handle, pdu);/*填充handle(前两个字节）*/
 	pdu_len = sizeof(value_handle);
 
 	/*
@@ -2967,7 +2988,7 @@ unsigned int bt_gatt_client_read_long_value(struct bt_gatt_client *client,
 		att_op = BT_ATT_OP_READ_BLOB_REQ;
 		pdu_len += sizeof(op->offset);
 
-		put_le16(op->offset, pdu + 2);
+		put_le16(op->offset, pdu + 2);/*填充offset*/
 	} else {
 		att_op = BT_ATT_OP_READ_REQ;
 	}

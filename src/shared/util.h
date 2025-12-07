@@ -26,6 +26,7 @@
 #define le16_to_cpu(val) (val)
 #define le32_to_cpu(val) (val)
 #define le64_to_cpu(val) (val)
+/*cpu转小端*/
 #define cpu_to_le16(val) (val)
 #define cpu_to_le32(val) (val)
 #define cpu_to_le64(val) (val)
@@ -60,6 +61,7 @@ __extension__ ({				\
 	__p->__v;				\
 })
 
+/*填充ptr指向的内容，写入val*/
 #define put_unaligned(val, ptr)			\
 do {						\
 	struct __attribute__((packed)) {	\
@@ -77,10 +79,10 @@ do {						\
 #define new0(type, count)			\
 	(type *) (__extension__ ({		\
 		size_t __n = (size_t) (count);	\
-		size_t __s = sizeof(type);	\
+		size_t __s = sizeof(type);/*类型大小*/	\
 		void *__p;			\
-		__p = util_malloc(__n * __s);	\
-		memset(__p, 0, __n * __s);	\
+		__p = util_malloc(__n * __s);/*申请空间*/	\
+		memset(__p, 0, __n * __s);/*初始化为0*/	\
 		__p;				\
 	}))
 
@@ -259,11 +261,13 @@ static inline void put_u8(uint8_t val, void *dst)
 	put_unaligned(val, (uint8_t *) dst);
 }
 
+/*填写dst(uint16_t)*/
 static inline void put_le16(uint16_t val, void *dst)
 {
 	put_unaligned(cpu_to_le16(val), (uint16_t *) dst);
 }
 
+/*填写dst(uint16_t)*/
 static inline void put_be16(uint16_t val, const void *ptr)
 {
 	put_unaligned(cpu_to_be16(val), (uint16_t *) ptr);

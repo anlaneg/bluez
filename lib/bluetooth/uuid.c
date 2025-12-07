@@ -83,7 +83,7 @@ static int bt_uuid128_cmp(const bt_uuid_t *u1, const bt_uuid_t *u2)
 	return memcmp(&u1->value.u128, &u2->value.u128, sizeof(uint128_t));
 }
 
-/*创建bt uuid16*/
+/*创建并填充bt uuid16*/
 int bt_uuid16_create(bt_uuid_t *btuuid, uint16_t value)
 {
 	memset(btuuid, 0, sizeof(bt_uuid_t));
@@ -111,6 +111,7 @@ int bt_uuid128_create(bt_uuid_t *btuuid, uint128_t value)
 	return 0;
 }
 
+/*两个uuid相等比较*/
 int bt_uuid_cmp(const bt_uuid_t *uuid1, const bt_uuid_t *uuid2)
 {
 	bt_uuid_t u1, u2;

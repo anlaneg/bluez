@@ -54,15 +54,15 @@ struct gatt_db_ccc {
 };
 
 struct gatt_db {
-	int ref_count;
+	int ref_count;/*引用计数*/
 	struct bt_crypto *crypto;
 	uint8_t hash[16];
 	unsigned int hash_id;
-	uint16_t last_handle;
+	uint16_t last_handle;/*负责分配handle*/
 	struct queue *services;
 
-	struct queue *notify_list;
-	unsigned int next_notify_id;
+	struct queue *notify_list;/*串连notify*/
+	unsigned int next_notify_id;/*负责分配notify id*/
 
 	gatt_db_authorize_cb_t authorize;
 	void *authorize_data;
@@ -71,12 +71,12 @@ struct gatt_db {
 };
 
 struct notify {
-	unsigned int id;
-	gatt_db_attribute_cb_t service_added;
-	gatt_db_attribute_cb_t service_removed;
+	unsigned int id;/*notify唯一id*/
+	gatt_db_attribute_cb_t service_added;/*服务添加*/
+	gatt_db_attribute_cb_t service_removed;/*服务移除*/
 	gatt_db_authorize_cb_t authorize_cb;
 	gatt_db_destroy_func_t destroy;
-	void *user_data;
+	void *user_data;/*回调参数*/
 };
 
 struct attribute_notify {
@@ -89,7 +89,7 @@ struct attribute_notify {
 struct pending_read {
 	struct gatt_db_attribute *attrib;
 	unsigned int id;
-	unsigned int timeout_id;
+	unsigned int timeout_id;/*定时器*/
 	gatt_db_attribute_read_t func;
 	void *user_data;
 };
@@ -103,19 +103,19 @@ struct pending_write {
 };
 
 struct gatt_db_attribute {
-	struct gatt_db_service *service;
-	uint16_t handle;
-	bt_uuid_t uuid;
-	uint32_t permissions;
-	uint16_t value_len;
-	uint8_t *value;
+	struct gatt_db_service *service;/*所属service*/
+	uint16_t handle;/*attribute[0]时记录service handle; 属性handle*/
+	bt_uuid_t uuid;/*属性类型（uuid类型），例如primary_service_uuid*/
+	uint32_t permissions;/*属性权限*/
+	uint16_t value_len;/*value数组长度*/
+	uint8_t *value;/*attribute[0]时记录的是service uuid; 属性值*/
 
 	gatt_db_read_t read_func;
 	gatt_db_write_t write_func;
 	gatt_db_notify_t notify_func;
-	void *user_data;
+	void *user_data;/*回调参数*/
 
-	unsigned int read_id;
+	unsigned int read_id;/*用于分配pending_read编号*/
 	struct queue *pending_reads;
 
 	unsigned int write_id;
@@ -126,17 +126,17 @@ struct gatt_db_attribute {
 };
 
 struct gatt_db_service {
-	struct gatt_db *db;
-	bool active;
+	struct gatt_db *db;/*所属的db*/
+	bool active;/*此serivce是否已活跃*/
 	bool claimed;
-	uint16_t num_handles;
+	uint16_t num_handles;/*attributes数组长度-1(0被用于特殊属性）*/
 	struct gatt_db_attribute **attributes;
 };
 
 static void set_attribute_data(struct gatt_db_attribute *attribute,
 						gatt_db_read_t read_func,
 						gatt_db_write_t write_func,
-						uint32_t permissions,
+						uint32_t permissions/*权限*/,
 						void *user_data)
 {
 	attribute->permissions = permissions;
@@ -204,11 +204,12 @@ static void attribute_destroy(struct gatt_db_attribute *attribute)
 	free(attribute);
 }
 
+/*创建attribute*/
 static struct gatt_db_attribute *new_attribute(struct gatt_db_service *service,
-							uint16_t handle,
-							const bt_uuid_t *type,
-							const uint8_t *val,
-							uint16_t len)
+							uint16_t handle/*属性handle*/,
+							const bt_uuid_t *type/*属性type*/,
+							const uint8_t *val/*属性value*/,
+							uint16_t len/*val长度*/)
 {
 	struct gatt_db_attribute *attribute;
 
@@ -223,7 +224,7 @@ static struct gatt_db_attribute *new_attribute(struct gatt_db_service *service,
 		if (!attribute->value)
 			goto failed;
 
-		memcpy(attribute->value, val, len);
+		memcpy(attribute->value, val, len);/*填充val*/
 	}
 
 	attribute->pending_reads = queue_new();
@@ -237,6 +238,7 @@ failed:
 	return NULL;
 }
 
+/*增加gatt_db引用计数*/
 struct gatt_db *gatt_db_ref(struct gatt_db *db)
 {
 	if (!db)
@@ -247,14 +249,15 @@ struct gatt_db *gatt_db_ref(struct gatt_db *db)
 	return db;
 }
 
+/*创建gatt_db*/
 struct gatt_db *gatt_db_new(void)
 {
 	struct gatt_db *db;
 
 	db = new0(struct gatt_db, 1);
 	db->crypto = bt_crypto_new();
-	db->services = queue_new();
-	db->notify_list = queue_new();
+	db->services = queue_new();/*初始化services队列*/
+	db->notify_list = queue_new();/*初始化notify list*/
 	db->last_handle = 0x0000;
 
 	return gatt_db_ref(db);
@@ -272,10 +275,11 @@ static void service_clone(void *data, void *user_data)
 	clone->active = service->active;
 	clone->num_handles = service->num_handles;
 	clone->attributes = new0(struct gatt_db_attribute *,
-					service->num_handles);
+					service->num_handles);/*申请指针数组，并初始化为0*/
 
 	/* Clone attributes */
 	for (i = 0; i < service->num_handles; i++) {
+		/*取service的i号attributes*/
 		struct gatt_db_attribute *attr = service->attributes[i];
 
 		if (!attr)
@@ -315,9 +319,10 @@ static void service_clone(void *data, void *user_data)
 		}
 	}
 
-	queue_push_tail(db->services, clone);
+	queue_push_tail(db->services, clone);/*添加serivce*/
 }
 
+/*利用db创建一个副本*/
 struct gatt_db *gatt_db_clone(struct gatt_db *db)
 {
 	struct gatt_db *clone;
@@ -334,11 +339,13 @@ struct gatt_db *gatt_db_clone(struct gatt_db *db)
 	return clone;
 }
 
+/*释放notify*/
 static void notify_destroy(void *data)
 {
 	struct notify *notify = data;
 
 	if (notify->destroy)
+		/*调用destroy*/
 		notify->destroy(notify->user_data);
 
 	free(notify);
@@ -484,7 +491,7 @@ static void notify_service_changed(struct gatt_db *db,
 		notify_attribute_changed(service);
 
 	if (queue_isempty(db->notify_list))
-		return;
+		return;/*队列为空，返回*/
 
 	data.attr = service->attributes[0];
 	data.added = added;
@@ -554,9 +561,10 @@ bool gatt_db_isempty(struct gatt_db *db)
 	if (!db)
 		return true;
 
-	return queue_isempty(db->services);
+	return queue_isempty(db->services);/*检查services是否为空*/
 }
 
+/*利用uuid填充dst，并返回内容长度*/
 static int uuid_to_le(const bt_uuid_t *uuid, uint8_t *dst)
 {
 	bt_uuid_t uuid128;
@@ -594,9 +602,10 @@ static bool le_to_uuid(const uint8_t *src, size_t len, bt_uuid_t *uuid)
 	return true;
 }
 
+/*创建db_service*/
 static struct gatt_db_service *gatt_db_service_create(const bt_uuid_t *uuid,
 							uint16_t handle,
-							bool primary,
+							bool primary/*是否为主uuid*/,
 							uint16_t num_handles)
 {
 	struct gatt_db_service *service;
@@ -611,10 +620,13 @@ static struct gatt_db_service *gatt_db_service_create(const bt_uuid_t *uuid,
 	service->attributes = new0(struct gatt_db_attribute *, num_handles);
 
 	if (primary)
+		/*主uuid*/
 		type = &primary_service_uuid;
 	else
+		/*从uuid*/
 		type = &secondary_service_uuid;
 
+	/*利用uuid填充value,并返回填充长度*/
 	len = uuid_to_le(uuid, value);
 
 	service->attributes[0] = new_attribute(service, handle, type, value,
@@ -640,7 +652,7 @@ bool gatt_db_remove_service(struct gatt_db *db,
 
 	service = attrib->service;
 
-	queue_remove(db->services, service);
+	queue_remove(db->services, service);/*移除此serivce*/
 
 	gatt_db_service_destroy(service);
 
@@ -652,12 +664,13 @@ bool gatt_db_clear(struct gatt_db *db)
 	return gatt_db_clear_range(db, 1, UINT16_MAX);
 }
 
+/*attributes[0]中保存的是起始handle，取start_handle,end_handle*/
 static void gatt_db_service_get_handles(const struct gatt_db_service *service,
 							uint16_t *start_handle,
 							uint16_t *end_handle)
 {
 	if (start_handle)
-		*start_handle = service->attributes[0]->handle;
+		*start_handle = service->attributes[0]->handle;/*attributes[0]的handle指向首个handle*/
 
 	if (end_handle)
 		*end_handle = service->attributes[0]->handle +
@@ -741,33 +754,34 @@ static struct gatt_db_service *find_insert_loc(struct gatt_db *db,
 
 	*after = NULL;
 
+	/*遍历db->services队列*/
 	services_entry = queue_get_entries(db->services);
-
 	while (services_entry) {
 		service = services_entry->data;
 
+		/*取cur_start,cur_end*/
 		gatt_db_service_get_handles(service, &cur_start, &cur_end);
 
 		if (start >= cur_start && start <= cur_end)
-			return service;
+			return service;/*start在此service之内，使用此service*/
 
 		if (end >= cur_start && end <= cur_end)
-			return service;
+			return service;/*end在此service之内，使用此service*/
 
 		if (end < cur_start)
-			return NULL;
+			return NULL;/*必不包含，直接返回NULL*/
 
-		*after = service;
+		*after = service;/*记录上一次查找过的service*/
 		services_entry = services_entry->next;
 	}
 
-	return NULL;
+	return NULL;/*没有找到*/
 }
 
 struct gatt_db_attribute *gatt_db_insert_service(struct gatt_db *db,
 							uint16_t handle,
-							const bt_uuid_t *uuid,
-							bool primary,
+							const bt_uuid_t *uuid/*做为service属性的值uuid*/,
+							bool primary/*是否为主serive uuid插入*/,
 							uint16_t num_handles)
 {
 	struct gatt_db_service *service, *after;
@@ -778,12 +792,13 @@ struct gatt_db_attribute *gatt_db_insert_service(struct gatt_db *db,
 		return NULL;
 
 	if (!handle)
+		/*未指定handle,分配handle*/
 		handle = db->last_handle + 1;
 
 	if (num_handles < 1 || (handle + num_handles - 1) > UINT16_MAX)
-		return NULL;
+		return NULL;/*num_handles有误*/
 
-	service = find_insert_loc(db, handle, handle + num_handles - 1, &after);
+	service = find_insert_loc(db, handle/*起始handle*/, handle + num_handles - 1/*结束handle*/, &after);
 	if (service) {
 		const bt_uuid_t *type;
 		bt_uuid_t value;
@@ -793,22 +808,24 @@ struct gatt_db_attribute *gatt_db_insert_service(struct gatt_db *db,
 			return NULL;
 
 		if (primary)
+			/*primary对应的type*/
 			type = &primary_service_uuid;
 		else
 			type = &secondary_service_uuid;
 
-		gatt_db_attribute_get_service_uuid(attr, &value);
+		gatt_db_attribute_get_service_uuid(attr, &value);/*取service_uuid*/
 
 		/* Check if service match */
 		if (!bt_uuid_cmp(&attr->uuid, type) &&
 				!bt_uuid_cmp(&value, uuid) &&
 				service->num_handles == num_handles &&
 				attr->handle == handle)
-			return attr;
+			return attr;/*匹配，直接返回此attr*/
 
 		return NULL;
 	}
 
+	/*此service还未创建，这里创建*/
 	service = gatt_db_service_create(uuid, handle, primary, num_handles);
 
 	if (!service)
@@ -817,7 +834,7 @@ struct gatt_db_attribute *gatt_db_insert_service(struct gatt_db *db,
 	if (after) {
 		if (!queue_push_after(db->services, after, service))
 			goto fail;
-	} else if (!queue_push_head(db->services, service)) {
+	} else if (!queue_push_head(db->services, service)/*after为空，即队列为空，加入head*/) {
 		goto fail;
 	}
 
@@ -826,7 +843,7 @@ struct gatt_db_attribute *gatt_db_insert_service(struct gatt_db *db,
 	service->num_handles = num_handles;
 
 	/* Fast-forward last_handle if the new service was added to the end */
-	db->last_handle = MAX(handle + num_handles - 1, db->last_handle);
+	db->last_handle = MAX(handle + num_handles - 1, db->last_handle);/*更新last handle*/
 
 	return service->attributes[0];
 
@@ -843,6 +860,7 @@ struct gatt_db_attribute *gatt_db_add_service(struct gatt_db *db,
 	return gatt_db_insert_service(db, 0, uuid, primary, num_handles);
 }
 
+/*创建并注册notify,产生notify id*/
 unsigned int gatt_db_register(struct gatt_db *db,
 					gatt_db_attribute_cb_t service_added,
 					gatt_db_attribute_cb_t service_removed,
@@ -865,6 +883,7 @@ unsigned int gatt_db_register(struct gatt_db *db,
 
 	notify->id = db->next_notify_id++;
 
+	/*添加notify*/
 	if (!queue_push_tail(db->notify_list, notify)) {
 		free(notify);
 		return 0;
@@ -880,10 +899,12 @@ bool gatt_db_unregister(struct gatt_db *db, unsigned int id)
 	if (!db || !id)
 		return false;
 
+	/*通过id查找notify*/
 	notify = queue_find(db->notify_list, match_notify_id, UINT_TO_PTR(id));
 	if (!notify)
 		return false;
 
+	/*自链表上移除此notify*/
 	queue_remove(db->notify_list, notify);
 	notify_destroy(notify);
 
@@ -941,7 +962,7 @@ static struct gatt_db_attribute *
 service_insert_characteristic(struct gatt_db_service *service,
 					uint16_t handle,
 					uint16_t value_handle,
-					const bt_uuid_t *uuid,
+					const bt_uuid_t *uuid/*属性type*/,
 					uint32_t permissions,
 					uint8_t properties,
 					gatt_db_read_t read_func,
@@ -999,6 +1020,7 @@ service_insert_characteristic(struct gatt_db_service *service,
 		return NULL;
 	}
 
+	/*创建type为uuid的属性*/
 	service->attributes[i] = new_attribute(service, value_handle, uuid,
 						NULL, 0);
 	if (!service->attributes[i]) {
@@ -1386,9 +1408,9 @@ void gatt_db_read_by_group_type(struct gatt_db *db, uint16_t start_handle,
 struct find_by_type_value_data {
 	gatt_db_attribute_cb_t func;
 	void *user_data;
-	const void *value;
-	size_t value_len;
-	unsigned int num_of_res;
+	const void *value;/*属性value匹配字段*/
+	size_t value_len;/*属性value匹配字段长度*/
+	unsigned int num_of_res;/*记录命中的记录数*/
 };
 
 static void find_by_type(struct gatt_db_attribute *attribute, void *user_data)
@@ -1401,23 +1423,23 @@ static void find_by_type(struct gatt_db_attribute *attribute, void *user_data)
 	/* TODO: fix for read-callback based attributes */
 	if (search_data->value) {
 		if (search_data->value_len != attribute->value_len)
-			return;
+			return;/*长度不相等，跳过*/
 
 		if (!attribute->value)
-			return;
+			return;/*命中的属性无value,非命中情况*/
 
 		if (memcmp(attribute->value, search_data->value,
 					search_data->value_len))
-			return;
+			return;/*查询的value与属性value不匹配，非命中情况*/
 	}
 
-	search_data->num_of_res++;
+	search_data->num_of_res++;/*命中数增加*/
 	search_data->func(attribute, search_data->user_data);
 }
 
 unsigned int gatt_db_find_by_type(struct gatt_db *db, uint16_t start_handle,
 						uint16_t end_handle,
-						const bt_uuid_t *type,
+						const bt_uuid_t *type/*属性type*/,
 						gatt_db_attribute_cb_t func,
 						void *user_data)
 {
@@ -1428,6 +1450,7 @@ unsigned int gatt_db_find_by_type(struct gatt_db *db, uint16_t start_handle,
 	data.func = func;
 	data.user_data = user_data;
 
+	/*查service handle在（start_handle,end_handle）在范围内的情况*/
 	gatt_db_foreach_in_range(db, type, find_by_type, &data,
 						start_handle, end_handle);
 
@@ -1499,11 +1522,11 @@ void gatt_db_foreach_service(struct gatt_db *db, const bt_uuid_t *uuid,
 }
 
 struct foreach_data {
-	gatt_db_attribute_cb_t func;
-	const bt_uuid_t *uuid;
-	void *user_data;
-	uint16_t start, end;
-	bool attr;
+	gatt_db_attribute_cb_t func;/*回调函数*/
+	const bt_uuid_t *uuid;/*属性type*/
+	void *user_data;/*回调函数参数*/
+	uint16_t start/*起始handle*/, end/*终止handle*/;
+	bool attr;/*是否为属性*/
 };
 
 static void foreach_service_in_range(void *data, void *user_data)
@@ -1537,13 +1560,16 @@ static void foreach_in_range(void *data, void *user_data)
 	if (!service->active)
 		return;
 
+	/*取此service的start-handle,end-handle*/
 	gatt_db_service_get_handles(service, &svc_start, &svc_end);
 
 	/* Check if service is within requested range */
 	if (svc_start > foreach_data->end || svc_end < foreach_data->start)
+		/*svc_start,svc_end与foreach_data中的范围无重叠,忽略*/
 		return;
 
 	if (!foreach_data->attr) {
+		/*仅实现非attr查询时*/
 		if (svc_start < foreach_data->start)
 			return;
 
@@ -1554,18 +1580,19 @@ static void foreach_in_range(void *data, void *user_data)
 		struct gatt_db_attribute *attribute = service->attributes[i];
 
 		if (!attribute)
-			continue;
+			continue;/*跳过不存在的属性*/
 
 		if (attribute->handle < foreach_data->start)
-			continue;
+			continue;/*跳过起点未包含的情况*/
 
 		if (attribute->handle > foreach_data->end)
-			return;
+			return;/*已完成查询，返回*/
 
 		if (foreach_data->uuid && bt_uuid_cmp(foreach_data->uuid,
 							&attribute->uuid))
-			continue;
+			continue;/*如果指定了uuid,则要求属性的type必须与所给uuid一致*/
 
+		/*命中，执行参数指定的回调*/
 		foreach_data->func(attribute, foreach_data->user_data);
 	}
 }
@@ -1582,6 +1609,7 @@ void gatt_db_foreach_service_in_range(struct gatt_db *db,
 	if (!db || !func || start_handle > end_handle)
 		return;
 
+	/*构造遍历函数参数*/
 	data.func = func;
 	data.uuid = uuid;
 	data.user_data = user_data;
@@ -1589,6 +1617,7 @@ void gatt_db_foreach_service_in_range(struct gatt_db *db,
 	data.end = end_handle;
 	data.attr = false;
 
+	/*遍历db->services*/
 	queue_foreach(db->services, foreach_in_range, &data);
 }
 
@@ -1603,8 +1632,9 @@ void gatt_db_foreach_in_range(struct gatt_db *db, const bt_uuid_t *uuid,
 	if (!db || !func || start_handle > end_handle)
 		return;
 
+	/*准备查询参数*/
 	data.func = func;
-	data.uuid = uuid;
+	data.uuid = uuid;/*类型type*/
 	data.user_data = user_data;
 	data.start = start_handle;
 	data.end = end_handle;
@@ -1613,10 +1643,11 @@ void gatt_db_foreach_in_range(struct gatt_db *db, const bt_uuid_t *uuid,
 	queue_foreach(db->services, foreach_in_range, &data);
 }
 
+/*利用函数func遍历service->attributes*/
 void gatt_db_service_foreach(struct gatt_db_attribute *attrib,
-						const bt_uuid_t *uuid,
-						gatt_db_attribute_cb_t func,
-						void *user_data)
+						const bt_uuid_t *uuid/*如非空，则为需匹配的属性uuid*/,
+						gatt_db_attribute_cb_t func/*遍历函数*/,
+						void *user_data/*函数参数*/)
 {
 	struct gatt_db_service *service;
 	struct gatt_db_attribute *attr;
@@ -1627,18 +1658,21 @@ void gatt_db_service_foreach(struct gatt_db_attribute *attrib,
 
 	service = attrib->service;
 
+	/*遍历所有attributes*/
 	for (i = 0; i < service->num_handles; i++) {
 		attr = service->attributes[i];
 		if (!attr)
 			continue;
 
 		if (uuid && bt_uuid_cmp(uuid, &attr->uuid))
-			continue;
+			continue;/*跳过与uuid相等的attr*/
 
+		/*使用func进行遍历*/
 		func(attr, user_data);
 	}
 }
 
+/*仅遍历characteristic_uuid类型的属性*/
 void gatt_db_service_foreach_char(struct gatt_db_attribute *attrib,
 						gatt_db_attribute_cb_t func,
 						void *user_data)
@@ -1726,6 +1760,7 @@ void gatt_db_service_foreach_desc(struct gatt_db_attribute *attrib,
 	}
 }
 
+/*仅遍历included_service_uuid类型的属性*/
 void gatt_db_service_foreach_incl(struct gatt_db_attribute *attrib,
 						gatt_db_attribute_cb_t func,
 						void *user_data)
@@ -1740,8 +1775,10 @@ static bool find_service_for_handle(const void *data, const void *user_data)
 	uint16_t handle = PTR_TO_UINT(user_data);
 	uint16_t start, end;
 
+	/*取得此service对应的start handle,end handle*/
 	gatt_db_service_get_handles(service, &start, &end);
 
+	/*要查找的handle在start,end之间，认为命中*/
 	return (start <= handle) && (handle <= end);
 }
 
@@ -1753,12 +1790,13 @@ struct gatt_db_attribute *gatt_db_get_service(struct gatt_db *db,
 	if (!db || !handle)
 		return NULL;
 
+	/*通过handle查找services*/
 	service = queue_find(db->services, find_service_for_handle,
 						UINT_TO_PTR(handle));
 	if (!service)
 		return NULL;
 
-	return service->attributes[0];
+	return service->attributes[0];/*返回首个attribute*/
 }
 
 struct gatt_db_attribute *gatt_db_get_attribute(struct gatt_db *db,
@@ -1768,6 +1806,7 @@ struct gatt_db_attribute *gatt_db_get_attribute(struct gatt_db *db,
 	struct gatt_db_service *service;
 	int i;
 
+	/*通过handle获取service*/
 	attrib = gatt_db_get_service(db, handle);
 	if (!attrib)
 		return NULL;
@@ -1811,6 +1850,7 @@ struct gatt_db_attribute *gatt_db_get_service_with_uuid(struct gatt_db *db,
 	return service->attributes[0];
 }
 
+/*取此属性type*/
 const bt_uuid_t *gatt_db_attribute_get_type(
 					const struct gatt_db_attribute *attrib)
 {
@@ -1848,6 +1888,7 @@ bool gatt_db_attribute_get_service_uuid(const struct gatt_db_attribute *attrib,
 	service = attrib->service;
 
 	if (service->attributes[0]->value_len == sizeof(uint16_t)) {
+		/*属性0中存的是uuid*/
 		uint16_t value;
 
 		value = get_le16(service->attributes[0]->value);
@@ -1865,6 +1906,7 @@ bool gatt_db_attribute_get_service_uuid(const struct gatt_db_attribute *attrib,
 		return true;
 	}
 
+	/*未填充*/
 	return false;
 }
 
@@ -1886,10 +1928,10 @@ bool gatt_db_attribute_get_service_handles(
 }
 
 bool gatt_db_attribute_get_service_data(const struct gatt_db_attribute *attrib,
-							uint16_t *start_handle,
-							uint16_t *end_handle,
+							uint16_t *start_handle/*出参，service start handle终止值*/,
+							uint16_t *end_handle/*出参，service end handle终止值*/,
 							bool *primary,
-							bt_uuid_t *uuid)
+							bt_uuid_t *uuid/*出参，service uuid*/)
 {
 	struct gatt_db_service *service;
 	struct gatt_db_attribute *decl;
@@ -1900,9 +1942,11 @@ bool gatt_db_attribute_get_service_data(const struct gatt_db_attribute *attrib,
 	service = attrib->service;
 	decl = service->attributes[0];
 
+	/*取start_handle,end_handle*/
 	gatt_db_service_get_handles(service, start_handle, end_handle);
 
 	if (primary)
+		/*不是secondary uuid即为primary*/
 		*primary = bt_uuid_cmp(&decl->uuid, &secondary_service_uuid);
 
 	if (!uuid)
@@ -1912,7 +1956,7 @@ bool gatt_db_attribute_get_service_data(const struct gatt_db_attribute *attrib,
 	 * The service declaration attribute value is the 16 or 128 bit service
 	 * UUID.
 	 */
-	return le_to_uuid(decl->value, decl->value_len, uuid);
+	return le_to_uuid(decl->value, decl->value_len, uuid);/*转换为uuid*/
 }
 
 static void read_ext_prop_value(struct gatt_db_attribute *attrib,
@@ -2032,7 +2076,7 @@ bool gatt_db_attribute_get_incl_data(const struct gatt_db_attribute *attrib,
 		return false;
 
 	if (bt_uuid_cmp(&included_service_uuid, &attrib->uuid))
-		return false;
+		return false;/*不为included_service_uuid属性*/
 
 	/*
 	 * Include definition value:
@@ -2135,11 +2179,13 @@ bool gatt_db_attribute_read(struct gatt_db_attribute *attrib, uint16_t offset,
 
 	/* Check boundaries if value_len is set */
 	if (attrib->value_len && offset > attrib->value_len) {
+		/*offset超过属性value长度*/
 		func(attrib, BT_ATT_ERROR_INVALID_OFFSET, NULL, 0, user_data);
 		return true;
 	}
 
 	if (attrib->read_func) {
+		/*有read_func的，通过read_func进行处理*/
 		struct pending_read *p;
 		uint8_t err;
 
@@ -2153,7 +2199,7 @@ bool gatt_db_attribute_read(struct gatt_db_attribute *attrib, uint16_t offset,
 		p->attrib = attrib;
 		p->id = ++attrib->read_id;
 		p->timeout_id = timeout_add(ATTRIBUTE_TIMEOUT, read_timeout,
-								p, NULL);
+								p, NULL);/*启动定时器*/
 		p->func = func;
 		p->user_data = user_data;
 
@@ -2165,9 +2211,9 @@ bool gatt_db_attribute_read(struct gatt_db_attribute *attrib, uint16_t offset,
 	}
 
 	/* Guard against invalid access if offset equals to value length */
-	value = offset == attrib->value_len ? NULL : &attrib->value[offset];
+	value = offset == attrib->value_len ? NULL/*到达结尾，返回NULL*/ : &attrib->value[offset]/*从起始位置取*/;
 
-	func(attrib, 0, value, attrib->value_len - offset, user_data);
+	func(attrib, 0, value, attrib->value_len - offset, user_data);/*触发回调获取*/
 
 	return true;
 }

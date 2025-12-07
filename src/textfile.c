@@ -38,7 +38,7 @@ int create_filename(char *str, size_t size, const char *fmt, ...)
 	int err;
 
 	if (!prefix) {
-		/*前缀未赋值,尝试获取*/
+		/*前缀还未赋值,尝试获取*/
 		const char *statedir = getenv("STATE_DIRECTORY");
 
 		/* Check if running as service */
@@ -66,8 +66,8 @@ int create_filename(char *str, size_t size, const char *fmt, ...)
 	if (err < 0)
 		return err;
 
-	/*返回名称*/
-	return snprintf(str, size, "%*s%s", prefix_len, prefix, suffix);
+	/*组合前缀，后缀返回名称*/
+	return snprintf(str, size, "%*s%s", prefix_len/*前缀长度*/, prefix/*前缀*/, suffix/*后缀*/);
 }
 
 static int create_dirs(const char *filename, const mode_t mode)

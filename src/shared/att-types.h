@@ -36,7 +36,9 @@
 
 /* ATT protocol opcodes */
 #define BT_ATT_OP_ERROR_RSP			0x01
+/*交换mtu请求*/
 #define BT_ATT_OP_MTU_REQ			0x02
+/*交换mtu响应*/
 #define BT_ATT_OP_MTU_RSP			0x03
 #define BT_ATT_OP_FIND_INFO_REQ			0x04
 #define BT_ATT_OP_FIND_INFO_RSP			0x05
@@ -44,7 +46,9 @@
 #define BT_ATT_OP_FIND_BY_TYPE_RSP		0x07
 #define BT_ATT_OP_READ_BY_TYPE_REQ		0x08
 #define BT_ATT_OP_READ_BY_TYPE_RSP		0x09
+/*读取服务端某个属性值，请求*/
 #define BT_ATT_OP_READ_REQ			0x0a
+/*读取服务端某个属性值，响应*/
 #define BT_ATT_OP_READ_RSP			0x0b
 #define BT_ATT_OP_READ_BLOB_REQ			0x0c
 #define BT_ATT_OP_READ_BLOB_RSP			0x0d
@@ -115,6 +119,7 @@ struct bt_att_pdu_error_rsp {
  * "Access", "Encryption", "Authentication", and "Authorization". A bitmask of
  * permissions is a byte that encodes a combination of these.
  */
+/*读权限*/
 #define BT_ATT_PERM_READ		0x01
 #define BT_ATT_PERM_WRITE		0x02
 #define BT_ATT_PERM_READ_ENCRYPT	0x04

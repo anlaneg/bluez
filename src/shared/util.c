@@ -41,6 +41,7 @@
 void *util_malloc(size_t size)
 {
 	if (__builtin_expect(!!size, 1)) {
+		/*size不为0，则申请内存*/
 		void *ptr;
 
 		ptr = malloc(size);
@@ -108,21 +109,23 @@ void util_hexdump(const char dir, const unsigned char *buf, size_t len,
 
 	str[0] = dir;
 
+	/*16*3= 48；50-67分别显示16进制格式及字符显示*/
 	for (i = 0; i < len; i++) {
 		str[((i % 16) * 3) + 1] = ' ';
 		str[((i % 16) * 3) + 2] = hexdigits[buf[i] >> 4];
-		str[((i % 16) * 3) + 3] = hexdigits[buf[i] & 0xf];
-		str[(i % 16) + 51] = isprint(buf[i]) ? buf[i] : '.';
+		str[((i % 16) * 3) + 3] = hexdigits[buf[i] & 0xf];/*显示此字节内容16进制*/
+		str[(i % 16) + 51] = isprint(buf[i]) ? buf[i] : '.';/*按字符形式显示此字节*/
 
 		if ((i + 1) % 16 == 0) {
-			str[49] = ' ';
+			str[49] = ' ';/*显示分割符*/
 			str[50] = ' ';
-			str[67] = '\0';
-			function(str, user_data);
+			str[67] = '\0';/*显示此行结尾*/
+			function(str, user_data);/*通过function显示str*/
 			str[0] = ' ';
 		}
 	}
 
+	/*处理最后一行*/
 	if (i % 16 > 0) {
 		size_t j;
 		for (j = (i % 16); j < 16; j++) {

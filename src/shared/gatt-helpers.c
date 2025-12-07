@@ -26,20 +26,21 @@
 
 struct bt_gatt_result {
 	uint8_t opcode;
-	void *pdu;
-	uint16_t pdu_len;
-	uint16_t data_len;
+	void *pdu;/*属性数组指针*/
+	uint16_t pdu_len;/*属性数组总长度*/
+	uint16_t data_len;/*属性单个元素长度*/
 
 	void *op;  /* Discovery operation data */
 
 	struct bt_gatt_result *next;
 };
 
-static struct bt_gatt_result *result_create(uint8_t opcode, const void *pdu,
-							uint16_t pdu_len,
-							uint16_t data_len,
+static struct bt_gatt_result *result_create(uint8_t opcode, const void *pdu/*属性数组*/,
+							uint16_t pdu_len/*属性数组数据总长度*/,
+							uint16_t data_len/*属性数组单个元素大小*/,
 							void *op)
 {
+	/*搞了个副本*/
 	struct bt_gatt_result *result;
 
 	result = new0(struct bt_gatt_result, 1);
@@ -179,6 +180,7 @@ static const uint8_t bt_base_uuid[16] = {
 static bool convert_uuid_le(const uint8_t *src, size_t len, uint8_t dst[16])
 {
 	if (len == 16) {
+		/*转换uuid*/
 		bswap_128(src, dst);
 		return true;
 	}
@@ -196,21 +198,21 @@ static bool convert_uuid_le(const uint8_t *src, size_t len, uint8_t dst[16])
 struct bt_gatt_request {
 	struct bt_att *att;
 	unsigned int id;
-	uint16_t start_handle;
-	uint16_t end_handle;
+	uint16_t start_handle;/*起始handle*/
+	uint16_t end_handle;/*终止handle*/
 	int ref_count;
-	bt_uuid_t uuid;
+	bt_uuid_t uuid;/*属性类型*/
 	uint16_t service_type;
-	struct bt_gatt_result *result_head;
+	struct bt_gatt_result *result_head;/*用于记录响应结果*/
 	struct bt_gatt_result *result_tail;
 	bt_gatt_request_callback_t callback;
 	void *user_data;
 	bt_gatt_destroy_func_t destroy;
 };
 
-static struct bt_gatt_result *result_append(uint8_t opcode, const void *pdu,
-						uint16_t pdu_len,
-						uint16_t data_len,
+static struct bt_gatt_result *result_append(uint8_t opcode, const void *pdu/*属性数组*/,
+						uint16_t pdu_len/*属性数组数据总长度*/,
+						uint16_t data_len/*属性数组单个元素大小*/,
 						struct bt_gatt_request *op)
 {
 	struct bt_gatt_result *result;
@@ -219,6 +221,7 @@ static struct bt_gatt_result *result_append(uint8_t opcode, const void *pdu,
 	if (!result)
 		return NULL;
 
+	/*填写记录结果*/
 	if (!op->result_head)
 		op->result_head = op->result_tail = result;
 	else {
@@ -310,8 +313,8 @@ bool bt_gatt_iter_next_included_service(struct bt_gatt_iter *iter,
 }
 
 bool bt_gatt_iter_next_service(struct bt_gatt_iter *iter,
-				uint16_t *start_handle, uint16_t *end_handle,
-				uint8_t uuid[16])
+				uint16_t *start_handle/*出参，首个handle*/, uint16_t *end_handle,
+				uint8_t uuid[16]/*出参,uuid*/)
 {
 	struct bt_gatt_request *op;
 	const void *pdu_ptr;
@@ -325,9 +328,9 @@ bool bt_gatt_iter_next_service(struct bt_gatt_iter *iter,
 
 	switch (iter->result->opcode) {
 	case BT_ATT_OP_READ_BY_GRP_TYPE_RSP:
-		*start_handle = get_le16(pdu_ptr);
-		*end_handle = get_le16(pdu_ptr + 2);
-		convert_uuid_le(pdu_ptr + 4, iter->result->data_len - 4, uuid);
+		*start_handle = get_le16(pdu_ptr);/*取start-handle*/
+		*end_handle = get_le16(pdu_ptr + 2);/*取end-handle*/
+		convert_uuid_le(pdu_ptr + 4, iter->result->data_len - 4, uuid);/*转换uuid*/
 		break;
 	case BT_ATT_OP_FIND_BY_TYPE_RSP:
 		*start_handle = get_le16(pdu_ptr);
@@ -428,8 +431,8 @@ bool bt_gatt_iter_next_descriptor(struct bt_gatt_iter *iter, uint16_t *handle,
 }
 
 bool bt_gatt_iter_next_read_by_type(struct bt_gatt_iter *iter,
-				uint16_t *handle, uint16_t *length,
-				const uint8_t **value)
+				uint16_t *handle/*出参，属性handle*/, uint16_t *length/*出参，属性值长度*/,
+				const uint8_t **value/*出参，属性值指针*/)
 {
 	struct bt_gatt_request *op;
 	const void *pdu_ptr;
@@ -438,7 +441,7 @@ bool bt_gatt_iter_next_read_by_type(struct bt_gatt_iter *iter,
 		return false;
 
 	if (iter->result->opcode != BT_ATT_OP_READ_BY_TYPE_RSP)
-		return false;
+		return false;/*必须为read by type*/
 
 	/*
 	 * Check if UUID is set, otherwise results can contain characteristic
@@ -450,9 +453,9 @@ bool bt_gatt_iter_next_read_by_type(struct bt_gatt_iter *iter,
 
 	pdu_ptr = iter->result->pdu + iter->pos;
 
-	*handle = get_le16(pdu_ptr);
-	*length = iter->result->data_len - 2;
-	*value = pdu_ptr + 2;
+	*handle = get_le16(pdu_ptr);/*先取handle*/
+	*length = iter->result->data_len - 2;/*取value值长度*/
+	*value = pdu_ptr + 2;/*再取value指针*/
 
 	iter->pos += iter->result->data_len;
 	if (iter->pos == iter->result->pdu_len) {
@@ -502,26 +505,31 @@ static void mtu_cb(uint8_t opcode, const void *pdu, uint16_t length,
 	uint16_t server_rx_mtu;
 
 	if (opcode == BT_ATT_OP_ERROR_RSP) {
+		/*对端响应错误*/
 		success = false;
 		att_ecode = process_error(pdu, length);
 		goto done;
 	}
 
 	if (opcode != BT_ATT_OP_MTU_RSP || !pdu || length != 2) {
+		/*响应的内容有误*/
 		success = false;
 		goto done;
 	}
 
+	/*取server端提供的mtu*/
 	server_rx_mtu = get_le16(pdu);
+	/*更新协商获得的mtu*/
 	bt_att_set_mtu(op->att, MIN(op->client_rx_mtu, server_rx_mtu));
 
 done:
+	/*触发此op对应的callback*/
 	if (op->callback)
 		op->callback(success, att_ecode, op->user_data);
 }
 
-unsigned int bt_gatt_exchange_mtu(struct bt_att *att, uint16_t client_rx_mtu,
-					bt_gatt_result_callback_t callback,
+unsigned int bt_gatt_exchange_mtu(struct bt_att *att, uint16_t client_rx_mtu/*本端mtu*/,
+					bt_gatt_result_callback_t callback/*交换mtu完成后触发此回调*/,
 					void *user_data,
 					bt_gatt_destroy_func_t destroy)
 {
@@ -539,9 +547,10 @@ unsigned int bt_gatt_exchange_mtu(struct bt_att *att, uint16_t client_rx_mtu,
 	op->user_data = user_data;
 	op->destroy = destroy;
 
-	put_le16(client_rx_mtu, pdu);
+	put_le16(client_rx_mtu, pdu);/*设置本端mtu*/
 
-	id = bt_att_send(att, BT_ATT_OP_MTU_REQ, pdu, sizeof(pdu), mtu_cb, op,
+	/*向server端发送，请求交换mtu*/
+	id = bt_att_send(att, BT_ATT_OP_MTU_REQ, pdu/*请求负载*/, sizeof(pdu), mtu_cb/*处理mtu请求响应*/, op,
 								destroy_mtu_op);
 	if (!id)
 		free(op);
@@ -609,8 +618,9 @@ static void discovery_op_complete(struct bt_gatt_request *op, bool success,
 {
 	/* Reset success if there is some result to report */
 	if (ecode == BT_ATT_ERROR_ATTRIBUTE_NOT_FOUND && op->result_head)
-		success = true;
+		success = true;/*指明没有其它列表元素了*/
 
+	/*触发回调，告知获得的属性值*/
 	if (op->callback)
 		op->callback(success, ecode, success ? op->result_head : NULL,
 								op->user_data);
@@ -622,6 +632,7 @@ static void discovery_op_complete(struct bt_gatt_request *op, bool success,
 
 }
 
+/*解决需多次请求问题*/
 static void read_by_grp_type_cb(uint8_t opcode, const void *pdu,
 					uint16_t length, void *user_data)
 {
@@ -634,6 +645,7 @@ static void read_by_grp_type_cb(uint8_t opcode, const void *pdu,
 	uint16_t last_end;
 
 	if (opcode == BT_ATT_OP_ERROR_RSP) {
+		/*响应失败处理*/
 		success = false;
 		att_ecode = process_error(pdu, length);
 		goto done;
@@ -647,11 +659,11 @@ static void read_by_grp_type_cb(uint8_t opcode, const void *pdu,
 	 *   -- 2 or 16 octets: service UUID
 	 */
 	if (opcode != BT_ATT_OP_READ_BY_GRP_TYPE_RSP || !pdu || length < 7) {
-		success = false;
+		success = false;/*响应有误*/
 		goto done;
 	}
 
-	data_length = ((uint8_t *) pdu)[0];
+	data_length = ((uint8_t *) pdu)[0];/*每个属性元素大小*/
 	list_length = length - 1;
 
 	if ((data_length != 6 && data_length != 20) ||
@@ -670,7 +682,7 @@ static void read_by_grp_type_cb(uint8_t opcode, const void *pdu,
 		goto done;
 	}
 
-	last_end = get_le16(pdu + length - data_length + 2);
+	last_end = get_le16(pdu + length - data_length + 2);/*取最后一个handle，检查是否已完全*/
 
 	/*
 	 * If last handle is lower from previous start handle then it is smth
@@ -681,9 +693,10 @@ static void read_by_grp_type_cb(uint8_t opcode, const void *pdu,
 		goto done;
 	}
 
-	op->start_handle = last_end + 1;
+	op->start_handle = last_end + 1;/*更新handle*/
 
 	if (last_end < op->end_handle) {
+		/*数据未完，继续请求*/
 		uint8_t pdu[6];
 
 		put_le16(op->start_handle, pdu);
@@ -790,6 +803,7 @@ done:
 	discovery_op_complete(op, success, att_ecode);
 }
 
+/*用于发现服务*/
 static struct bt_gatt_request *discover_services(struct bt_att *att,
 					bt_uuid_t *uuid,
 					uint16_t start, uint16_t end,
@@ -817,6 +831,7 @@ static struct bt_gatt_request *discover_services(struct bt_att *att,
 	if (!uuid) {
 		uint8_t pdu[6];
 
+		/*只填充start-handle,end-handle,属性group type未知，故不填充*/
 		put_le16(start, pdu);
 		put_le16(end, pdu + 2);
 		put_le16(op->service_type, pdu + 4);
@@ -837,10 +852,10 @@ static struct bt_gatt_request *discover_services(struct bt_att *att,
 		/* Discover by UUID */
 		op->uuid = *uuid;
 
-		put_le16(start, pdu);
-		put_le16(end, pdu + 2);
+		put_le16(start, pdu);/*设置start-handle*/
+		put_le16(end, pdu + 2);/*设置end-handle*/
 		put_le16(op->service_type, pdu + 4);
-		bt_uuid_to_le(&op->uuid, pdu + 6);
+		bt_uuid_to_le(&op->uuid, pdu + 6);/*填充group type*/
 
 		op->id = bt_att_send(att, BT_ATT_OP_FIND_BY_TYPE_REQ,
 						pdu, sizeof(pdu),
@@ -1282,30 +1297,35 @@ static void read_by_type_cb(uint8_t opcode, const void *pdu,
 	uint16_t last_handle;
 
 	if (opcode == BT_ATT_OP_ERROR_RSP) {
+		/*读取出错*/
 		att_ecode = process_error(pdu, length);
 		success = false;
 		goto done;
 	}
 
 	if (opcode != BT_ATT_OP_READ_BY_TYPE_RSP || !pdu) {
+		/*此情况必须以BT_ATT_OP_READ_BY_TYPE_RSP响应*/
 		success = false;
 		att_ecode = 0;
 		goto done;
 	}
 
+	/*取元素大小（The size of each attribute handle-value pair）*/
 	data_length = ((uint8_t *) pdu)[0];
 	if (((length - 1) % data_length)) {
+		/*长度有误*/
 		success = false;
 		att_ecode = 0;
 		goto done;
 	}
 
-	if (!result_append(opcode, pdu + 1, length - 1, data_length, op)) {
+	if (!result_append(opcode, pdu + 1/*属性值列表*/, length - 1/*属性值列表总长度*/, data_length/*元素大小*/, op)) {
 		success = false;
 		att_ecode = 0;
 		goto done;
 	}
 
+	/*最后两个字节（这里写的不好）按规定为last_handle*/
 	last_handle = get_le16(pdu + length - data_length);
 
 	/*
@@ -1314,12 +1334,13 @@ static void read_by_type_cb(uint8_t opcode, const void *pdu,
 	 */
 	if (last_handle < op->start_handle) {
 		success = false;
-		goto done;
+		goto done;/*出错*/
 	}
 
-	op->start_handle = last_handle + 1;
+	op->start_handle = last_handle + 1;/*更新下一个请求的handle*/
 
 	if (last_handle != op->end_handle) {
+		/*未到达结尾，需继续请求*/
 		uint8_t pdu[4 + get_uuid_len(&op->uuid)];
 
 		put_le16(op->start_handle, pdu);
@@ -1338,12 +1359,15 @@ static void read_by_type_cb(uint8_t opcode, const void *pdu,
 		goto done;
 	}
 
+	/*处理完成，且成功*/
 	success = true;
 
 done:
-	discovery_op_complete(op, success, att_ecode);
+	/*触发回调*/
+	discovery_op_complete(op, success/*处理是否成功*/, att_ecode);
 }
 
+/*按照type发送读取属性请求*/
 bool bt_gatt_read_by_type(struct bt_att *att, uint16_t start, uint16_t end,
 					const bt_uuid_t *uuid,
 					bt_gatt_request_callback_t callback,
@@ -1358,17 +1382,21 @@ bool bt_gatt_read_by_type(struct bt_att *att, uint16_t start, uint16_t end,
 
 	op = new0(struct bt_gatt_request, 1);
 	op->att = att;
-	op->callback = callback;
+	op->callback = callback;/*处理属性回调*/
 	op->user_data = user_data;
 	op->destroy = destroy;
-	op->start_handle = start;
+	op->start_handle = start;/*起始的handle*/
 	op->end_handle = end;
 	op->uuid = *uuid;
 
+	/*填写Format of ATT_READ_BY_TYPE_REQ PDU*/
 	put_le16(start, pdu);
 	put_le16(end, pdu + 2);
 	bt_uuid_to_le(uuid, pdu + 4);
 
+	/*发送通过属性type读取属性值。
+	 * The ATT_READ_BY_TYPE_REQ PDU is used to obtain the values
+	 * of attributes where the attribute type is known but the handle is not known.*/
 	op->id = bt_att_send(att, BT_ATT_OP_READ_BY_TYPE_REQ, pdu, sizeof(pdu),
 						read_by_type_cb,
 						bt_gatt_request_ref(op),

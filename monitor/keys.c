@@ -97,7 +97,7 @@ static bool match_resolve_irk(const void *data, const void *match_data)
 	return !memcmp(addr, local_hash, 3);
 }
 
-bool keys_resolve_identity(const uint8_t addr[6], uint8_t ident[6],
+bool keys_resolve_identity(const uint8_t addr[6], uint8_t ident[6]/*出参*/,
 							uint8_t *ident_type)
 {
 	struct irk_data *irk;

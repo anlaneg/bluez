@@ -340,6 +340,7 @@ static void read_by_grp_type_cb(struct bt_att_chan *chan, uint16_t mtu,
 	return;
 
 error:
+	/*响应error response*/
 	queue_destroy(q, NULL);
 	bt_att_chan_send_error_rsp(chan, opcode, ehandle, ecode);
 }
@@ -1496,6 +1497,7 @@ error:
 	bt_att_chan_send_error_rsp(chan, opcode, ehandle, ecode);
 }
 
+/*收到对端发送过来的ATT_EXCHANGE_MTU_REQ，执行响应*/
 static void exchange_mtu_cb(struct bt_att_chan *chan, uint16_t mtu,
 				uint8_t opcode, const void *pdu,
 				uint16_t length, void *user_data)
@@ -1506,21 +1508,24 @@ static void exchange_mtu_cb(struct bt_att_chan *chan, uint16_t mtu,
 	uint8_t rsp_pdu[2];
 
 	if (length != 2) {
+		/*报文长度有误*/
 		bt_att_chan_send_error_rsp(chan, opcode, 0,
 						BT_ATT_ERROR_INVALID_PDU);
 		return;
 	}
 
-	client_rx_mtu = get_le16(pdu);
-	final_mtu = MAX(MIN(client_rx_mtu, server->mtu), BT_ATT_DEFAULT_LE_MTU);
+	client_rx_mtu = get_le16(pdu);/*取得客户端说明的自身mtu*/
+	/*得到最终mtu*/
+	final_mtu = MAX(MIN(client_rx_mtu, server->mtu)/*两者之间取最小值*/, BT_ATT_DEFAULT_LE_MTU);
 
 	/* Respond with the server MTU */
-	put_le16(server->mtu, rsp_pdu);
+	put_le16(server->mtu, rsp_pdu);/*填写server端mtu*/
+	/*报造报文，响应server端mtu*/
 	bt_att_chan_send_rsp(chan, BT_ATT_OP_MTU_RSP, rsp_pdu, 2);
 
 	/* Set MTU to be the minimum */
-	server->mtu = final_mtu;
-	bt_att_set_mtu(server->att, final_mtu);
+	server->mtu = final_mtu;/*更新交换后得到的mtu*/
+	bt_att_set_mtu(server->att, final_mtu);/*更新mtu*/
 
 	DBG(server, "MTU exchange complete, with MTU: %u", final_mtu);
 }
@@ -1528,6 +1533,7 @@ static void exchange_mtu_cb(struct bt_att_chan *chan, uint16_t mtu,
 static bool gatt_server_register_att_handlers(struct bt_gatt_server *server)
 {
 	/* Exchange MTU */
+	/*注册ATT_EXCHANGE_MTU_REQ，以便交换mtu*/
 	server->mtu_id = bt_att_register(server->att, BT_ATT_OP_MTU_REQ,
 								exchange_mtu_cb,
 								server, NULL);
@@ -1535,6 +1541,7 @@ static bool gatt_server_register_att_handlers(struct bt_gatt_server *server)
 		return false;
 
 	/* Read By Group Type */
+	/*注册收到BT_ATT_OP_READ_BY_GRP_TYPE_REQ时通过此回调响应*/
 	server->read_by_grp_type_id = bt_att_register(server->att,
 						BT_ATT_OP_READ_BY_GRP_TYPE_REQ,
 						read_by_grp_type_cb,
@@ -1543,6 +1550,7 @@ static bool gatt_server_register_att_handlers(struct bt_gatt_server *server)
 		return false;
 
 	/* Read By Type */
+	/*注册收到BT_ATT_OP_READ_BY_TYPE_REQ时通过此回调响应*/
 	server->read_by_type_id = bt_att_register(server->att,
 						BT_ATT_OP_READ_BY_TYPE_REQ,
 						read_by_type_cb,

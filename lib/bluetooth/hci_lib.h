@@ -181,7 +181,7 @@ static inline int hci_test_bit(int nr, void *addr)
 /* HCI filter tools */
 static inline void hci_filter_clear(struct hci_filter *f)
 {
-	memset(f, 0, sizeof(*f));
+	memset(f, 0, sizeof(*f));/*将f清零*/
 }
 static inline void hci_filter_set_ptype(int t, struct hci_filter *f)
 {

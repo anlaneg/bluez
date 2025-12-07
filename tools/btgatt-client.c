@@ -308,6 +308,7 @@ static void print_chrc(struct gatt_db_attribute *attr, void *user_data)
 	gatt_db_service_foreach_desc(attr, print_desc, NULL);
 }
 
+/*显示service情况*/
 static void print_service(struct gatt_db_attribute *attr, void *user_data)
 {
 	struct client *cli = user_data;
@@ -315,15 +316,18 @@ static void print_service(struct gatt_db_attribute *attr, void *user_data)
 	bool primary;
 	bt_uuid_t uuid;
 
+	/*取参数*/
 	if (!gatt_db_attribute_get_service_data(attr, &start, &end, &primary,
 									&uuid))
 		return;
 
+	/*显示serivce handle,uuid*/
 	printf(COLOR_RED "service" COLOR_OFF " - start: 0x%04x, "
 				"end: 0x%04x, type: %s, uuid: ",
 				start, end, primary ? "primary" : "secondary");
 	print_uuid(&uuid);
 
+	/*显示included_service_uuid与characteristic_uuid类型的属性*/
 	gatt_db_service_foreach_incl(attr, print_incl, cli);
 	gatt_db_service_foreach_char(attr, print_chrc, NULL);
 
@@ -334,6 +338,7 @@ static void print_services(struct client *cli)
 {
 	printf("\n");
 
+	/*遍历service*/
 	gatt_db_foreach_service(cli->db, NULL, print_service, cli);
 }
 
@@ -391,6 +396,7 @@ static void services_usage(void)
 		"\tservices\n\tservices -u 0x180d\n\tservices -a 0x0009\n");
 }
 
+/*将参数str转换为argv,argc*/
 static bool parse_args(char *str, int expected_argc,  char **argv, int *argc)
 {
 	char **ap;
@@ -409,27 +415,32 @@ static bool parse_args(char *str, int expected_argc,  char **argv, int *argc)
 	return true;
 }
 
+/*显示全部或按条件显示部分service*/
 static void cmd_services(struct client *cli, char *cmd_str)
 {
 	char *argv[3];
 	int argc = 0;
 
 	if (!bt_gatt_client_is_ready(cli->gatt)) {
+		/*client未初始化完成*/
 		printf("GATT client not initialized\n");
 		return;
 	}
 
+	/*将cmd_str变换为argv*/
 	if (!parse_args(cmd_str, 2, argv, &argc)) {
-		services_usage();
+		services_usage();/*显示命令帮助*/
 		return;
 	}
 
 	if (!argc) {
+		/*未提供参数，显示services*/
 		print_services(cli);
 		return;
 	}
 
 	if (argc != 2) {
+		/*参数不足，显示帮助信息*/
 		services_usage();
 		return;
 	}
@@ -444,7 +455,7 @@ static void cmd_services(struct client *cli, char *cmd_str)
 
 		bt_uuid_to_uuid128(&tmp, &uuid);
 
-		print_services_by_uuid(cli, &uuid);
+		print_services_by_uuid(cli, &uuid);/*通过uuid显示service*/
 	} else if (!strcmp(argv[0], "-a") || !strcmp(argv[0], "--handle")) {
 		uint16_t handle;
 		char *endptr = NULL;
@@ -455,7 +466,7 @@ static void cmd_services(struct client *cli, char *cmd_str)
 			return;
 		}
 
-		print_services_by_handle(cli, handle);
+		print_services_by_handle(cli, handle);/*通过handle显示service*/
 	} else
 		services_usage();
 }
@@ -577,6 +588,7 @@ static void cmd_read_value(struct client *cli, char *cmd_str)
 		return;
 	}
 
+	/*解析获得handle*/
 	handle = strtol(argv[0], &endptr, 0);
 	if (!endptr || *endptr != '\0' || !handle) {
 		printf("Invalid value handle: %s\n", argv[0]);
@@ -1522,8 +1534,10 @@ static struct {
 	char *cmd;
 	command_func_t func;
 	char *doc;
-} command[] = {
+} command[]/*客户端命令*/ = {
+	/*显示帮助*/
 	{ "help", cmd_help, "\tDisplay help message" },
+	/*服务显示*/
 	{ "services", cmd_services, "\tShow discovered services" },
 	{ "read-value", cmd_read_value,
 				"\tRead a characteristic or descriptor value" },
@@ -1559,6 +1573,7 @@ static struct {
 	{ }
 };
 
+/*显示帮助信息*/
 static void cmd_help(struct client *cli, char *cmd_str)
 {
 	int i;
@@ -1568,6 +1583,7 @@ static void cmd_help(struct client *cli, char *cmd_str)
 		printf("\t%-15s\t%s\n", command[i].cmd, command[i].doc);
 }
 
+/*读取命令行*/
 static void prompt_read_cb(int fd, uint32_t events, void *user_data)
 {
 	ssize_t read;
@@ -1582,6 +1598,7 @@ static void prompt_read_cb(int fd, uint32_t events, void *user_data)
 		return;
 	}
 
+	/*读取行内容*/
 	read = getline(&line, &len, stdin);
 	if (read < 0) {
 		free(line);
@@ -1589,6 +1606,7 @@ static void prompt_read_cb(int fd, uint32_t events, void *user_data)
 	}
 
 	if (read <= 1) {
+		/*显示帮助信息*/
 		cmd_help(cli, NULL);
 		print_prompt();
 		free(line);
@@ -1633,7 +1651,7 @@ static void signal_cb(int signum, void *user_data)
 	}
 }
 
-static int l2cap_le_att_connect(bdaddr_t *src, bdaddr_t *dst, uint8_t dst_type,
+static int l2cap_le_att_connect(bdaddr_t *src, bdaddr_t *dst, uint8_t dst_type/*目的地址类型*/,
 									int sec)
 {
 	int sock;
@@ -1648,9 +1666,10 @@ static int l2cap_le_att_connect(bdaddr_t *src, bdaddr_t *dst, uint8_t dst_type,
 
 		printf("btgatt-client: Opening L2CAP LE connection on ATT "
 					"channel:\n\t src: %s\n\tdest: %s\n",
-					srcaddr_str, dstaddr_str);
+					srcaddr_str, dstaddr_str);/*显示源目的地址*/
 	}
 
+	/*创建l2cap socket*/
 	sock = socket(PF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_L2CAP);
 	if (sock < 0) {
 		perror("Failed to create L2CAP socket");
@@ -1660,10 +1679,11 @@ static int l2cap_le_att_connect(bdaddr_t *src, bdaddr_t *dst, uint8_t dst_type,
 	/* Set up source address */
 	memset(&srcaddr, 0, sizeof(srcaddr));
 	srcaddr.l2_family = AF_BLUETOOTH;
-	srcaddr.l2_cid = htobs(ATT_CID);
+	srcaddr.l2_cid = htobs(ATT_CID);/*指明channel id*/
 	srcaddr.l2_bdaddr_type = 0;
 	bacpy(&srcaddr.l2_bdaddr, src);
 
+	/*绑定设备*/
 	if (bind(sock, (struct sockaddr *)&srcaddr, sizeof(srcaddr)) < 0) {
 		perror("Failed to bind L2CAP socket");
 		close(sock);
@@ -1672,7 +1692,7 @@ static int l2cap_le_att_connect(bdaddr_t *src, bdaddr_t *dst, uint8_t dst_type,
 
 	/* Set the security level */
 	memset(&btsec, 0, sizeof(btsec));
-	btsec.level = sec;
+	btsec.level = sec;/*设置security level*/
 	if (setsockopt(sock, SOL_BLUETOOTH, BT_SECURITY, &btsec,
 							sizeof(btsec)) != 0) {
 		fprintf(stderr, "Failed to set L2CAP security level\n");
@@ -1683,13 +1703,14 @@ static int l2cap_le_att_connect(bdaddr_t *src, bdaddr_t *dst, uint8_t dst_type,
 	/* Set up destination address */
 	memset(&dstaddr, 0, sizeof(dstaddr));
 	dstaddr.l2_family = AF_BLUETOOTH;
-	dstaddr.l2_cid = htobs(ATT_CID);
+	dstaddr.l2_cid = htobs(ATT_CID);/*指明目的地址channel*/
 	dstaddr.l2_bdaddr_type = dst_type;
 	bacpy(&dstaddr.l2_bdaddr, dst);
 
 	printf("Connecting to device...");
 	fflush(stdout);
 
+	/*连接到目的地址*/
 	if (connect(sock, (struct sockaddr *) &dstaddr, sizeof(dstaddr)) < 0) {
 		perror(" Failed to connect");
 		close(sock);
@@ -1744,12 +1765,12 @@ int main(int argc, char *argv[])
 						main_options, NULL)) != -1) {
 		switch (opt) {
 		case 'h':
-			usage();
+			usage();/*显示帮助*/
 			return EXIT_SUCCESS;
 		case 'v':
 			verbose = true;
 			break;
-		case 's':
+		case 's':/*设置security level*/
 			if (strcmp(optarg, "low") == 0)
 				sec = BT_SECURITY_LOW;
 			else if (strcmp(optarg, "medium") == 0)
@@ -1777,10 +1798,11 @@ int main(int argc, char *argv[])
 				return EXIT_FAILURE;
 			}
 
-			mtu = (uint16_t)arg;
+			mtu = (uint16_t)arg;/*设置mtu*/
 			break;
 		}
 		case 't':
+			/*设置目的地址类型*/
 			if (strcmp(optarg, "random") == 0)
 				dst_type = BDADDR_LE_RANDOM;
 			else if (strcmp(optarg, "public") == 0)
@@ -1792,6 +1814,7 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 'd':
+			/*设置目的地址*/
 			if (str2ba(optarg, &dst_addr) < 0) {
 				fprintf(stderr, "Invalid remote address: %s\n",
 									optarg);
@@ -1802,6 +1825,7 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'i':
+			/*设置设备id*/
 			dev_id = hci_devid(optarg);
 			if (dev_id < 0) {
 				perror("Invalid adapter");
@@ -1816,7 +1840,7 @@ int main(int argc, char *argv[])
 	}
 
 	if (!argc) {
-		usage();
+		usage();/*未提供参数，显示帮助*/
 		return EXIT_SUCCESS;
 	}
 
@@ -1825,10 +1849,12 @@ int main(int argc, char *argv[])
 	optind = 0;
 
 	if (argc) {
+		/*有多余的参数*/
 		usage();
 		return EXIT_SUCCESS;
 	}
 
+	/*如未指明dev_id,则源地址使用any,否则取hci设备地址*/
 	if (dev_id == -1)
 		bacpy(&src_addr, BDADDR_ANY);
 	else if (hci_devba(dev_id, &src_addr) < 0) {
@@ -1837,16 +1863,19 @@ int main(int argc, char *argv[])
 	}
 
 	if (!dst_addr_given) {
+		/*未提供目的地址，报错*/
 		fprintf(stderr, "Destination address required!\n");
 		return EXIT_FAILURE;
 	}
 
 	mainloop_init();
 
+	/*连接目的地址对应的ATT_CID*/
 	fd = l2cap_le_att_connect(&src_addr, &dst_addr, dst_type, sec);
 	if (fd < 0)
 		return EXIT_FAILURE;
 
+	/*创建client*/
 	cli = client_create(fd, mtu);
 	if (!cli) {
 		close(fd);
@@ -1855,7 +1884,7 @@ int main(int argc, char *argv[])
 
 	if (mainloop_add_fd(fileno(stdin),
 				EPOLLIN | EPOLLRDHUP | EPOLLHUP | EPOLLERR,
-				prompt_read_cb, cli, NULL) < 0) {
+				prompt_read_cb/*读取命令行*/, cli, NULL) < 0) {
 		fprintf(stderr, "Failed to initialize console\n");
 		return EXIT_FAILURE;
 	}

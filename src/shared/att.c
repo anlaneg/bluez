@@ -45,10 +45,11 @@ struct bt_att_chan {
 
 	struct queue *queue;		/* Channel dedicated queue */
 
-	struct att_send_op *pending_req;
-	struct att_send_op *pending_ind;
-	bool writer_active;
+	struct att_send_op *pending_req;/*用于挂接request*/
+	struct att_send_op *pending_ind;/*用于挂接Indications*/
+	bool writer_active;/*是否可写*/
 
+	/*为true时，标记有请求待处理*/
 	bool in_req;			/* There's a pending incoming request */
 
 	uint8_t *buf;
@@ -66,15 +67,18 @@ struct bt_att {
 	struct queue *disconn_list;	/* List of disconnect handlers */
 	struct queue *exchange_list;	/* List of MTU changed handlers */
 
+	/*负责分配send ops id*/
 	unsigned int next_send_id;	/* IDs for "send" ops */
+	/*分配notify id*/
 	unsigned int next_reg_id;	/* IDs for registered callbacks */
 
+	/*请求队列*/
 	struct queue *req_queue;	/* Queued ATT protocol requests */
 	struct queue *ind_queue;	/* Queued ATT protocol indications */
 	struct queue *write_queue;	/* Queue of PDUs ready to send */
 	bool in_disc;			/* Cleanup queues on disconnect_cb */
 
-	bt_att_timeout_func_t timeout_callback;
+	bt_att_timeout_func_t timeout_callback;/*消息发送超时时回调用*/
 	bt_att_destroy_func_t timeout_destroy;
 	void *timeout_data;
 
@@ -96,20 +100,20 @@ struct sign_info {
 };
 
 enum att_op_type {
-	ATT_OP_TYPE_REQ,
-	ATT_OP_TYPE_RSP,
-	ATT_OP_TYPE_CMD,
-	ATT_OP_TYPE_IND,
-	ATT_OP_TYPE_NFY,
-	ATT_OP_TYPE_CONF,
+	ATT_OP_TYPE_REQ,/*客户端发送给服务器的请求报文*/
+	ATT_OP_TYPE_RSP,/*服务器发送到客户端的响应报文*/
+	ATT_OP_TYPE_CMD,/*客户端发送给服务器的不触发响应的报文*/
+	ATT_OP_TYPE_IND,/*服务器发送给客户端的不触发确认的报文(Indications)*/
+	ATT_OP_TYPE_NFY,/*服务器发送给客户端的不触发确认的报文(Notifications)*/
+	ATT_OP_TYPE_CONF,/*客户端发送给服务器用于确认的报文(Confirmations)*/
 	ATT_OP_TYPE_UNKNOWN,
 };
 
 static const struct {
 	uint8_t opcode;
-	enum att_op_type type;
+	enum att_op_type type;/*此opcode对应的类型*/
 } att_opcode_type_table[] = {
-	{ BT_ATT_OP_ERROR_RSP,			ATT_OP_TYPE_RSP },
+	{ BT_ATT_OP_ERROR_RSP,			ATT_OP_TYPE_RSP/*响应类型*/ },
 	{ BT_ATT_OP_MTU_REQ,			ATT_OP_TYPE_REQ },
 	{ BT_ATT_OP_MTU_RSP,			ATT_OP_TYPE_RSP },
 	{ BT_ATT_OP_FIND_INFO_REQ,		ATT_OP_TYPE_REQ },
@@ -145,6 +149,7 @@ static enum att_op_type get_op_type(uint8_t opcode)
 {
 	int i;
 
+	/*通过opcode获得报文类型*/
 	for (i = 0; att_opcode_type_table[i].opcode; i++) {
 		if (att_opcode_type_table[i].opcode == opcode)
 			return att_opcode_type_table[i].type;
@@ -187,12 +192,12 @@ static uint8_t get_req_opcode(uint8_t rsp_opcode)
 }
 
 struct att_send_op {
-	unsigned int id;
+	unsigned int id;/*分配的唯一的id*/
 	unsigned int timeout_id;
-	enum att_op_type type;
-	uint8_t opcode;
-	void *pdu;
-	uint16_t len;
+	enum att_op_type type;/*op类型，例如request/response*/
+	uint8_t opcode;/*报文关联的opcode*/
+	void *pdu;/*报文*/
+	uint16_t len;/*报文长度*/
 	bool retry;
 	bt_att_response_func_t callback;
 	bt_att_destroy_func_t destroy;
@@ -204,9 +209,11 @@ static void destroy_att_send_op(void *data)
 	struct att_send_op *op = data;
 
 	if (op->timeout_id)
+		/*停掉定时器*/
 		timeout_remove(op->timeout_id);
 
 	if (op->destroy)
+		/*销毁回调参数*/
 		op->destroy(op->user_data);
 
 	free(op->pdu);
@@ -230,7 +237,7 @@ struct att_notify {
 	uint16_t opcode;
 	bt_att_notify_func_t callback;
 	bt_att_destroy_func_t destroy;
-	void *user_data;
+	void *user_data;/*回调参数*/
 };
 
 static void destroy_att_notify(void *data)
@@ -316,39 +323,41 @@ static void att_log(struct bt_att *att, uint8_t level, const char *format,
 	att_log(_att, BT_ATT_DEBUG_VERBOSE, "%s:%s() " _format, __FILE__, \
 		__func__, ## _arg)
 
+/*显示收到的数据*/
 static void att_hexdump(struct bt_att *att, char dir, const void *data,
 							size_t len)
 {
 	if (att->debug_level < 2)
 		return;
 
+	/*显示data*/
 	util_hexdump(dir, data, len, att->debug_callback, att->debug_data);
 }
 
 static bool encode_pdu(struct bt_att *att, struct att_send_op *op,
-					const void *pdu, uint16_t length)
+					const void *pdu/*报文内容*/, uint16_t length/*报文长度*/)
 {
-	uint16_t pdu_len = 1;
+	uint16_t pdu_len = 1;/*为opcode准备的*/
 	struct sign_info *sign = att->local_sign;
 	uint32_t sign_cnt;
 
 	if (sign && (op->opcode & ATT_OP_SIGNED_MASK))
-		pdu_len += BT_ATT_SIGNATURE_LEN;
+		pdu_len += BT_ATT_SIGNATURE_LEN;/*签名长度*/
 
 	if (length && pdu)
-		pdu_len += length;
+		pdu_len += length;/*报文长度*/
 
 	if (pdu_len > att->mtu)
-		return false;
+		return false;/*encoding后长度将超过mtu*/
 
 	op->len = pdu_len;
 	op->pdu = malloc(op->len);
 	if (!op->pdu)
 		return false;
 
-	((uint8_t *) op->pdu)[0] = op->opcode;
+	((uint8_t *) op->pdu)[0] = op->opcode;/*填写opcode*/
 	if (pdu_len > 1)
-		memcpy(op->pdu + 1, pdu, length);
+		memcpy(op->pdu + 1, pdu, length);/*填写pdu内容*/
 
 	if (!sign || !(op->opcode & ATT_OP_SIGNED_MASK) || !att->crypto)
 		return true;
@@ -356,6 +365,7 @@ static bool encode_pdu(struct bt_att *att, struct att_send_op *op,
 	if (!sign->counter(&sign_cnt, sign->user_data))
 		goto fail;
 
+	/*填写签名*/
 	if ((bt_crypto_sign_att(att->crypto, sign->key, op->pdu, 1 + length,
 				sign_cnt, &((uint8_t *) op->pdu)[1 + length])))
 		return true;
@@ -369,10 +379,10 @@ fail:
 
 static struct att_send_op *create_att_send_op(struct bt_att *att,
 						uint8_t opcode,
-						const void *pdu,
-						uint16_t length,
+						const void *pdu/*报文内容*/,
+						uint16_t length/*报文长度*/,
 						bt_att_response_func_t callback,
-						void *user_data,
+						void *user_data/*回调参数*/,
 						bt_att_destroy_func_t destroy)
 {
 	struct att_send_op *op;
@@ -390,14 +400,15 @@ static struct att_send_op *create_att_send_op(struct bt_att *att,
 	 * provided, since it will never be called.
 	 */
 	if (callback && type != ATT_OP_TYPE_REQ && type != ATT_OP_TYPE_IND)
-		return NULL;
+		return NULL;/*有回调，但不是以上两种，返回NULL*/
 
 	/* Similarly, if the operation does elicit a response then a callback
 	 * must be provided.
 	 */
 	if (!callback && (type == ATT_OP_TYPE_REQ || type == ATT_OP_TYPE_IND))
-		return NULL;
+		return NULL;/*无回调，但是以上两种者，返回NULL*/
 
+	/*创建op,记录回调及参数*/
 	op = new0(struct att_send_op, 1);
 	op->type = type;
 	op->opcode = opcode;
@@ -405,6 +416,7 @@ static struct att_send_op *create_att_send_op(struct bt_att *att,
 	op->destroy = destroy;
 	op->user_data = user_data;
 
+	/*编码报文*/
 	if (!encode_pdu(att, op, pdu, length)) {
 		free(op);
 		return NULL;
@@ -413,6 +425,7 @@ static struct att_send_op *create_att_send_op(struct bt_att *att,
 	return op;
 }
 
+/*自多个队列取出待发送的op*/
 static struct att_send_op *pick_next_send_op(struct bt_att_chan *chan)
 {
 	struct bt_att *att = chan->att;
@@ -421,11 +434,12 @@ static struct att_send_op *pick_next_send_op(struct bt_att_chan *chan)
 	/* Check if there is anything queued on the channel */
 	op = queue_pop_head(chan->queue);
 	if (op)
-		return op;
+		return op;/*chan->queue不为空，则直接返回*/
 
 	/* See if any operations are already in the write queue */
 	op = queue_peek_head(att->write_queue);
 	if (op && op->len <= chan->mtu)
+		/*write_queue不为空且mtu合适，则直接返回*/
 		return queue_pop_head(att->write_queue);
 
 	/* If there is no pending request, pick an operation from the
@@ -456,6 +470,7 @@ indicate:
 	return NULL;
 }
 
+/*send_op响应错误，并执行回调*/
 static void disc_att_send_op(void *data)
 {
 	struct att_send_op *op = data;
@@ -471,6 +486,7 @@ struct timeout_data {
 	unsigned int id;
 };
 
+/*op发送超时处理*/
 static bool timeout_cb(void *user_data)
 {
 	struct timeout_data *timeout = user_data;
@@ -515,6 +531,7 @@ static void write_watch_destroy(void *user_data)
 	chan->writer_active = false;
 }
 
+/*对外写报文pdu,长度为len*/
 static ssize_t bt_att_chan_write(struct bt_att_chan *chan, uint8_t opcode,
 					const void *pdu, uint16_t len)
 {
@@ -522,8 +539,8 @@ static ssize_t bt_att_chan_write(struct bt_att_chan *chan, uint8_t opcode,
 	ssize_t ret;
 	struct iovec iov;
 
-	iov.iov_base = (void *) pdu;
-	iov.iov_len = len;
+	iov.iov_base = (void *) pdu;/*pdu起始指针*/
+	iov.iov_len = len;/*pdu指针长度*/
 
 	VERBOSE(att, "(chan %p) ATT op 0x%02x", chan, opcode);
 
@@ -534,6 +551,7 @@ static ssize_t bt_att_chan_write(struct bt_att_chan *chan, uint8_t opcode,
 		return ret;
 	}
 
+	/*显示输出的内容*/
 	if (att->debug_level)
 		util_hexdump('<', pdu, ret, att->debug_callback,
 						att->debug_data);
@@ -552,6 +570,7 @@ static bool can_write_data(struct io *io, void *user_data)
 		return false;
 
 	if (bt_att_chan_write(chan, op->opcode, op->pdu, op->len) < 0) {
+		/*发送失败，按error response调用callback*/
 		if (op->callback)
 			op->callback(BT_ATT_OP_ERROR_RSP, NULL, 0,
 							op->user_data);
@@ -570,7 +589,7 @@ static bool can_write_data(struct io *io, void *user_data)
 	case ATT_OP_TYPE_IND:
 		chan->pending_ind = op;
 		break;
-	case ATT_OP_TYPE_RSP:
+	case ATT_OP_TYPE_RSP:/*以下op,由于不再用到，均可以释放了*/
 		/* Set in_req to false to indicate that no request is pending */
 		chan->in_req = false;
 		/* fall through */
@@ -579,13 +598,14 @@ static bool can_write_data(struct io *io, void *user_data)
 	case ATT_OP_TYPE_CONF:
 	case ATT_OP_TYPE_UNKNOWN:
 	default:
-		destroy_att_send_op(op);
+		destroy_att_send_op(op);/*释放报文*/
 		return true;
 	}
 
 	timeout = new0(struct timeout_data, 1);
 	timeout->chan = chan;
 	timeout->id = op->id;
+	/*添加定时器*/
 	op->timeout_id = timeout_add(ATT_TIMEOUT_INTERVAL, timeout_cb,
 								timeout, free);
 
@@ -593,23 +613,25 @@ static bool can_write_data(struct io *io, void *user_data)
 	return true;
 }
 
+/*唤醒channel的write,用于发送此channel上挂接的op*/
 static void wakeup_chan_writer(void *data, void *user_data)
 {
 	struct bt_att_chan *chan = data;
 	struct bt_att *att = chan->att;
 
 	if (chan->writer_active)
-		return;
+		return;/*已被唤醒不处理，直接返回*/
 
 	/* Set the write handler only if there is anything that can be sent
 	 * at all.
 	 */
-	if (queue_isempty(chan->queue) && queue_isempty(att->write_queue)) {
+	if (queue_isempty(chan->queue) /*队列为空*/&& queue_isempty(att->write_queue)) {
 		if ((chan->pending_req || queue_isempty(att->req_queue)) &&
 			(chan->pending_ind || queue_isempty(att->ind_queue)))
 			return;
 	}
 
+	/*设置write handler,用于实现chan->queue上元素发送*/
 	if (!io_set_write_handler(chan->io, can_write_data, chan,
 							write_watch_destroy))
 		return;
@@ -617,6 +639,7 @@ static void wakeup_chan_writer(void *data, void *user_data)
 	chan->writer_active = true;
 }
 
+/*唤醒所有channel*/
 static void wakeup_writer(struct bt_att *att)
 {
 	queue_foreach(att->chans, wakeup_chan_writer, NULL);
@@ -914,7 +937,7 @@ struct notify_data {
 
 static bool opcode_match(uint8_t opcode, uint8_t test_opcode)
 {
-	enum att_op_type op_type = get_op_type(test_opcode);
+	enum att_op_type op_type = get_op_type(test_opcode);/*opcode类型*/
 
 	if (opcode == BT_ATT_ALL_REQUESTS && (op_type == ATT_OP_TYPE_REQ ||
 						op_type == ATT_OP_TYPE_CMD))
@@ -969,28 +992,31 @@ fail:
 	return false;
 }
 
+/*收到pud,pdu长pdu_len,触发notify回调*/
 static void handle_notify(struct bt_att_chan *chan, uint8_t *pdu,
 							ssize_t pdu_len)
 {
 	struct bt_att *att = chan->att;
 	const struct queue_entry *entry;
 	bool found;
-	uint8_t opcode = pdu[0];
+	uint8_t opcode = pdu[0];/*取pud对应的opcode*/
 
 	bt_att_ref(att);
 
 	found = false;
 	entry = queue_get_entries(att->notify_list);
 
+	/*遍历notify list*/
 	while (entry) {
 		struct att_notify *notify = entry->data;
 
 		entry = entry->next;
 
 		if (!opcode_match(notify->opcode, opcode))
-			continue;
+			continue;/*跳过opcode不匹配的*/
 
 		if ((opcode & ATT_OP_SIGNED_MASK) && att->crypto) {
+			/*校验签名*/
 			if (!handle_signed(att, pdu, pdu_len))
 				return;
 			pdu_len -= BT_ATT_SIGNATURE_LEN;
@@ -1015,6 +1041,7 @@ static void handle_notify(struct bt_att_chan *chan, uint8_t *pdu,
 
 		found = true;
 
+		/*触发callback*/
 		if (notify->callback)
 			notify->callback(chan, chan->mtu, opcode,
 						pdu + 1, pdu_len - 1,
@@ -1031,11 +1058,13 @@ not_supported:
 	 * respond with "Not Supported"
 	 */
 	if (!found && get_op_type(opcode) != ATT_OP_TYPE_CMD)
+		/*没有找到，且非cmd,响应不支持此opcode*/
 		respond_not_supported(att, opcode);
 
 	bt_att_unref(att);
 }
 
+/*负责处理收到的att pdu*/
 static bool can_read_data(struct io *io, void *user_data)
 {
 	struct bt_att_chan *chan = user_data;
@@ -1044,19 +1073,21 @@ static bool can_read_data(struct io *io, void *user_data)
 	uint8_t *pdu;
 	ssize_t bytes_read;
 
+	/*读取内容*/
 	bytes_read = read(chan->fd, chan->buf, chan->mtu);
 	if (bytes_read < 0)
 		return false;
 
 	VERBOSE(att, "(chan %p) ATT received: %zd", chan, bytes_read);
 
+	/*显示收到的数据*/
 	att_hexdump(att, '>', chan->buf, bytes_read);
 
 	if (bytes_read < ATT_MIN_PDU_LEN)
-		return true;
+		return true;/*收到的数据长度有误*/
 
 	pdu = chan->buf;
-	opcode = pdu[0];
+	opcode = pdu[0];/*取opcode*/
 
 	bt_att_ref(att);
 
@@ -1065,11 +1096,13 @@ static bool can_read_data(struct io *io, void *user_data)
 	case ATT_OP_TYPE_RSP:
 		VERBOSE(att, "(chan %p) ATT response received: 0x%02x",
 				chan, opcode);
+		/*处理响应报文*/
 		handle_rsp(chan, opcode, pdu + 1, bytes_read - 1);
 		break;
 	case ATT_OP_TYPE_CONF:
 		VERBOSE(att, "(chan %p) ATT confirmation received: 0x%02x",
 				chan, opcode);
+		/*收到确认报文*/
 		handle_conf(chan, pdu + 1, bytes_read - 1);
 		break;
 	case ATT_OP_TYPE_REQ:
@@ -1079,6 +1112,7 @@ static bool can_read_data(struct io *io, void *user_data)
 		 * promptly notify the upper layer via disconnect handlers.
 		 */
 		if (chan->in_req) {
+			/*正在处理其它请求，断连*/
 			DBG(att, "(chan %p) Received request while "
 					"another is pending: 0x%02x",
 					chan, opcode);
@@ -1088,7 +1122,7 @@ static bool can_read_data(struct io *io, void *user_data)
 			return false;
 		}
 
-		chan->in_req = true;
+		chan->in_req = true;/*标明有请求处理中*/
 		/* fall through */
 	case ATT_OP_TYPE_CMD:
 	case ATT_OP_TYPE_NFY:
@@ -1101,7 +1135,7 @@ static bool can_read_data(struct io *io, void *user_data)
 		 */
 		DBG(att, "(chan %p) ATT PDU received: 0x%02x", chan,
 							opcode);
-		handle_notify(chan, pdu, bytes_read);
+		handle_notify(chan, pdu, bytes_read);/*处理以上几种操作类型*/
 		break;
 	}
 
@@ -1132,7 +1166,7 @@ static bool is_io_l2cap_based(int fd)
 	if (err < 0)
 		return false;
 
-	return proto == BTPROTO_L2CAP;
+	return proto == BTPROTO_L2CAP;/*检查socket fd的proto是否为l2cap*/
 }
 
 static void bt_att_free(struct bt_att *att)
@@ -1180,7 +1214,7 @@ static uint8_t io_get_type(int fd)
 	socklen_t len;
 
 	if (!is_io_l2cap_based(fd))
-		return BT_ATT_LOCAL;
+		return BT_ATT_LOCAL;/*采用的非l2cap协议*/
 
 	len = sizeof(src);
 	memset(&src, 0, len);
@@ -1188,11 +1222,12 @@ static uint8_t io_get_type(int fd)
 		return -errno;
 
 	if (src.l2_bdaddr_type == BDADDR_BREDR)
-		return BT_ATT_BREDR;
+		return BT_ATT_BREDR;/*本端采用BR/EDR模式*/
 
-	return BT_ATT_LE;
+	return BT_ATT_LE;/*本端采用LE模式*/
 }
 
+/*利用fd创建bt_att_chan,指定att socket读回调*/
 static struct bt_att_chan *bt_att_chan_new(int fd, uint8_t type)
 {
 	struct bt_att_chan *chan;
@@ -1207,10 +1242,10 @@ static struct bt_att_chan *bt_att_chan_new(int fd, uint8_t type)
 	if (!chan->io)
 		goto fail;
 
-	if (!io_set_read_handler(chan->io, can_read_data, chan, NULL))
+	if (!io_set_read_handler(chan->io, can_read_data/*att socket读回调*/, chan, NULL))
 		goto fail;
 
-	if (!io_set_disconnect_handler(chan->io, disconnect_cb, chan, NULL))
+	if (!io_set_disconnect_handler(chan->io, disconnect_cb/*断开连接用回调*/, chan, NULL))
 		goto fail;
 
 	chan->type = type;
@@ -1417,7 +1452,7 @@ bool bt_att_set_mtu(struct bt_att *att, uint16_t mtu)
 		return false;
 
 	if (mtu < BT_ATT_DEFAULT_LE_MTU)
-		return false;
+		return false;/*mtu取值过小*/
 
 	/* Original channel is always the last */
 	chan = queue_peek_tail(att->chans);
@@ -1583,6 +1618,7 @@ bool bt_att_unregister_exchange(struct bt_att *att, unsigned int id)
 	return true;
 }
 
+/*触发write发送op*/
 unsigned int bt_att_send(struct bt_att *att, uint8_t opcode,
 				const void *pdu, uint16_t length,
 				bt_att_response_func_t callback, void *user_data,
@@ -1594,6 +1630,7 @@ unsigned int bt_att_send(struct bt_att *att, uint8_t opcode,
 	if (!att || queue_isempty(att->chans))
 		return 0;
 
+	/*构造op*/
 	op = create_att_send_op(att, opcode, pdu, length, callback, user_data,
 								destroy);
 	if (!op)
@@ -1615,7 +1652,7 @@ unsigned int bt_att_send(struct bt_att *att, uint8_t opcode,
 	/* Add the op to the correct queue based on its type */
 	switch (op->type) {
 	case ATT_OP_TYPE_REQ:
-		result = queue_push_tail(att->req_queue, op);
+		result = queue_push_tail(att->req_queue, op);/*加入到req列表*/
 		break;
 	case ATT_OP_TYPE_IND:
 		result = queue_push_tail(att->ind_queue, op);
@@ -1637,7 +1674,7 @@ done:
 		return 0;
 	}
 
-	wakeup_writer(att);
+	wakeup_writer(att);/*唤醒write*/
 
 	return op->id;
 }
@@ -1701,10 +1738,10 @@ int bt_att_resend(struct bt_att *att, unsigned int id, uint8_t opcode,
 	return 0;
 }
 
-unsigned int bt_att_chan_send(struct bt_att_chan *chan, uint8_t opcode,
-				const void *pdu, uint16_t len,
+unsigned int bt_att_chan_send(struct bt_att_chan *chan, uint8_t opcode/*属性opcode*/,
+				const void *pdu/*报文内容*/, uint16_t len/*报文长度*/,
 				bt_att_response_func_t callback,
-				void *user_data,
+				void *user_data/*回调参数*/,
 				bt_att_destroy_func_t destroy)
 {
 	struct att_send_op *op;
@@ -1712,17 +1749,20 @@ unsigned int bt_att_chan_send(struct bt_att_chan *chan, uint8_t opcode,
 	if (!chan || !chan->att)
 		return -EINVAL;
 
+	/*构建报文*/
 	op = create_att_send_op(chan->att, opcode, pdu, len, callback,
 						user_data, destroy);
 	if (!op)
 		return -EINVAL;
 
+	/*op入队*/
 	if (!queue_push_tail(chan->queue, op)) {
 		free(op->pdu);
 		free(op);
 		return 0;
 	}
 
+	/*唤醒发送*/
 	wakeup_chan_writer(chan, NULL);
 
 	return op->id;
@@ -1861,6 +1901,7 @@ bool bt_att_cancel_all(struct bt_att *att)
 	return true;
 }
 
+/*错误码转换为att ecode*/
 static uint8_t att_ecode_from_error(int err)
 {
 	/*
@@ -1889,6 +1930,7 @@ static uint8_t att_ecode_from_error(int err)
 	return BT_ATT_ERROR_UNLIKELY;
 }
 
+/*发送error response*/
 int bt_att_chan_send_error_rsp(struct bt_att_chan *chan, uint8_t opcode,
 						uint16_t handle, int error)
 {
@@ -1902,17 +1944,20 @@ int bt_att_chan_send_error_rsp(struct bt_att_chan *chan, uint8_t opcode,
 
 	memset(&pdu, 0, sizeof(pdu));
 
+	/*提供request错误状态及原因*/
 	pdu.opcode = opcode;
+	//The attribute handle that generated this ATT_ER- ROR_RSP PDU
 	put_le16(handle, &pdu.handle);
-	pdu.ecode = ecode;
+	pdu.ecode = ecode;/*错误原因*/
 
 	return bt_att_chan_send_rsp(chan, BT_ATT_OP_ERROR_RSP, &pdu,
 							sizeof(pdu));
 }
 
+/*注册opcode对应的处理回调到notify_list*/
 unsigned int bt_att_register(struct bt_att *att, uint8_t opcode,
 						bt_att_notify_func_t callback,
-						void *user_data,
+						void *user_data/*回调函数参数*/,
 						bt_att_destroy_func_t destroy)
 {
 	struct att_notify *notify;
@@ -1931,6 +1976,7 @@ unsigned int bt_att_register(struct bt_att *att, uint8_t opcode,
 
 	notify->id = att->next_reg_id++;
 
+	/*加入到notify_list*/
 	if (!queue_push_tail(att->notify_list, notify)) {
 		free(notify);
 		return 0;

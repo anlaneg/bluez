@@ -949,6 +949,7 @@ int hci_devid(const char *str)
 		if (hci_devba(id, &ba) < 0)
 			return -1;
 	} else {
+		/*转换为地址，并检查所有设备，检查哪个设备与所给地址相同*/
 		errno = ENODEV;
 		str2ba(str, &ba);
 		id = hci_for_each_dev(HCI_UP, __same_bdaddr, (long) &ba);

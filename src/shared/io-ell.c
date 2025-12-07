@@ -274,6 +274,7 @@ bool io_set_disconnect_handler(struct io *io, io_callback_func_t callback,
 	return result;
 }
 
+/*将iov指向的内容发送出*/
 ssize_t io_send(struct io *io, const struct iovec *iov, int iovcnt)
 {
 	ssize_t ret;
@@ -282,11 +283,12 @@ ssize_t io_send(struct io *io, const struct iovec *iov, int iovcnt)
 	if (!io || !io->l_io)
 		return -ENOTCONN;
 
-	fd = l_io_get_fd(io->l_io);
+	fd = l_io_get_fd(io->l_io);/*取io对应的fd*/
 	if (fd < 0)
 		return -ENOTCONN;
 
 	do {
+		/*写内容*/
 		ret = writev(fd, iov, iovcnt);
 	} while (ret < 0 && errno == EINTR);
 

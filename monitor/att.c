@@ -55,9 +55,9 @@ struct att_read {
 };
 
 struct att_conn_data {
-	struct gatt_db *ldb;
+	struct gatt_db *ldb;/*本端db*/
 	struct timespec ldb_mtim;
-	struct gatt_db *rdb;
+	struct gatt_db *rdb;/*对端db*/
 	struct timespec rdb_mtim;
 	struct queue *reads;
 	uint16_t mtu;
@@ -123,14 +123,17 @@ static struct att_read *att_get_read(const struct l2cap_frame *frame)
 	struct packet_conn_data *conn;
 	struct att_conn_data *data;
 
+	/*利用frame->handle查找packet_conn_data*/
 	conn = packet_get_conn_data(frame->handle);
 	if (!conn)
 		return NULL;
 
+	/*再依据packet_conn_data获得att_conn_data*/
 	data = conn->data;
 	if (!data)
 		return NULL;
 
+	/*再遍历reads链表*/
 	return queue_remove_if(data->reads, match_read_frame, (void *)frame);
 }
 
@@ -446,6 +449,7 @@ static void att_conn_data_free(struct packet_conn_data *conn, void *data)
 	free(att_data);
 }
 
+/*利用packet_conn_data获取其对应的att_conn_data*/
 static struct att_conn_data *att_get_conn_data(struct packet_conn_data *conn)
 {
 	struct att_conn_data *data;
@@ -456,8 +460,9 @@ static struct att_conn_data *att_get_conn_data(struct packet_conn_data *conn)
 	data = conn->data;
 
 	if (data)
-		return data;
+		return data;/*已存在，直接返回*/
 
+	/*不存在，创建并返回*/
 	data = new0(struct att_conn_data, 1);
 	data->rdb = gatt_db_new();
 	data->ldb = gatt_db_new();
@@ -484,7 +489,7 @@ static void gatt_load_db(struct gatt_db *db, const char *filename,
 		gatt_db_clear(db);
 	}
 
-	*mtim = st.st_mtim;
+	*mtim = st.st_mtim;/*记录文件修改时间*/
 
 	btd_settings_gatt_db_load(db, filename);
 }
@@ -507,6 +512,7 @@ static void load_gatt_db(struct packet_conn_data *conn)
 		ba2str((bdaddr_t *)conn->dst, peer);
 	}
 
+	/*构造attributes文件名称，并加载此文件*/
 	create_filename(filename, PATH_MAX, "/%s/attributes", local);
 	gatt_load_db(data->ldb, filename, &data->ldb_mtim);
 
@@ -529,17 +535,19 @@ static struct gatt_db *get_db(const struct l2cap_frame *frame, bool rsp)
 	struct att_conn_data *data;
 	struct gatt_db *db;
 
+	/*通过handle查找connect*/
 	conn = packet_get_conn_data(frame->handle);
 	if (!conn)
 		return NULL;
 
 	/* Try loading local and remote gatt_db if not loaded yet */
-	load_gatt_db(conn);
+	load_gatt_db(conn);/*加载db*/
 
 	data = conn->data;
 	if (!data)
 		return NULL;
 
+	/*按方向及是否response确定要使用的db*/
 	if (frame->in) {
 		if (rsp)
 			db = data->rdb;
@@ -576,8 +584,10 @@ static int bt_uuid_from_data(bt_uuid_t *uuid, const void *data, uint16_t size)
 	uint128_t u128;
 
 	if (!uuid)
+		/*无效参数*/
 		return -EINVAL;
 
+	/*按size长度填充uuid*/
 	switch (size) {
 	case 2:
 		return bt_uuid16_create(uuid, get_le16(data));
@@ -588,32 +598,36 @@ static int bt_uuid_from_data(bt_uuid_t *uuid, const void *data, uint16_t size)
 		return bt_uuid128_create(uuid, u128);
 	}
 
-	return -EINVAL;
+	return -EINVAL;/*其它无效长度*/
 }
 
-static bool svc_read(const struct l2cap_frame *frame, uint16_t *start,
-			uint16_t *end, bt_uuid_t *uuid)
+static bool svc_read(const struct l2cap_frame *frame, uint16_t *start/*出参*/,
+			uint16_t *end, bt_uuid_t *uuid/*出参*/)
 {
+	/*读取start*/
 	if (!l2cap_frame_get_le16((void *)frame, start))
 		return false;
 
+	/*再读取end*/
 	if (!l2cap_frame_get_le16((void *)frame, end))
 		return false;
 
+	/*剩余内容为uuid*/
 	return !bt_uuid_from_data(uuid, frame->data, frame->size);
 }
 
 static struct gatt_db_attribute *insert_svc(const struct l2cap_frame *frame,
 						uint16_t handle,
-						bt_uuid_t *uuid, bool primary,
+						bt_uuid_t *uuid/*service uuid编号*/, bool primary,
 						bool rsp, uint16_t num_handles)
 {
 	struct gatt_db *db;
 
-	db = get_db(frame, rsp);
+	db = get_db(frame, rsp);/*查找db*/
 	if (!db)
 		return NULL;
 
+	/*向db中添加service*/
 	return gatt_db_insert_service(db, handle, uuid, primary, num_handles);
 }
 
@@ -622,6 +636,7 @@ static void pri_svc_read(const struct l2cap_frame *frame)
 	uint16_t start, end;
 	bt_uuid_t uuid;
 
+	/*读取报文内容，解出start,end,uuid*/
 	if (!svc_read(frame, &start, &end, &uuid))
 		return;
 
@@ -4079,6 +4094,7 @@ static const struct gatt_handler {
 	void (*write)(const struct l2cap_frame *frame);
 	void (*notify)(const struct l2cap_frame *frame);
 } gatt_handlers[] = {
+		/*定义各uuid对应的read,write,notify函数*/
 	GATT_HANDLER(0x2800, pri_svc_read, NULL, NULL),
 	GATT_HANDLER(0x2801, sec_svc_read, NULL, NULL),
 	GATT_HANDLER(0x2803, chrc_read, NULL, NULL),
@@ -4147,6 +4163,7 @@ static const struct gatt_handler {
 	GMAS
 };
 
+/*通过uuid查找gatt_handler*/
 static const struct gatt_handler *get_handler_uuid(const bt_uuid_t *uuid)
 {
 	size_t i;
@@ -4158,6 +4175,7 @@ static const struct gatt_handler *get_handler_uuid(const bt_uuid_t *uuid)
 		const struct gatt_handler *handler = &gatt_handlers[i];
 
 		if (!bt_uuid_cmp(&handler->uuid, uuid))
+			/*两者uuid相等，返回其对应的handler*/
 			return handler;
 	}
 
@@ -4335,11 +4353,11 @@ static struct gatt_db_attribute *get_attribute(const struct l2cap_frame *frame,
 {
 	struct gatt_db *db;
 
-	db = get_db(frame, rsp);
+	db = get_db(frame, rsp);/*确定db*/
 	if (!db)
 		return NULL;
 
-	return gatt_db_get_attribute(db, handle);
+	return gatt_db_get_attribute(db, handle);/*返回此service对应的首个attribute*/
 }
 
 static void queue_read(const struct l2cap_frame *frame, bt_uuid_t *uuid,
@@ -4352,11 +4370,13 @@ static void queue_read(const struct l2cap_frame *frame, bt_uuid_t *uuid,
 	const struct gatt_handler *handler;
 
 	if (handle) {
+		/*利用handle查询attr*/
 		attr = get_attribute(frame, handle, false);
 		if (!attr)
 			return;
 	}
 
+	/*利用uuid确定其对应的handler*/
 	handler = attr ? get_handler(attr) : get_handler_uuid(uuid);
 
 	conn = packet_get_conn_data(frame->handle);
@@ -4367,6 +4387,7 @@ static void queue_read(const struct l2cap_frame *frame, bt_uuid_t *uuid,
 	if (!data->reads)
 		data->reads = queue_new();
 
+	/*创建att read*/
 	read = new0(struct att_read, 1);
 	read->conn = data;
 	read->attr = attr;
@@ -4410,11 +4431,12 @@ static void print_handle(const struct l2cap_frame *frame, uint16_t handle,
 
 	attr = get_attribute(frame, handle, rsp);
 	if (!attr) {
+		/*未查询到此attr*/
 		print_field("Handle: 0x%4.4x", handle);
 		return;
 	}
 
-	print_attribute(attr);
+	print_attribute(attr);/*显示attr*/
 }
 
 static void att_read_req(const struct l2cap_frame *frame)
@@ -4422,10 +4444,10 @@ static void att_read_req(const struct l2cap_frame *frame)
 	const struct bt_l2cap_att_read_req *pdu = frame->data;
 	uint16_t handle;
 
-	l2cap_frame_pull((void *)frame, frame, sizeof(*pdu));
+	l2cap_frame_pull((void *)frame, frame, sizeof(*pdu));/*data前移*/
 
 	handle = le16_to_cpu(pdu->handle);
-	print_handle(frame, handle, false);
+	print_handle(frame, handle, false);/*显示此handle*/
 
 	queue_read(frame, NULL, handle);
 }
@@ -4452,7 +4474,7 @@ static void att_read_func(struct att_read *read,
 		f.data = read->iov->iov_base;
 		f.size = read->iov->iov_len;
 
-		read->func(&f);
+		read->func(&f);/*属性读取*/
 	}
 
 	att_read_free(read);
@@ -4487,11 +4509,13 @@ static void att_read_blob_req(const struct l2cap_frame *frame)
 	uint16_t handle, offset;
 	struct att_read *read;
 
+	/*取handle*/
 	if (!l2cap_frame_get_le16((void *)frame, &handle)) {
 		print_text(COLOR_ERROR, "invalid size");
 		return;
 	}
 
+	/*取offset*/
 	if (!l2cap_frame_get_le16((void *)frame, &offset)) {
 		print_text(COLOR_ERROR, "invalid size");
 		return;
@@ -4774,7 +4798,7 @@ static void att_signed_write_command(const struct l2cap_frame *frame)
 
 struct att_opcode_data {
 	uint8_t opcode;
-	const char *str;
+	const char *str;/*opcode对应的字符串形式*/
 	void (*func) (const struct l2cap_frame *frame);
 	uint8_t size;
 	bool fixed;
@@ -4843,6 +4867,7 @@ static const struct att_opcode_data att_opcode_table[] = {
 	{ }
 };
 
+/*返回操作码对应的字符串形式*/
 static const char *att_opcode_to_str(uint8_t opcode)
 {
 	int i;
@@ -4859,17 +4884,19 @@ void att_packet(uint16_t index, bool in, uint16_t handle, uint16_t cid,
 					const void *data, uint16_t size)
 {
 	struct l2cap_frame frame;
-	uint8_t opcode = *((const uint8_t *) data);
+	uint8_t opcode = *((const uint8_t *) data);/*取opcode*/
 	const struct att_opcode_data *opcode_data = NULL;
 	const char *opcode_color, *opcode_str;
 	int i;
 
 	if (size < 1) {
+		/*报文长度较小*/
 		print_text(COLOR_ERROR, "malformed attribute packet");
 		packet_hexdump(data, size);
 		return;
 	}
 
+	/*查找此opcode对应的opcode_data*/
 	for (i = 0; att_opcode_table[i].str; i++) {
 		if (att_opcode_table[i].opcode == opcode) {
 			opcode_data = &att_opcode_table[i];
@@ -4887,6 +4914,7 @@ void att_packet(uint16_t index, bool in, uint16_t handle, uint16_t cid,
 			opcode_color = COLOR_WHITE_BG;
 		opcode_str = opcode_data->str;
 	} else {
+		/*不认识的opcode*/
 		opcode_color = COLOR_WHITE_BG;
 		opcode_str = "Unknown";
 	}

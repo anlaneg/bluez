@@ -645,6 +645,7 @@ static struct option main_options[] = {
 	{ }
 };
 
+/*监听并accept新的socket*/
 static int l2cap_le_att_listen_and_accept(bdaddr_t *src, int sec,
 							uint8_t src_type)
 {
@@ -654,6 +655,7 @@ static int l2cap_le_att_listen_and_accept(bdaddr_t *src, int sec,
 	struct bt_security btsec;
 	char ba[18];
 
+	/*创建l2cap socket*/
 	sk = socket(PF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_L2CAP);
 	if (sk < 0) {
 		perror("Failed to create L2CAP socket");
@@ -667,6 +669,7 @@ static int l2cap_le_att_listen_and_accept(bdaddr_t *src, int sec,
 	srcaddr.l2_bdaddr_type = src_type;
 	bacpy(&srcaddr.l2_bdaddr, src);
 
+	/*绑定设备*/
 	if (bind(sk, (struct sockaddr *) &srcaddr, sizeof(srcaddr)) < 0) {
 		perror("Failed to bind L2CAP socket");
 		goto fail;
@@ -677,10 +680,12 @@ static int l2cap_le_att_listen_and_accept(bdaddr_t *src, int sec,
 	btsec.level = sec;
 	if (setsockopt(sk, SOL_BLUETOOTH, BT_SECURITY, &btsec,
 							sizeof(btsec)) != 0) {
+		/*设置security level失败*/
 		fprintf(stderr, "Failed to set L2CAP security level\n");
 		goto fail;
 	}
 
+	/*监听此socket*/
 	if (listen(sk, 10) < 0) {
 		perror("Listening on socket failed");
 		goto fail;
@@ -690,7 +695,7 @@ static int l2cap_le_att_listen_and_accept(bdaddr_t *src, int sec,
 
 	memset(&addr, 0, sizeof(addr));
 	optlen = sizeof(addr);
-	nsk = accept(sk, (struct sockaddr *) &addr, &optlen);
+	nsk = accept(sk, (struct sockaddr *) &addr, &optlen);/*接入新的socket*/
 	if (nsk < 0) {
 		perror("Accept failed");
 		goto fail;
@@ -1146,7 +1151,7 @@ int main(int argc, char *argv[])
 						main_options, NULL)) != -1) {
 		switch (opt) {
 		case 'h':
-			usage();
+			usage();/*显示帮助*/
 			return EXIT_SUCCESS;
 		case 'v':
 			verbose = true;
@@ -1155,6 +1160,7 @@ int main(int argc, char *argv[])
 			hr_visible = true;
 			break;
 		case 's':
+			/*设置security level*/
 			if (strcmp(optarg, "low") == 0)
 				sec = BT_SECURITY_LOW;
 			else if (strcmp(optarg, "medium") == 0)
@@ -1167,6 +1173,7 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 't':
+			/*设置源地址类型*/
 			if (strcmp(optarg, "random") == 0)
 				src_type = BDADDR_LE_RANDOM;
 			else if (strcmp(optarg, "public") == 0)
@@ -1180,6 +1187,7 @@ int main(int argc, char *argv[])
 		case 'm': {
 			int arg;
 
+			/*设置mtu*/
 			arg = atoi(optarg);
 			if (arg <= 0) {
 				fprintf(stderr, "Invalid MTU: %d\n", arg);
@@ -1195,6 +1203,7 @@ int main(int argc, char *argv[])
 			break;
 		}
 		case 'i':
+			/*设置设备id*/
 			dev_id = hci_devid(optarg);
 			if (dev_id < 0) {
 				perror("Invalid adapter");
@@ -1203,6 +1212,7 @@ int main(int argc, char *argv[])
 
 			break;
 		default:
+			/*不认识此选项*/
 			fprintf(stderr, "Invalid option: %c\n", opt);
 			return EXIT_FAILURE;
 		}
@@ -1217,6 +1227,7 @@ int main(int argc, char *argv[])
 		return EXIT_SUCCESS;
 	}
 
+	/*取源地址*/
 	if (dev_id == -1)
 		bacpy(&src_addr, BDADDR_ANY);
 	else if (hci_devba(dev_id, &src_addr) < 0) {
@@ -1224,6 +1235,7 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
+	/*监听att channel*/
 	fd = l2cap_le_att_listen_and_accept(&src_addr, sec, src_type);
 	if (fd < 0) {
 		fprintf(stderr, "Failed to accept L2CAP ATT connection\n");
@@ -1232,6 +1244,7 @@ int main(int argc, char *argv[])
 
 	mainloop_init();
 
+	/*创建server*/
 	server = server_create(fd, mtu, hr_visible);
 	if (!server) {
 		close(fd);
@@ -1251,7 +1264,7 @@ int main(int argc, char *argv[])
 
 	print_prompt();
 
-	mainloop_run_with_signal(signal_cb, NULL);
+	mainloop_run_with_signal(signal_cb, NULL);/*进入loop*/
 
 	printf("\n\nShutting down...\n");
 
