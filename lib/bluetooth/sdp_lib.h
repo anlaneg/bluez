@@ -78,10 +78,10 @@ static inline void sdp_list_foreach(sdp_list_t *list, sdp_list_func_t f, void *u
 typedef struct {
 	int sock;/*socket fd*/
 	int state;
-	int local;/*是否为到本机的连接（当前到本机的连接采用unix socket)*/
-	int flags;
+	int local;/*是否为到本机的连接（当前到本机的连接采用unix socket；远端采用l2cap连接)*/
+	int flags;/*标记，例如SDP_NON_BLOCKING*/
 	uint16_t tid;	/* Current transaction ID */
-	void *priv;
+	void *priv;/*session私有数据，当前为sdp_transaction结构*/
 } sdp_session_t;
 
 typedef enum {

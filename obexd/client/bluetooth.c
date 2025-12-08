@@ -38,11 +38,11 @@
 struct bluetooth_session {
 	guint id;
 	bdaddr_t src;
-	bdaddr_t dst;
+	bdaddr_t dst;/*sdp server地址*/
 	uint16_t port;
-	sdp_session_t *sdp;
+	sdp_session_t *sdp;/*对应的sdp session*/
 	sdp_record_t *sdp_record;
-	GIOChannel *io;
+	GIOChannel *io;/*对应的sdp session fd创建的io对象*/
 	char *service;
 	obc_transport_func func;
 	void *user_data;
@@ -328,8 +328,8 @@ failed:
 	return FALSE;
 }
 
-static sdp_session_t *service_connect(const bdaddr_t *src, const bdaddr_t *dst,
-					GIOFunc function, gpointer user_data)
+static sdp_session_t *service_connect(const bdaddr_t *src/*本端地址*/, const bdaddr_t *dst/*sdp server地址*/,
+					GIOFunc function/*sdp session写回调*/, gpointer user_data/*bluetooth session对象*/)
 {
 	struct bluetooth_session *session = user_data;
 	sdp_session_t *sdp;
@@ -337,22 +337,25 @@ static sdp_session_t *service_connect(const bdaddr_t *src, const bdaddr_t *dst,
 
 	DBG("");
 
+	/*创建SDP session*/
 	sdp = sdp_connect(src, dst, SDP_NON_BLOCKING);
 	if (sdp == NULL)
 		return NULL;
 
+	/*创建sdp session对应的io*/
 	io = g_io_channel_unix_new(sdp_get_socket(sdp));
 	if (io == NULL) {
 		sdp_close(sdp);
 		return NULL;
 	}
 
+	/*注册写操作对应的回调*/
 	g_io_add_watch(io, G_IO_OUT | G_IO_HUP | G_IO_ERR | G_IO_NVAL,
 							function, user_data);
 
 	session->io = io;
 
-	return sdp;
+	return sdp;/*返回创建的sdp session*/
 }
 
 static int session_connect(struct bluetooth_session *session)

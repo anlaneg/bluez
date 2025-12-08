@@ -4767,7 +4767,7 @@ static int sdp_connect_l2cap(const bdaddr_t *src,
 	uint32_t flags = session->flags;
 	struct sockaddr_l2 sa;
 	int sk;
-	int sockflags = SOCK_SEQPACKET | SOCK_CLOEXEC;
+	int sockflags = SOCK_SEQPACKET | SOCK_CLOEXEC;/*创建面向连接的socket*/
 
 	if (flags & SDP_NON_BLOCKING)
 		sockflags |= SOCK_NONBLOCK;
@@ -4807,6 +4807,7 @@ static int sdp_connect_l2cap(const bdaddr_t *src,
 	sa.l2_bdaddr = *dst;
 
 	do {
+		/*与对端建立l2cap连接*/
 		int ret = connect(sk, (struct sockaddr *) &sa, sizeof(sa));
 		if (!ret)
 			return 0;
@@ -4818,8 +4819,9 @@ static int sdp_connect_l2cap(const bdaddr_t *src,
 	return -1;
 }
 
+/*建立sdp_session(创建l2cap连接，连接到SDP_PSM)*/
 sdp_session_t *sdp_connect(const bdaddr_t *src/*源地址*/,
-		const bdaddr_t *dst/*目的地址*/, uint32_t flags)
+		const bdaddr_t *dst/*目的地址*/, uint32_t flags/*session标记*/)
 {
 	sdp_session_t *session;
 	int err;
@@ -4857,6 +4859,7 @@ fail:
 	return NULL;
 }
 
+/*取得sdp session对应的fd*/
 int sdp_get_socket(const sdp_session_t *session)
 {
 	return session->sock;

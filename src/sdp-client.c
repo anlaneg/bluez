@@ -292,7 +292,7 @@ failed:
 
 static int create_search_context(struct search_context **ctxt,
 					const bdaddr_t *src/*源地址*/,
-					const bdaddr_t *dst/*目的地址*/,
+					const bdaddr_t *dst/*目的地址(sdp server对应地址)*/,
 					uuid_t *uuid, uint16_t flags)
 {
 	sdp_session_t *s;
@@ -304,9 +304,10 @@ static int create_search_context(struct search_context **ctxt,
 		/*不得为空*/
 		return -EINVAL;
 
+	/*尝试获取cache的sdp session*/
 	s = get_cached_sdp_session(src, dst);
 	if (!s)
-		/*采用非阻塞方式建立连接，创建sdp session*/
+		/*没有找到，采用非阻塞方式建立连接，创建sdp session*/
 		s = sdp_connect(src, dst, SDP_NON_BLOCKING | flags);
 
 	if (!s)
