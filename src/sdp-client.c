@@ -447,6 +447,7 @@ int bt_cancel_discovery(const bdaddr_t *src, const bdaddr_t *dst)
 	return 0;
 }
 
+/*删除指定的cached sdp session*/
 void bt_clear_cached_session(const bdaddr_t *src, const bdaddr_t *dst)
 {
 	sdp_session_t *session;

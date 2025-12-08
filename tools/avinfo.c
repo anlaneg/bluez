@@ -768,7 +768,7 @@ static ssize_t avdtp_get_caps(int sk, int seid)
 	ssize_t ret;
 
 	memset(&req, 0, sizeof(req));
-	init_request(&req.header, AVDTP_GET_CAPABILITIES);
+	init_request(&req.header, AVDTP_GET_CAPABILITIES);/*发送get capabilities*/
 	req.acp_seid = seid;
 
 	ret = avdtp_send(sk, &req, sizeof(req));
@@ -776,7 +776,7 @@ static ssize_t avdtp_get_caps(int sk, int seid)
 		return ret;
 
 	memset(&buffer, 0, sizeof(buffer));
-	ret = avdtp_receive(sk, caps, sizeof(buffer));
+	ret = avdtp_receive(sk, caps, sizeof(buffer));/*收取响应*/
 	if (ret < 0)
 		return ret;
 
@@ -786,7 +786,7 @@ static ssize_t avdtp_get_caps(int sk, int seid)
 		return -1;
 	}
 
-	print_caps(caps->caps, ret - sizeof(struct getcap_resp));
+	print_caps(caps->caps, ret - sizeof(struct getcap_resp));/*显示收到的信息*/
 
 	return 0;
 }
@@ -802,12 +802,12 @@ static ssize_t avdtp_discover(int sk)
 	memset(&req, 0, sizeof(req));
 	init_request(&req, AVDTP_DISCOVER);
 
-	ret = avdtp_send(sk, &req, sizeof(req));
+	ret = avdtp_send(sk, &req, sizeof(req));/*发送avdtp discover*/
 	if (ret < 0)
 		return ret;
 
 	memset(&buffer, 0, sizeof(buffer));
-	ret = avdtp_receive(sk, discover, sizeof(buffer));
+	ret = avdtp_receive(sk, discover, sizeof(buffer));/*接收*/
 	if (ret < 0)
 		return ret;
 
@@ -842,7 +842,7 @@ static ssize_t avdtp_discover(int sk)
 
 		printf("Stream End-Point #%d: %s %s %s\n",
 					discover->seps[i].seid, media, type,
-					discover->seps[i].inuse ? "*" : "");
+					discover->seps[i].inuse ? "*" : "");/*显示收到的信息*/
 
 		avdtp_get_caps(sk, discover->seps[i].seid);
 	}
@@ -875,7 +875,7 @@ static int l2cap_connect(bdaddr_t *src, bdaddr_t *dst)
 	memset(&l2a, 0, sizeof(l2a));
 	l2a.l2_family = AF_BLUETOOTH;
 	bacpy(&l2a.l2_bdaddr, dst);
-	l2a.l2_psm = htobs(AVDTP_PSM);
+	l2a.l2_psm = htobs(AVDTP_PSM);/*使用avdtp psm*/
 
 	if (connect(sk, (struct sockaddr *) &l2a, sizeof(l2a)) < 0) {
 		printf("Connect failed. %s(%d)\n", strerror(errno), errno);
@@ -913,8 +913,9 @@ int main(int argc, char *argv[])
 	}
 
 	bacpy(&src, BDADDR_ANY);
-	dev_id = hci_get_route(&src);
+	dev_id = hci_get_route(&src);/*找一个可用的设备*/
 	if ((dev_id < 0) || (hci_devba(dev_id, &src) < 0)) {
+		/*取设备源地址失败*/
 		printf("Cannot find any local adapter\n");
 		exit(-1);
 	}
@@ -938,15 +939,17 @@ int main(int argc, char *argv[])
 	printf("Connecting ... \n");
 
 	if (bachk(argv[optind]) < 0) {
+		/*地址有误*/
 		printf("Invalid argument\n");
 		exit(1);
 	}
 
 	str2ba(argv[optind], &dst);
-	sk = l2cap_connect(&src, &dst);
+	sk = l2cap_connect(&src, &dst);/*连接到远端*/
 	if (sk < 0)
 		exit(1);
 
+	/*发送discover及get capabilities并显示输出*/
 	if (avdtp_discover(sk) < 0)
 		exit(1);
 

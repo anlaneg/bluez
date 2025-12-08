@@ -89,6 +89,7 @@ static void analyze_file(const char *pathname)
 		return;
 	}
 
+	/*映射文件*/
 	map = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
 	if (!map || map == MAP_FAILED) {
 		fprintf(stderr, "Failed to map file\n");
@@ -117,6 +118,7 @@ static const struct option main_options[] = {
 	{ }
 };
 
+/*用于显示FW文件*/
 int main(int argc, char *argv[])
 {
 	int i;
@@ -131,12 +133,12 @@ int main(int argc, char *argv[])
 		switch (opt) {
 		case 'v':
 			printf("%s\n", VERSION);
-			return EXIT_SUCCESS;
+			return EXIT_SUCCESS;/*显示版本*/
 		case 'h':
 			usage();
-			return EXIT_SUCCESS;
+			return EXIT_SUCCESS;/*显示帮助信息*/
 		default:
-			return EXIT_FAILURE;
+			return EXIT_FAILURE;/*不支持其它参数*/
 		}
 	}
 

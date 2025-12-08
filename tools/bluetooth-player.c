@@ -55,20 +55,20 @@ int main(int argc, char *argv[])
 	int status;
 
 	bt_shell_init(argc, argv, NULL);
-	bt_shell_set_prompt(PROMPT, NULL);
+	bt_shell_set_prompt(PROMPT, NULL);/*显示提示符*/
 
 	dbus_conn = g_dbus_setup_bus(DBUS_BUS_SYSTEM, NULL, NULL);
 
 	bt_shell_set_env("DBUS_CONNECTION", dbus_conn);
 
-	player_add_submenu();
+	player_add_submenu();/*添加菜单*/
 
 	client = g_dbus_client_new(dbus_conn, "org.bluez", "/org/bluez");
 
 	g_dbus_client_set_connect_watch(client, connect_handler, NULL);
 	g_dbus_client_set_disconnect_watch(client, disconnect_handler, NULL);
 
-	status = bt_shell_run();
+	status = bt_shell_run();/*执行SHELL*/
 
 	player_remove_submenu();
 

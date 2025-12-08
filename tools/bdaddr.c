@@ -322,6 +322,7 @@ static struct option main_options[] = {
 	{ 0, 0, 0, 0 }
 };
 
+/*修改设备地址*/
 int main(int argc, char *argv[])
 {
 	struct hci_dev_info di;
@@ -335,7 +336,7 @@ int main(int argc, char *argv[])
 	while ((opt=getopt_long(argc, argv, "+i:rth", main_options, NULL)) != -1) {
 		switch (opt) {
 		case 'i':
-			dev = hci_devid(optarg);
+			dev = hci_devid(optarg);/*取得hci设备*/
 			if (dev < 0) {
 				perror("Invalid device");
 				exit(1);
@@ -369,6 +370,7 @@ int main(int argc, char *argv[])
 	}
 
 	if (hci_devinfo(dev, &di) < 0) {
+		/*读取devinfo失败*/
 		fprintf(stderr, "Can't get device info for hci%d: %s (%d)\n",
 						dev, strerror(errno), errno);
 		hci_close_dev(dd);
@@ -384,6 +386,7 @@ int main(int argc, char *argv[])
 
 	if (!bacmp(&di.bdaddr, BDADDR_ANY)) {
 		if (hci_read_bd_addr(dd, &bdaddr, 1000) < 0) {
+			/*读取设备地址失败*/
 			fprintf(stderr, "Can't read address for hci%d: %s (%d)\n",
 						dev, strerror(errno), errno);
 			hci_close_dev(dd);
@@ -397,7 +400,7 @@ int main(int argc, char *argv[])
 
 	comp = batocomp(&bdaddr);
 
-	ba2str(&bdaddr, addr);
+	ba2str(&bdaddr, addr);/*显示设备地址*/
 	printf("Device address: %s", addr);
 
 	if (comp) {
@@ -431,6 +434,7 @@ int main(int argc, char *argv[])
 				printf("\n\n");
 
 
+			/*更新设备地址*/
 			if (vendor[i].write_bd_addr(dd, &bdaddr) < 0) {
 				fprintf(stderr, "Can't write new address\n");
 				hci_close_dev(dd);
@@ -439,6 +443,7 @@ int main(int argc, char *argv[])
 
 			printf("Address changed - ");
 
+			/*重启设备*/
 			if (reset && vendor[i].reset_device) {
 				if (vendor[i].reset_device(dd) < 0) {
 					printf("Reset device manually\n");

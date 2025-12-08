@@ -116,7 +116,7 @@ static void generate_rsi(char *val)
 	bt_crypto_ah(crypto, sirk, rsi + 3, hash);
 	memcpy(rsi, hash, 3);
 
-	print_rpa(rsi);
+	print_rpa(rsi);/*显示rsi*/
 }
 
 
@@ -332,7 +332,7 @@ static void scan_features_callback(const void *data, uint8_t size,
 							NULL, NULL, NULL);
 
 	bt_hci_send(scan_dev, BT_HCI_CMD_LE_READ_LOCAL_FEATURES, NULL, 0,
-					scan_le_features_callback, NULL, NULL);
+					scan_le_features_callback, NULL, NULL);/*读取le local features*/
 }
 
 static void read_index_list(uint8_t status, uint16_t len, const void *param,
@@ -381,6 +381,7 @@ static void read_index_list(uint8_t status, uint16_t len, const void *param,
 		return;
 	}
 
+	/*广播设备*/
 	adv_dev = bt_hci_new_user_channel(index1);
 	if (!adv_dev) {
 		fprintf(stderr, "Failed to open HCI for advertiser\n");
@@ -388,6 +389,7 @@ static void read_index_list(uint8_t status, uint16_t len, const void *param,
 		return;
 	}
 
+	/*扫描设备*/
 	scan_dev = bt_hci_new_user_channel(index2);
 	if (!scan_dev) {
 		fprintf(stderr, "Failed to open HCI for scanner\n");
@@ -398,8 +400,10 @@ static void read_index_list(uint8_t status, uint16_t len, const void *param,
 	bt_hci_register(scan_dev, BT_HCI_EVT_LE_META_EVENT,
 					scan_le_meta_event, NULL, NULL);
 
+	/*发送reset*/
 	bt_hci_send(scan_dev, BT_HCI_CMD_RESET, NULL, 0, NULL, NULL, NULL);
 
+	/*发送读取local features*/
 	bt_hci_send(scan_dev, BT_HCI_CMD_READ_LOCAL_FEATURES, NULL, 0,
 					scan_features_callback, NULL, NULL);
 }
@@ -449,10 +453,10 @@ int main(int argc ,char *argv[])
 			return EXIT_SUCCESS;
 		case 'v':
 			printf("%s\n", VERSION);
-			return EXIT_SUCCESS;
+			return EXIT_SUCCESS;/*显示版本号*/
 		case 'h':
 			usage();
-			return EXIT_SUCCESS;
+			return EXIT_SUCCESS;/*显示帮助*/
 		default:
 			return EXIT_FAILURE;
 		}

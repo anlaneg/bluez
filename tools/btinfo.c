@@ -148,10 +148,10 @@ static bool cmd_local(int argc, char *argv[])
 						NULL, NULL, NULL);
 
 	bt_hci_send(hci_dev, BT_HCI_CMD_READ_LOCAL_VERSION, NULL, 0,
-					local_version_callback, NULL, NULL);
+					local_version_callback, NULL, NULL);/*读取本端版本*/
 
 	bt_hci_send(hci_dev, BT_HCI_CMD_READ_LOCAL_FEATURES, NULL, 0,
-					local_features_callback, NULL, NULL);
+					local_features_callback, NULL, NULL);/*读取本端features*/
 
 	return true;
 }
@@ -206,6 +206,7 @@ static const struct option main_options[] = {
 	{ }
 };
 
+/*用法:./btinfo -i 0 -R local*/
 int main(int argc, char *argv[])
 {
 	cmd_func_t func = NULL;
@@ -232,7 +233,7 @@ int main(int argc, char *argv[])
 				usage();
 				return EXIT_FAILURE;
 			}
-			index = atoi(str);
+			index = atoi(str);/*设置设备INDEX*/
 			break;
 		case 'r':
 			reset_on_init = true;
@@ -256,6 +257,7 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
+	/*查找指定的cmd*/
 	for (i = 0; cmd_table[i].name; i++) {
 		if (!strcmp(cmd_table[i].name, argv[optind])) {
 			func = cmd_table[i].func;
@@ -288,6 +290,7 @@ int main(int argc, char *argv[])
 	}
 
 	if (use_raw && !(hci_info.flags & HCI_UP)) {
+		/*设备未up,报错*/
 		printf("Powering on controller\n");
 
 		if (ioctl(fd, HCIDEVUP, hci_info.dev_id) < 0) {
@@ -320,6 +323,7 @@ int main(int argc, char *argv[])
 		reset_on_shutdown = true;
 	}
 
+	/*执行命令*/
 	if (!func(argc - optind - 1, argv + optind + 1)) {
 		bt_hci_unref(hci_dev);
 		return EXIT_FAILURE;

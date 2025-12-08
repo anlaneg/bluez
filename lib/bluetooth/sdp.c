@@ -4094,7 +4094,7 @@ end:
  * 	 0 - if the request has been sent properly
  * 	-1 - On any failure
  */
-int sdp_service_search_attr_async(sdp_session_t *session, const sdp_list_t *search, sdp_attrreq_type_t reqtype, const sdp_list_t *attrid_list)
+int sdp_service_search_attr_async(sdp_session_t *session, const sdp_list_t *search/*查询方式*/, sdp_attrreq_type_t reqtype/*请求类型*/, const sdp_list_t *attrid_list/*属性id*/)
 {
 	struct sdp_transaction *t;
 	sdp_pdu_hdr_t *reqhdr;
@@ -4104,13 +4104,14 @@ int sdp_service_search_attr_async(sdp_session_t *session, const sdp_list_t *sear
 	if (!session || !session->priv)
 		return -1;
 
-	t = session->priv;
+	t = session->priv;/*取得事务*/
 
 	/* clean possible allocated buffer */
 	free(t->rsp_concat_buf.data);
 	memset(&t->rsp_concat_buf, 0, sizeof(sdp_buf_t));
 
 	if (!t->reqbuf) {
+		/*申请请求buf*/
 		t->reqbuf = malloc(SDP_REQ_BUFFER_SIZE);
 		if (!t->reqbuf) {
 			t->err = ENOMEM;
@@ -4119,6 +4120,7 @@ int sdp_service_search_attr_async(sdp_session_t *session, const sdp_list_t *sear
 	}
 	memset(t->reqbuf, 0, SDP_REQ_BUFFER_SIZE);
 
+	/*填充req header*/
 	reqhdr = (sdp_pdu_hdr_t *) t->reqbuf;
 	reqhdr->tid = htons(sdp_gen_tid(session));
 	reqhdr->pdu_id = SDP_SVC_SEARCH_ATTR_REQ;/*属性查询*/

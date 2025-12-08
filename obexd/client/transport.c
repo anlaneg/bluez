@@ -21,8 +21,10 @@
 #include "obexd/src/log.h"
 #include "transport.h"
 
+/*记录系统中注册的所有transport*/
 static GSList *transports = NULL;
 
+/*通过名称查找transport*/
 struct obc_transport *obc_transport_find(const char *name)
 {
 	GSList *l;
@@ -37,6 +39,7 @@ struct obc_transport *obc_transport_find(const char *name)
 	return NULL;
 }
 
+/*注册transport*/
 int obc_transport_register(struct obc_transport *transport)
 {
 	if (!transport) {
@@ -45,6 +48,7 @@ int obc_transport_register(struct obc_transport *transport)
 	}
 
 	if (obc_transport_find(transport->name)) {
+		/*此transport已存在*/
 		error("Permission denied: transport %s already registered",
 							transport->name);
 		return -EPERM;
@@ -52,7 +56,7 @@ int obc_transport_register(struct obc_transport *transport)
 
 	DBG("transport %p name %s registered", transport, transport->name);
 
-	transports = g_slist_append(transports, transport);
+	transports = g_slist_append(transports, transport);/*添加待注册的transport*/
 
 	return 0;
 }

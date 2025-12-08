@@ -87,11 +87,11 @@ struct obc_session {
 	guint id;
 	int refcount;
 	char *source;
-	char *destination;
-	uint8_t channel;
-	uint16_t psm;
-	struct obc_transport *transport;
-	struct obc_driver *driver;
+	char *destination;/*目的地址*/
+	uint8_t channel;/*连接的channel*/
+	uint16_t psm;/*连接的psm*/
+	struct obc_transport *transport;/*对应的TRANSPORT,见bluetooth.c中bluetooth*/
+	struct obc_driver *driver;/*service对应的DRIVER*/
 	char *path;		/* Session path */
 	DBusConnection *conn;
 	GObex *obex;
@@ -478,6 +478,7 @@ static struct obc_session *session_find(const char *source,
 {
 	GSList *l;
 
+	/*遍历所有session,检查是否已存在相应的obc_session*/
 	for (l = sessions; l; l = l->next) {
 		struct obc_session *session = l->data;
 
@@ -547,7 +548,7 @@ static int session_connect(struct obc_session *session,
 	}
 
 	session->id = transport->connect(session->source, session->destination,
-			driver->uuid,
+			driver->uuid/*服务对应的uuid*/,
 			session->channel ? session->channel : session->psm,
 			transport_func, callback);
 	if (session->id == 0) {
@@ -563,7 +564,7 @@ static int session_connect(struct obc_session *session,
 
 struct obc_session *obc_session_create(const char *source,
 						const char *destination,
-						const char *service,
+						const char *service/*服务uuid*/,
 						uint8_t channel,
 						uint16_t psm,
 						const char *owner,
@@ -581,14 +582,14 @@ struct obc_session *obc_session_create(const char *source,
 	session = session_find(source, destination, service, channel, psm,
 				owner);
 	if (session != NULL)
-		goto proceed;
+		goto proceed;/*已有相应的session*/
 
 	/* FIXME: Do proper transport lookup when the API supports it */
-	transport = obc_transport_find("Bluetooth");
+	transport = obc_transport_find("Bluetooth");/*取transport bluetooth,变量bluetooth*/
 	if (transport == NULL)
 		return NULL;
 
-	driver = obc_driver_find(service);
+	driver = obc_driver_find(service);/*查找此server对应的driver*/
 	if (driver == NULL)
 		return NULL;
 

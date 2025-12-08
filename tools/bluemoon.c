@@ -875,14 +875,14 @@ static void analyze_firmware(const char *path)
 		return;
 	}
 
-	firmware_data = malloc(st.st_size);
+	firmware_data = malloc(st.st_size);/*取文件大小*/
 	if (!firmware_data) {
 		fprintf(stderr, "Failed to allocate firmware buffer\n");
 		close(fd);
 		return;
 	}
 
-	len = read(fd, firmware_data, st.st_size);
+	len = read(fd, firmware_data, st.st_size);/*读取所有内容*/
 	if (len < 0) {
 		fprintf(stderr, "Failed to read firmware file\n");
 		close(fd);
@@ -905,13 +905,13 @@ static void analyze_firmware(const char *path)
 
 	if (!strncmp(ext, ".ddc", 4)) {
 		printf("Firmware file type: DDC file\n\n");
-		cmd_num = analyze_ddc(firmware_data, len);
+		cmd_num = analyze_ddc(firmware_data, len);/*分析ddc文件*/
 		printf("Total DDC:\t%d\n", cmd_num);
 		goto done;
 
 	} else if (!strncmp(ext, ".bseq", 5)) {
 		printf("Firmware file type: BSEQ file\n\n");
-		analyze_firmware_bseq(firmware_data, len);
+		analyze_firmware_bseq(firmware_data, len);/*分析bseq文件*/
 		goto done;
 
 	} else if (!strncmp(ext, ".sfi", 4))
@@ -1133,6 +1133,7 @@ int main(int argc, char *argv[])
 	printf("Bluemoon configuration utility ver %s\n", VERSION);
 
 	if (check_firmware) {
+		/*分析fw文件*/
 		analyze_firmware(check_firmware_value);
 		return EXIT_SUCCESS;
 	}
@@ -1152,7 +1153,7 @@ int main(int argc, char *argv[])
 	}
 
 	bt_hci_send(hci_dev, CMD_READ_VERSION, NULL, 0,
-					read_version_complete, NULL, NULL);
+					read_version_complete, NULL, NULL);/*读取版本号*/
 
 	exit_status = mainloop_run_with_signal(signal_callback, NULL);
 

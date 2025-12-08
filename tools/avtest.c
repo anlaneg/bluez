@@ -190,12 +190,14 @@ static void dump_avctp_header(struct avctp_header *hdr)
 			hdr->packet_type, hdr->cr, hdr->ipid, ntohs(hdr->pid));
 }
 
+/*显示avdtp header*/
 static void dump_avdtp_header(struct avdtp_header *hdr)
 {
 	printf("TL %d PT %d MT %d SI %d\n", hdr->transaction,
 			hdr->packet_type, hdr->message_type, hdr->signal_id);
 }
 
+/*显示读取到的内容*/
 static void dump_buffer(const unsigned char *buf, int len)
 {
 	int i;
@@ -205,7 +207,7 @@ static void dump_buffer(const unsigned char *buf, int len)
 	printf("\n");
 }
 
-static void process_avdtp(int srv_sk, int sk, unsigned char reject,
+static void process_avdtp(int srv_sk, int sk, unsigned char reject/*要拒绝的消息类型*/,
 								int fragment,
 								int reject_code)
 {
@@ -215,7 +217,7 @@ static void process_avdtp(int srv_sk, int sk, unsigned char reject,
 	while (1) {
 		struct avdtp_header *hdr = (void *) buf;
 
-		len = read(sk, buf, sizeof(buf));
+		len = read(sk, buf, sizeof(buf));/*读取内容*/
 		if (len <= 0) {
 			perror("Read failed");
 			break;
@@ -225,11 +227,13 @@ static void process_avdtp(int srv_sk, int sk, unsigned char reject,
 		dump_avdtp_header(hdr);
 
 		if (hdr->packet_type != AVDTP_PKT_TYPE_SINGLE) {
+			/*报文类型非single,当前不支持*/
 			fprintf(stderr, "Only single packets are supported\n");
 			break;
 		}
 
 		if (hdr->message_type != AVDTP_MSG_TYPE_COMMAND) {
+			/*收到的消息类型不为command,当前不支持*/
 			fprintf(stderr, "Ignoring non-command messages\n");
 			continue;
 		}
@@ -237,11 +241,13 @@ static void process_avdtp(int srv_sk, int sk, unsigned char reject,
 		switch (hdr->signal_id) {
 		case AVDTP_DISCOVER:
 			if (reject == AVDTP_DISCOVER) {
+				/*如果指明需要拒绝此消息,则响应reject*/
 				hdr->message_type = AVDTP_MSG_TYPE_REJECT;
 				buf[2] = 0x29; /* Unsupported configuration */
 				printf("Rejecting discover command\n");
 				len = write(sk, buf, 3);
 			} else {
+				/*否则响应接收*/
 				struct seid_info *sei = (void *) (buf + 2);
 				hdr->message_type = AVDTP_MSG_TYPE_ACCEPT;
 				buf[2] = 0x00;
@@ -256,6 +262,7 @@ static void process_avdtp(int srv_sk, int sk, unsigned char reject,
 
 		case AVDTP_GET_CAPABILITIES:
 			if (reject == AVDTP_GET_CAPABILITIES) {
+				/*如果指明需要拒绝此消息,则响应reject*/
 				hdr->message_type = AVDTP_MSG_TYPE_REJECT;
 				buf[2] = 0x29; /* Unsupported configuration */
 				printf("Rejecting get capabilities command\n");
@@ -301,6 +308,7 @@ static void process_avdtp(int srv_sk, int sk, unsigned char reject,
 
 		case AVDTP_SET_CONFIGURATION:
 			if (reject == AVDTP_SET_CONFIGURATION) {
+				/*如果指明需要拒绝此消息,则响应reject*/
 				hdr->message_type = AVDTP_MSG_TYPE_REJECT;
 				buf[2] = buf[4];
 				buf[3] = reject_code ? reject_code :
@@ -316,6 +324,7 @@ static void process_avdtp(int srv_sk, int sk, unsigned char reject,
 
 		case AVDTP_GET_CONFIGURATION:
 			if (reject == AVDTP_GET_CONFIGURATION) {
+				/*如果指明需要拒绝此消息,则响应reject*/
 				hdr->message_type = AVDTP_MSG_TYPE_REJECT;
 				buf[2] = 0x12; /* Bad ACP SEID */
 				printf("Rejecting get configuration command\n");
@@ -329,6 +338,7 @@ static void process_avdtp(int srv_sk, int sk, unsigned char reject,
 
 		case AVDTP_OPEN:
 			if (reject == AVDTP_OPEN) {
+				/*如果指明需要拒绝此消息,则响应reject*/
 				hdr->message_type = AVDTP_MSG_TYPE_REJECT;
 				buf[2] = 0x31; /* Bad State */
 				printf("Rejecting open command\n");
@@ -371,6 +381,7 @@ static void process_avdtp(int srv_sk, int sk, unsigned char reject,
 
 		case AVDTP_CLOSE:
 			if (reject == AVDTP_CLOSE) {
+				/*如果指明需要拒绝此消息,则响应reject*/
 				hdr->message_type = AVDTP_MSG_TYPE_REJECT;
 				buf[2] = 0x31; /* Bad State */
 				printf("Rejecting close command\n");
@@ -388,6 +399,7 @@ static void process_avdtp(int srv_sk, int sk, unsigned char reject,
 
 		case AVDTP_SUSPEND:
 			if (reject == AVDTP_SUSPEND) {
+				/*如果指明需要拒绝此消息,则响应reject*/
 				hdr->message_type = AVDTP_MSG_TYPE_REJECT;
 				buf[3] = 0x31; /* Bad State */
 				printf("Rejecting suspend command\n");
@@ -418,6 +430,7 @@ static void process_avdtp(int srv_sk, int sk, unsigned char reject,
 	}
 }
 
+/*用于显示接收到的内容*/
 static void process_avctp(int sk, int reject)
 {
 	unsigned char buf[672];
@@ -426,19 +439,20 @@ static void process_avctp(int sk, int reject)
 	while (1) {
 		struct avctp_header *hdr = (void *) buf;
 
-		len = read(sk, buf, sizeof(buf));
+		len = read(sk, buf, sizeof(buf));/*接收*/
 		if (len <= 0) {
 			perror("Read failed");
 			break;
 		}
 
-		dump_buffer(buf, len);
+		dump_buffer(buf, len);/*显示接收的内容*/
 
 		if (len >= AVCTP_HEADER_LENGTH)
 			dump_avctp_header(hdr);
 	}
 }
 
+/*设置最小的mtu*/
 static int set_minimum_mtu(int sk)
 {
 	struct l2cap_options l2o;
@@ -479,7 +493,7 @@ static void do_listen(const bdaddr_t *src, unsigned char reject, int fragment,
 	memset(&addr, 0, sizeof(addr));
 	addr.l2_family = AF_BLUETOOTH;
 	bacpy(&addr.l2_bdaddr, src);
-	addr.l2_psm = htobs(25);
+	addr.l2_psm = htobs(25);/*关注psm*/
 
 	if (bind(sk, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
 		perror("Can't bind socket");
@@ -487,8 +501,10 @@ static void do_listen(const bdaddr_t *src, unsigned char reject, int fragment,
 	}
 
 	if (fragment)
+		/*指明分片,则使用最小mtu*/
 		set_minimum_mtu(sk);
 
+	/*监听此socket*/
 	if (listen(sk, 10)) {
 		perror("Can't listen on the socket");
 		goto error;
@@ -498,12 +514,13 @@ static void do_listen(const bdaddr_t *src, unsigned char reject, int fragment,
 		memset(&addr, 0, sizeof(addr));
 		optlen = sizeof(addr);
 
-		nsk = accept(sk, (struct sockaddr *) &addr, &optlen);
+		nsk = accept(sk, (struct sockaddr *) &addr, &optlen);/*接入新的客户端*/
 		if (nsk < 0) {
 			perror("Accept failed");
 			continue;
 		}
 
+		/*执行协议处理*/
 		process_avdtp(sk, nsk, reject, fragment, reject_code);
 
 		if (media_sock >= 0) {
@@ -545,8 +562,9 @@ static int do_connect(const bdaddr_t *src, const bdaddr_t *dst, int avctp,
 	memset(&addr, 0, sizeof(addr));
 	addr.l2_family = AF_BLUETOOTH;
 	bacpy(&addr.l2_bdaddr, dst);
-	addr.l2_psm = htobs(avctp ? 23 : 25);
+	addr.l2_psm = htobs(avctp ? 23 : 25);/*依据avctp使用不同的psm*/
 
+	/*连接远端*/
 	err = connect(sk, (struct sockaddr *) &addr, sizeof(addr));
 	if (err < 0) {
 		perror("Unable to connect");
@@ -713,7 +731,7 @@ static void do_avctp_send(int sk, int invalid)
 
 	memcpy(&buf[AVCTP_HEADER_LENGTH], play_pressed, sizeof(play_pressed));
 
-	len = write(sk, buf, AVCTP_HEADER_LENGTH + sizeof(play_pressed));
+	len = write(sk, buf, AVCTP_HEADER_LENGTH + sizeof(play_pressed));/*向对端发送*/
 
 	len = read(sk, buf, sizeof(buf));
 
@@ -754,6 +772,7 @@ static struct option main_options[] = {
 	{ 0, 0, 0, 0 }
 };
 
+/*按命令行设置CODE*/
 static unsigned char parse_cmd(const char *arg)
 {
 	if (!strncmp(arg, "discov", 6))
@@ -858,20 +877,25 @@ int main(int argc, char *argv[])
 		mode = MODE_SEND;
 	}
 
+	/*必须有以下两种mode指定*/
 	switch (mode) {
 	case MODE_REJECT:
+		/*服务器端处理*/
 		do_listen(&src, cmd, fragment, reject_code);
 		break;
 	case MODE_SEND:
 		sk = do_connect(&src, &dst, avctp, fragment);
 		if (sk < 0)
-			exit(1);
+			exit(1);/*连接出错,退出*/
 		if (avctp) {
 			if (avctp == MODE_SEND)
+				/*指明为send,按send处理*/
 				do_avctp_send(sk, invalid);
 			else
+				/*按recv处理,显示收到的内容*/
 				process_avctp(sk, cmd);
 		} else
+			/*按cmd向对端发送*/
 			do_avdtp_send(sk, &src, &dst, cmd, invalid, preconf);
 		if (wait_before_exit) {
 			printf("Waiting %d seconds before exiting\n", wait_before_exit);

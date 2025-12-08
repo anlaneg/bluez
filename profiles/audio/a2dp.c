@@ -2768,6 +2768,7 @@ static bool a2dp_server_listen(struct a2dp_server *server)
 
 	mode = btd_opts.avdtp.session_mode;
 
+	/*监听avdtp_psm*/
 	server->io = bt_io_listen(NULL, confirm_cb, server, NULL, &err,
 				BT_IO_OPT_SOURCE_BDADDR,
 				btd_adapter_get_address(server->adapter),

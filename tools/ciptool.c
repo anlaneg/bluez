@@ -461,6 +461,7 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
+	/*创建cmtp socket*/
 	if ((ctl = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_CMTP)) < 0 ) {
 		perror("Can't open CMTP control socket");
 		exit(1);

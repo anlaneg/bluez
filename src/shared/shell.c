@@ -1357,7 +1357,7 @@ static void usage(int argc, char **argv, const struct bt_shell_opt *opt)
 		"\t--help \t\tDisplay help\n");
 }
 
-/*参数解析*/
+/*初始化shell 参数解析*/
 void bt_shell_init(int argc, char **argv, const struct bt_shell_opt *opt)
 {
 	int c, index = -1;
@@ -1379,7 +1379,7 @@ void bt_shell_init(int argc, char **argv, const struct bt_shell_opt *opt)
 
 	data.name = strrchr(argv[0], '/');
 	if (!data.name)
-		data.name = strdup(argv[0]);
+		data.name = strdup(argv[0]);/*进程名称*/
 	else
 		data.name = strdup(++data.name);
 
@@ -1389,10 +1389,10 @@ void bt_shell_init(int argc, char **argv, const struct bt_shell_opt *opt)
 		switch (c) {
 		case 'v':
 			printf("%s: %s\n", data.name, VERSION);
-			exit(EXIT_SUCCESS);
+			exit(EXIT_SUCCESS);/*显示版本号*/
 			return;
 		case 'h':
-			usage(argc, argv, opt);
+			usage(argc, argv, opt);/*显示帮助*/
 			data.argc = 1;
 			data.argv = &cmplt;
 			data.mode = MODE_NON_INTERACTIVE;

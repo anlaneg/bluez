@@ -665,7 +665,7 @@ static int l2cap_le_att_listen_and_accept(bdaddr_t *src, int sec,
 	/* Set up source address */
 	memset(&srcaddr, 0, sizeof(srcaddr));
 	srcaddr.l2_family = AF_BLUETOOTH;
-	srcaddr.l2_cid = htobs(ATT_CID);
+	srcaddr.l2_cid = htobs(ATT_CID);/*监听att-cid*/
 	srcaddr.l2_bdaddr_type = src_type;
 	bacpy(&srcaddr.l2_bdaddr, src);
 

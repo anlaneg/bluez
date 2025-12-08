@@ -43,7 +43,7 @@ struct bluetooth_session {
 	sdp_session_t *sdp;/*对应的sdp session*/
 	sdp_record_t *sdp_record;
 	GIOChannel *io;/*对应的sdp session fd创建的io对象*/
-	char *service;
+	char *service;/*要查询的服务*/
 	obc_transport_func func;
 	void *user_data;
 };
@@ -287,7 +287,7 @@ static gboolean service_callback(GIOChannel *io, GIOCondition cond,
 	if (cond & G_IO_ERR)
 		goto failed;
 
-	if (sdp_set_notify(session->sdp, search_callback, session) < 0)
+	if (sdp_set_notify(session->sdp, search_callback/*设置查询回调*/, session) < 0)
 		goto failed;
 
 	if (bt_string2uuid(&uuid, session->service) < 0)
@@ -295,11 +295,12 @@ static gboolean service_callback(GIOChannel *io, GIOCondition cond,
 
 	sdp_uuid128_to_uuid(&uuid);
 
-	search = sdp_list_append(NULL, &uuid);
-	attrid = sdp_list_append(NULL, &range);
+	search = sdp_list_append(NULL, &uuid);/*添加查询的uuid*/
+	attrid = sdp_list_append(NULL, &range);/*添加查询的range*/
 
+	/*发送服务异步查询*/
 	if (sdp_service_search_attr_async(session->sdp,
-				search, SDP_ATTR_REQ_RANGE, attrid) < 0) {
+				search/*查询的uuids*/, SDP_ATTR_REQ_RANGE, attrid/*关注的range*/) < 0) {
 		sdp_list_free(attrid, NULL);
 		sdp_list_free(search, NULL);
 		goto failed;
@@ -379,8 +380,9 @@ static int session_connect(struct bluetooth_session *session)
 	return err;
 }
 
+/*创建bluetooth session,指明要查询的服务*/
 static guint bluetooth_connect(const char *source, const char *destination,
-				const char *service, uint16_t port,
+				const char *service/*要连接的服务*/, uint16_t port,
 				obc_transport_func func, void *user_data)
 {
 	struct bluetooth_session *session;
@@ -515,6 +517,7 @@ int bluetooth_init(void)
 {
 	DBG("");
 
+	/*注册transport*/
 	return obc_transport_register(&bluetooth);
 }
 

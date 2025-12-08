@@ -24,8 +24,9 @@
 #include "session.h"
 #include "driver.h"
 
-static GSList *drivers = NULL;
+static GSList *drivers = NULL;/*记录obc注册的驱动*/
 
+/*查找driver->service,driver->uuid是否与所给的pattern一致*/
 struct obc_driver *obc_driver_find(const char *pattern)
 {
 	GSList *l;
@@ -34,10 +35,10 @@ struct obc_driver *obc_driver_find(const char *pattern)
 		struct obc_driver *driver = l->data;
 
 		if (strcasecmp(pattern, driver->service) == 0)
-			return driver;
+			return driver;/*与driver提供的service匹配*/
 
 		if (strcasecmp(pattern, driver->uuid) == 0)
-			return driver;
+			return driver;/*与driver提供的UUID匹配*/
 	}
 
 	return NULL;
@@ -51,6 +52,7 @@ int obc_driver_register(struct obc_driver *driver)
 	}
 
 	if (obc_driver_find(driver->service)) {
+		/*驱动已存在*/
 		error("Permission denied: service %s already registered",
 			driver->service);
 		return -EPERM;
@@ -58,7 +60,7 @@ int obc_driver_register(struct obc_driver *driver)
 
 	DBG("driver %p service %s registered", driver, driver->service);
 
-	drivers = g_slist_append(drivers, driver);
+	drivers = g_slist_append(drivers, driver);/*增加注册的驱动*/
 
 	return 0;
 }
