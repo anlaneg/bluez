@@ -130,7 +130,7 @@ static gboolean rfkill_event(GIOChannel *chan,
 
 	fd = g_io_channel_unix_get_fd(chan);
 
-	len = read(fd, &event, sizeof(event));
+	len = read(fd, &event, sizeof(event));/*读取rfkill事件*/
 	if (len < 0) {
 		if (errno == EAGAIN)
 			return TRUE;
@@ -145,7 +145,7 @@ static gboolean rfkill_event(GIOChannel *chan,
 						event.soft, event.hard);
 
 	if (event.soft || event.hard)
-		blocked = true;
+		blocked = true;/*已禁用*/
 
 	if (event.op != RFKILL_OP_CHANGE)
 		return TRUE;
@@ -165,6 +165,7 @@ static gboolean rfkill_event(GIOChannel *chan,
 	DBG("RFKILL unblock for hci%d", id);
 
 	if (blocked)
+		/*禁止adapter power*/
 		btd_adapter_set_blocked(adapter);
 	else
 		btd_adapter_restore_powered(adapter);
@@ -197,7 +198,7 @@ void rfkill_init(void)
 
 	watch = g_io_add_watch(channel,
 				G_IO_IN | G_IO_NVAL | G_IO_HUP | G_IO_ERR,
-				rfkill_event, NULL);
+				rfkill_event/*读取rfkill event*/, NULL);
 
 	g_io_channel_unref(channel);
 }

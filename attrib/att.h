@@ -30,6 +30,9 @@
 #define ATT_OP_READ_BLOB_RESP		0x0D
 #define ATT_OP_READ_MULTI_REQ		0x0E
 #define ATT_OP_READ_MULTI_RESP		0x0F
+/*ATT_READ_BY_GROUP_TYPE_REQ PDU（属性协议按组类型读取请求协议数据单元）
+ * 用于获取一类属性的值，这类属性需满足两个条件：一是属性类型已知，
+ * 且该类型属于高层规范所定义的 “分组属性类型”；二是属性句柄未知。*/
 #define ATT_OP_READ_BY_GROUP_REQ	0x10
 #define ATT_OP_READ_BY_GROUP_RESP	0x11
 #define ATT_OP_WRITE_REQ		0x12

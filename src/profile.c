@@ -1617,6 +1617,7 @@ static int connect_io(struct ext_io *conn, const bdaddr_t *src,
 	GIOChannel *io;
 
 	if (conn->psm) {
+		/*䢖立l2cap*/
 		conn->proto = BTPROTO_L2CAP;
 		io = bt_io_connect(ext_connect, conn, NULL, &gerr,
 					BT_IO_OPT_SOURCE_BDADDR, src,
@@ -1697,11 +1698,11 @@ static void record_cb(sdp_list_t *recs, int err, gpointer user_data)
 
 		port = sdp_get_proto_port(protos, L2CAP_UUID);
 		if (port > 0)
-			conn->psm = port;
+			conn->psm = port;/*取得psm*/
 
 		port = sdp_get_proto_port(protos, RFCOMM_UUID);
 		if (port > 0)
-			conn->chan = port;
+			conn->chan = port;/*取得channel*/
 
 		if (conn->psm == 0 && sdp_get_proto_desc(protos, OBEX_UUID))
 			conn->psm = get_goep_l2cap_psm(rec);
@@ -1715,6 +1716,7 @@ static void record_cb(sdp_list_t *recs, int err, gpointer user_data)
 	}
 
 	if (!conn->chan && !conn->psm) {
+		/*未获得psm/channel*/
 		error("Failed to find L2CAP PSM or RFCOMM channel for %s",
 								ext->name);
 		err = -ENOTSUP;
@@ -2463,6 +2465,7 @@ static struct ext_profile *create_ext(const char *owner, const char *path,
 	/*添加ext_profile*/
 	ext_profiles = g_slist_append(ext_profiles, ext);
 
+	/*为所有adapter尝试添加此profile*/
 	adapter_foreach(adapter_add_profile, &ext->p);
 
 	return ext;
@@ -2526,7 +2529,7 @@ static DBusMessage *register_profile(DBusConnection *conn,
 		/*此external profile已存在*/
 		return btd_error_already_exists(msg);
 
-	dbus_message_iter_get_basic(&args, &uuid);/*取得uuid*/
+	dbus_message_iter_get_basic(&args, &uuid);/*取得消息指明的uuid*/
 	dbus_message_iter_next(&args);
 
 	if (btd_profile_find_uuid(uuid)) {

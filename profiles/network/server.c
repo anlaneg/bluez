@@ -48,6 +48,7 @@
 struct network_session {
 	/*远端bd地址*/
 	bdaddr_t	dst;		/* Remote Bluetooth Address */
+	/*接口名称*/
 	char		dev[16];	/* Interface name */
 	/*client连接*/
 	GIOChannel	*io;		/* Pending connect channel */
@@ -85,7 +86,8 @@ struct network_server {
 static GSList *adapters = NULL;
 static gboolean security = TRUE;
 
-/*遍历list所有成员network_adapter,如果其对应的adapter与要查找到的adapter相等，则返回对应的network_adapter*/
+/*遍历list所有成员为network_adapter,
+ * 如果其对应的adapter与要查找到的adapter相等，则返回对应的network_adapter*/
 static struct network_adapter *find_adapter(GSList *list,
 					struct btd_adapter *adapter)
 {
@@ -99,6 +101,7 @@ static struct network_adapter *find_adapter(GSList *list,
 	return NULL;
 }
 
+/*通过角色id查找到network server*/
 static struct network_server *find_server(GSList *list, uint16_t id)
 {
 	for (; list; list = list->next) {
@@ -334,7 +337,7 @@ static gboolean bnep_setup(GIOChannel *chan,
 	 * BNEP_SETUP_CONNECTION_REQUEST_MSG should be read and left in case
 	 * of kernel setup connection msg handling.
 	 */
-	n = recv(sk, packet, sizeof(packet), MSG_PEEK);/*peek一个报文*/
+	n = recv(sk, packet, sizeof(packet), MSG_PEEK);/*peek一个报文，填充packet*/
 	if (n < 0) {
 		/*收取报文失败*/
 		error("read(): %s(%d)", strerror(errno), errno);
@@ -382,7 +385,7 @@ static gboolean bnep_setup(GIOChannel *chan,
 
 	ns = find_server(na->servers, dst_role);
 	if (!ns || !ns->record_id || !ns->bridge)
-		/*ns参数有误*/
+		/*ns设置的参数有误*/
 		error("Server error, bridge not initialized: (0x%x)", dst_role);
 	else
 		bridge = ns->bridge;/*取得配置的桥设备名称*/
@@ -414,7 +417,7 @@ static void connect_event(GIOChannel *chan, GError *err, gpointer user_data)
 
 	na->setup->watch = g_io_add_watch_full(chan, G_PRIORITY_DEFAULT,
 				G_IO_IN | G_IO_HUP | G_IO_ERR | G_IO_NVAL,
-				bnep_setup, na, setup_destroy);
+				bnep_setup/*关注client的读事件，创建bnep*/, na, setup_destroy);
 }
 
 static void auth_cb(DBusError *derr, void *user_data)
@@ -423,11 +426,12 @@ static void auth_cb(DBusError *derr, void *user_data)
 	GError *err = NULL;
 
 	if (derr) {
+		/*授权失败*/
 		error("Access denied: %s", derr->message);
 		goto reject;
 	}
 
-	if (!bt_io_accept(na->setup->io, connect_event, na, NULL,
+	if (!bt_io_accept(na->setup->io, connect_event/*accept回调*/, na, NULL,
 							&err)) {
 		error("bt_io_accept: %s", err->message);
 		g_error_free(err);
@@ -547,6 +551,7 @@ static void server_disconnect(DBusConnection *conn, void *user_data)
 	ns->watch_id = 0;
 
 	if (ns->record_id) {
+		/*移除sdp record*/
 		adapter_service_remove(ns->na->adapter, ns->record_id);
 		ns->record_id = 0;
 	}
@@ -563,10 +568,11 @@ static DBusMessage *register_server(DBusConnection *conn,
 	DBusMessage *reply;
 	const char *uuid, *bridge;
 
-	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_STRING, &uuid,
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_STRING, &uuid/*服务类型*/,
 				DBUS_TYPE_STRING, &bridge/*桥名称*/, DBUS_TYPE_INVALID))
 		return btd_error_invalid_args(msg);
 
+	/*通过服务类型取network_server*/
 	ns = find_server_by_uuid(na->servers, uuid);
 	if (ns == NULL)
 		return btd_error_failed(msg, "Invalid UUID");
@@ -578,6 +584,7 @@ static DBusMessage *register_server(DBusConnection *conn,
 	if (!reply)
 		return NULL;
 
+	/*注册sdp record*/
 	ns->record_id = register_server_record(ns);
 	if (!ns->record_id)
 		return btd_error_failed(msg, "SDP record registration failed");
@@ -585,6 +592,7 @@ static DBusMessage *register_server(DBusConnection *conn,
 	g_free(ns->bridge);
 	ns->bridge = g_strdup(bridge);/*设置bridge*/
 
+	/*关注disconnect事件*/
 	ns->watch_id = g_dbus_add_disconnect_watch(conn,
 					dbus_message_get_sender(msg),
 					server_disconnect, ns, NULL);
@@ -604,7 +612,7 @@ static DBusMessage *unregister_server(DBusConnection *conn,
 							DBUS_TYPE_INVALID))
 		return btd_error_invalid_args(msg);
 
-	ns = find_server_by_uuid(na->servers, uuid);
+	ns = find_server_by_uuid(na->servers, uuid);/*查找此network server*/
 	if (!ns)
 		return btd_error_failed(msg, "Invalid UUID");
 
@@ -614,7 +622,7 @@ static DBusMessage *unregister_server(DBusConnection *conn,
 
 	g_dbus_remove_watch(conn, ns->watch_id);
 
-	server_disconnect(conn, ns);
+	server_disconnect(conn, ns);/*移除sdp record*/
 
 	return reply;
 }
@@ -667,13 +675,14 @@ static void path_unregister(void *data)
 static const GDBusMethodTable server_methods[] = {
 	{ GDBUS_METHOD("Register",
 			GDBUS_ARGS({ "uuid", "s" }, { "bridge", "s" }), NULL,
-			register_server) },
+			register_server/*添加sdp记录；设置桥设备名称*/) },
 	{ GDBUS_METHOD("Unregister",
 			GDBUS_ARGS({ "uuid", "s" }), NULL,
-			unregister_server) },
+			unregister_server/*移除sdp记录，清除桥设备名称*/) },
 	{ }
 };
 
+/*创建network adapter*/
 static struct network_adapter *create_adapter(struct btd_adapter *adapter)
 {
 	struct network_adapter *na;
@@ -703,6 +712,7 @@ static struct network_adapter *create_adapter(struct btd_adapter *adapter)
 	return na;
 }
 
+/*注册network server*/
 int server_register(struct btd_adapter *adapter, uint16_t id/*服务编号*/)
 {
 	struct network_adapter *na;
@@ -718,6 +728,7 @@ int server_register(struct btd_adapter *adapter, uint16_t id/*服务编号*/)
 		adapters = g_slist_append(adapters, na);
 	}
 
+	/*查询此服务是否已存在*/
 	ns = find_server(na->servers, id);
 	if (ns)
 		return 0;/*此network server已存在，直接返回0*/
@@ -733,7 +744,7 @@ int server_register(struct btd_adapter *adapter, uint16_t id/*服务编号*/)
 	if (g_slist_length(na->servers) > 0)
 		goto done;
 
-	/*注册interface*/
+	/*注册network interface，实现桥设备配置sdp注册*/
 	if (!g_dbus_register_interface(btd_get_dbus_connection(), path,
 						NETWORK_SERVER_INTERFACE,
 						server_methods, NULL, NULL, na,
@@ -765,18 +776,21 @@ int server_unregister(struct btd_adapter *adapter, uint16_t id)
 
 	na = find_adapter(adapters, adapter);
 	if (!na)
-		return -EINVAL;
+		return -EINVAL;/*给定的adapter不存在*/
 
 	ns = find_server(na->servers, id);
 	if (!ns)
-		return -EINVAL;
+		return -EINVAL;/*给定的network_server不存在*/
 
+	/*自servers中移除此network server*/
 	na->servers = g_slist_remove(na->servers, ns);
 	server_free(ns);
 
 	if (g_slist_length(na->servers) > 0)
+		/*还存在其它network server，返回*/
 		return 0;
 
+	/*没有其它network server了，移除network server接口*/
 	g_dbus_unregister_interface(btd_get_dbus_connection(),
 						adapter_get_path(adapter),
 						NETWORK_SERVER_INTERFACE);

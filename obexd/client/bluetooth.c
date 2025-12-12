@@ -41,10 +41,10 @@ struct bluetooth_session {
 	bdaddr_t dst;/*sdp server地址*/
 	uint16_t port;
 	sdp_session_t *sdp;/*对应的sdp session*/
-	sdp_record_t *sdp_record;
+	sdp_record_t *sdp_record;/*查询获得的sdp记录*/
 	GIOChannel *io;/*对应的sdp session fd创建的io对象*/
 	char *service;/*要查询的服务*/
-	obc_transport_func func;
+	obc_transport_func func;/*当双方连接成功，此回调将被调用*/
 	void *user_data;
 };
 
@@ -85,6 +85,7 @@ static void transport_callback(GIOChannel *io, GError *err, gpointer user_data)
 
 	DBG("");
 
+	/*执行session回调*/
 	if (session->func)
 		session->func(io, err, session->user_data);
 
@@ -102,6 +103,7 @@ static GIOChannel *transport_connect(const bdaddr_t *src, const bdaddr_t *dst,
 	DBG("port %u", port);
 
 	if (port > 31) {
+		//port 大于0x1F,使用psm方式进行连接
 		io = bt_io_connect(function, user_data,
 				NULL, &err,
 				BT_IO_OPT_SOURCE_BDADDR, src,
@@ -113,6 +115,7 @@ static GIOChannel *transport_connect(const bdaddr_t *src, const bdaddr_t *dst,
 				BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_LOW,
 				BT_IO_OPT_INVALID);
 	} else {
+		/*使用channel方式进行连接*/
 		io = bt_io_connect(function, user_data,
 				NULL, &err,
 				BT_IO_OPT_SOURCE_BDADDR, src,
@@ -141,7 +144,7 @@ static void search_callback(uint8_t type, uint16_t status,
 	GError *gerr = NULL;
 
 	if (status || type != SDP_SVC_SEARCH_ATTR_RSP/*只接收service attr响应*/)
-		goto failed;
+		goto failed;/*响应出错或者响应类型有预期不符*/
 
 	scanned = sdp_extract_seqtype(rsp, bytesleft, &dataType, &seqlen);
 	if (!scanned || !seqlen)
@@ -176,7 +179,7 @@ static void search_callback(uint8_t type, uint16_t status,
 		data = sdp_data_get(rec, 0x0200);
 		/* PSM must be odd and lsb of upper byte must be 0 */
 		if (data != NULL && (data->val.uint16 & 0x0101) == 0x0001)
-			ch = data->val.uint16;
+			ch = data->val.uint16;/*取得psm*/
 
 		/* Cache the sdp record associated with the service that we
 		 * attempt to connect. This allows reading its application
@@ -197,13 +200,14 @@ static void search_callback(uint8_t type, uint16_t status,
 	if (port == 0)
 		goto failed;
 
-	session->port = port;
+	session->port = port;/*取得port*/
 
 	g_io_channel_set_close_on_unref(session->io, FALSE);
 	g_io_channel_unref(session->io);
 
+	/*执行到此port的连接*/
 	session->io = transport_connect(&session->src, &session->dst, port,
-						transport_callback, session);
+						transport_callback/*到对端的连接成功，处理服务连接回调触发session->func*/, session);
 	if (session->io != NULL) {
 		sdp_close(session->sdp);
 		session->sdp = NULL;
@@ -212,11 +216,13 @@ static void search_callback(uint8_t type, uint16_t status,
 
 failed:
 	if (session->io != NULL) {
+		/*释放io*/
 		g_io_channel_shutdown(session->io, TRUE, NULL);
 		g_io_channel_unref(session->io);
 		session->io = NULL;
 	}
 
+	/*设置gerr,并触发session->func*/
 	g_set_error(&gerr, OBC_BT_ERROR, -EIO,
 					"Unable to find service record");
 	if (session->func)
@@ -287,7 +293,7 @@ static gboolean service_callback(GIOChannel *io, GIOCondition cond,
 	if (cond & G_IO_ERR)
 		goto failed;
 
-	if (sdp_set_notify(session->sdp, search_callback/*设置查询回调*/, session) < 0)
+	if (sdp_set_notify(session->sdp, search_callback/*设置查询响应处理回调*/, session) < 0)
 		goto failed;
 
 	if (bt_string2uuid(&uuid, session->service) < 0)
@@ -298,7 +304,7 @@ static gboolean service_callback(GIOChannel *io, GIOCondition cond,
 	search = sdp_list_append(NULL, &uuid);/*添加查询的uuid*/
 	attrid = sdp_list_append(NULL, &range);/*添加查询的range*/
 
-	/*发送服务异步查询*/
+	/*发送服务属性查询函数*/
 	if (sdp_service_search_attr_async(session->sdp,
 				search/*查询的uuids*/, SDP_ATTR_REQ_RANGE, attrid/*关注的range*/) < 0) {
 		sdp_list_free(attrid, NULL);
@@ -309,6 +315,7 @@ static gboolean service_callback(GIOChannel *io, GIOCondition cond,
 	sdp_list_free(attrid, NULL);
 	sdp_list_free(search, NULL);
 
+	/*此fd可读取时，调用process_callback回调处理分片，解析响应，调用transport->cb回调(即search_callback）*/
 	g_io_add_watch(io, G_IO_IN | G_IO_HUP | G_IO_ERR | G_IO_NVAL,
 						process_callback, session);
 
@@ -366,12 +373,14 @@ static int session_connect(struct bluetooth_session *session)
 	DBG("session %p", session);
 
 	if (session->port > 0) {
+		/*session->port已知，通过session->port直接连接*/
 		session->io = transport_connect(&session->src, &session->dst,
 							session->port,
 							transport_callback,
 							session);
 		err = (session->io == NULL) ? -EINVAL : 0;
 	} else {
+		/*通过sdp查询后session->port后进行再尝试连接*/
 		session->sdp = service_connect(&session->src, &session->dst,
 						service_callback, session);
 		err = (session->sdp == NULL) ? -ENOMEM : 0;
@@ -381,8 +390,8 @@ static int session_connect(struct bluetooth_session *session)
 }
 
 /*创建bluetooth session,指明要查询的服务*/
-static guint bluetooth_connect(const char *source, const char *destination,
-				const char *service/*要连接的服务*/, uint16_t port,
+static guint bluetooth_connect(const char *source, const char *destination/*目的地址/sdp server地址*/,
+				const char *service/*要连接的服务*/, uint16_t port/*目的channel或者psm*/,
 				obc_transport_func func, void *user_data)
 {
 	struct bluetooth_session *session;
@@ -399,7 +408,7 @@ static guint bluetooth_connect(const char *source, const char *destination,
 		return 0;
 
 	session->id = ++id;
-	session->func = func;
+	session->func = func;/*当session创建成功后，此回调将被调用*/
 	session->port = port;
 	session->user_data = user_data;
 

@@ -177,7 +177,7 @@ void sdp_record_add(const bdaddr_t *device/*设备地址*/, sdp_record_t *rec/*�
 	bacpy(&dev->device, device);/*设置设备地址*/
 	dev->handle = rec->handle;
 
-	/*添加设备*/
+	/*添加设备到access_db*/
 	access_db = sdp_list_insert_sorted(access_db, dev, access_sort);
 }
 
@@ -218,6 +218,7 @@ static sdp_list_t *access_locate(uint32_t handle)
  */
 sdp_record_t *sdp_record_find(uint32_t handle)
 {
+	/*通过handle获得sdp_record_t*/
 	sdp_list_t *p = record_locate(handle);
 
 	if (!p) {
@@ -263,7 +264,7 @@ int sdp_record_remove(uint32_t handle)
  */
 sdp_list_t *sdp_get_record_list(void)
 {
-	return service_db;/*获得record list*/
+	return service_db;/*获得record list（总的record在此记录）*/
 }
 
 int sdp_check_access(uint32_t handle, bdaddr_t *device)

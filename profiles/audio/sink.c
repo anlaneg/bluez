@@ -41,7 +41,7 @@
 #define STREAM_SETUP_RETRY_TIMER 2
 
 struct sink {
-	struct btd_service *service;
+	struct btd_service *service;/*关联的service*/
 	struct avdtp *session;
 	struct avdtp_stream *stream;
 	unsigned int cb_id;
@@ -339,6 +339,7 @@ void sink_unregister(struct btd_service *service)
 
 int sink_init(struct btd_service *service)
 {
+	/*取device*/
 	struct btd_device *dev = btd_service_get_device(service);
 	struct sink *sink;
 

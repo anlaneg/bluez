@@ -194,7 +194,7 @@ static void get_uuid128(uint8_t type, const void *val, bt_uuid_t *uuid)
 }
 
 static guint16 encode_discover_primary(uint16_t start, uint16_t end,
-				bt_uuid_t *uuid, uint8_t *pdu, size_t len)
+				bt_uuid_t *uuid, uint8_t *pdu/*出参，构造的报文*/, size_t len)
 {
 	bt_uuid_t prim;
 	guint16 plen;

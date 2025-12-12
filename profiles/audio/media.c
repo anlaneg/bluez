@@ -88,6 +88,7 @@ struct media_app {
 struct media_adapter {
 	struct btd_adapter	*btd_adapter;
 	struct queue		*apps;		/* Application list */
+	/*记录所有注册的endpoints*/
 	GSList			*endpoints;	/* Endpoints list */
 #ifdef HAVE_AVRCP
 	GSList			*players;	/* Players list */
@@ -109,6 +110,7 @@ struct media_endpoint {
 	struct a2dp_sep		*sep;
 	struct bt_bap_pac	*pac;
 	struct bt_asha_device	*asha;
+	/*发送方标识*/
 	char			*sender;	/* Endpoint DBus bus id */
 	char			*path;		/* Endpoint object path */
 	char			*uuid;		/* Endpoint property UUID */
@@ -125,7 +127,7 @@ struct media_endpoint {
 	guint			ag_watch;
 	guint			watch;
 	GSList			*requests;
-	struct media_adapter	*adapter;
+	struct media_adapter	*adapter;/*对应的adapter信息*/
 	GSList			*transports;
 };
 
@@ -151,6 +153,7 @@ struct media_player {
 	char			*name;
 };
 
+/*记录创建的media_adapter，每个adapter一个*/
 static GSList *adapters = NULL;
 
 static void endpoint_request_free(struct endpoint_request *request)
@@ -215,6 +218,7 @@ static void media_endpoint_destroy(struct media_endpoint *endpoint)
 	g_free(endpoint);
 }
 
+/*查询endpoint*/
 static struct media_endpoint *media_adapter_find_endpoint(
 						struct media_adapter *adapter,
 						const char *sender,
@@ -223,17 +227,18 @@ static struct media_endpoint *media_adapter_find_endpoint(
 {
 	GSList *l;
 
+	/*遍历所有endpoints,检查与指定参数一致的endpoint*/
 	for (l = adapter->endpoints; l; l = l->next) {
 		struct media_endpoint *endpoint = l->data;
 
 		if (sender && g_strcmp0(endpoint->sender, sender) != 0)
-			continue;
+			continue;/*sender不一致*/
 
 		if (path && g_strcmp0(endpoint->path, path) != 0)
-			continue;
+			continue;/*path不一致*/
 
 		if (uuid && strcasecmp(endpoint->uuid, uuid) != 0)
-			continue;
+			continue;/*uuid不一致*/
 
 		return endpoint;
 	}
@@ -1349,7 +1354,7 @@ static bool endpoint_init_broadcast_sink(struct media_endpoint *endpoint,
 static bool endpoint_init_asha(struct media_endpoint *endpoint,
 						int *err)
 {
-	return true;
+	return true;/*默认支持*/
 }
 
 static bool endpoint_properties_exists(const char *uuid,
@@ -1436,6 +1441,7 @@ static bool endpoint_properties_get(const char *uuid,
 
 static bool a2dp_endpoint_supported(struct btd_adapter *adapter)
 {
+	/*必须有br/edr标记*/
 	if (!btd_adapter_has_settings(adapter, MGMT_SETTING_BREDR))
 		return false;
 
@@ -1486,9 +1492,9 @@ static const struct media_endpoint_init {
 	bool (*func)(struct media_endpoint *endpoint, int *err);
 	bool (*supported)(struct btd_adapter *adapter);
 } init_table[] = {
-	{ A2DP_SOURCE_UUID, endpoint_init_a2dp_source,
+	{ A2DP_SOURCE_UUID, endpoint_init_a2dp_source/*a2dp source初始化*/,
 				a2dp_endpoint_supported },
-	{ A2DP_SINK_UUID, endpoint_init_a2dp_sink,
+	{ A2DP_SINK_UUID, endpoint_init_a2dp_sink/*a2dp sink初始化*/,
 				a2dp_endpoint_supported },
 	{ PAC_SINK_UUID, endpoint_init_pac_sink,
 				experimental_endpoint_supported },
@@ -1549,13 +1555,16 @@ media_endpoint_create(struct media_adapter *adapter,
 
 	endpoint->adapter = adapter;
 
+	/*遍历init table*/
 	for (i = 0; i < ARRAY_SIZE(init_table); i++) {
 		init = &init_table[i];
 
+		/*检查此adapter是否支持*/
 		if (!init->supported(adapter->btd_adapter))
 			continue;
 
 		if (!strcasecmp(init->uuid, uuid)) {
+			/*与此uuid匹配，执行初始化*/
 			succeeded = init->func(endpoint, err);
 			break;
 		}
@@ -1591,7 +1600,8 @@ struct vendor {
 	uint16_t vid;
 } __packed;
 
-static int parse_properties(DBusMessageIter *props, const char **uuid,
+/*自props中解出参数*/
+static int parse_properties(DBusMessageIter *props, const char **uuid/*出参，UUID*/,
 				gboolean *delay_reporting, uint8_t *codec,
 				uint16_t *cid, uint16_t *vid,
 				struct bt_bap_pac_qos *qos,
@@ -1602,6 +1612,7 @@ static int parse_properties(DBusMessageIter *props, const char **uuid,
 	gboolean has_codec = FALSE;
 	struct vendor vendor;
 
+	/*遍历此props*/
 	while (dbus_message_iter_get_arg_type(props) == DBUS_TYPE_DICT_ENTRY) {
 		const char *key;
 		DBusMessageIter value, entry;
@@ -1726,18 +1737,20 @@ static DBusMessage *register_endpoint(DBusConnection *conn, DBusMessage *msg,
 	dbus_message_iter_next(&args);
 
 	if (media_adapter_find_endpoint(adapter, sender, path, NULL) != NULL)
-		return btd_error_already_exists(msg);
+		return btd_error_already_exists(msg);/*已存在*/
 
 	dbus_message_iter_recurse(&args, &props);
 	if (dbus_message_iter_get_arg_type(&props) != DBUS_TYPE_DICT_ENTRY)
 		return btd_error_invalid_args(msg);
 
+	/*解析property*/
 	if (parse_properties(&props, &uuid, &delay_reporting, &codec, &cid,
 			&vid, &qos, &capabilities, &size, &metadata,
 			&metadata_size) < 0)
 		return btd_error_invalid_args(msg);
 
-	if (media_endpoint_create(adapter, sender, path, uuid, delay_reporting,
+	/*创建endpoint*/
+	if (media_endpoint_create(adapter, sender/*发送方标识*/, path, uuid, delay_reporting,
 					codec, cid, vid, &qos, capabilities,
 					size, metadata, metadata_size,
 					&err) == NULL) {
@@ -3290,7 +3303,7 @@ static DBusMessage *unregister_app(DBusConnection *conn, DBusMessage *msg,
 static const GDBusMethodTable media_methods[] = {
 	{ GDBUS_METHOD("RegisterEndpoint",
 		GDBUS_ARGS({ "endpoint", "o" }, { "properties", "a{sv}" }),
-		NULL, register_endpoint) },
+		NULL, register_endpoint/*注册endpoint*/) },
 	{ GDBUS_METHOD("UnregisterEndpoint",
 		GDBUS_ARGS({ "endpoint", "o" }), NULL, unregister_endpoint) },
 	{ GDBUS_METHOD("RegisterPlayer",
@@ -3437,6 +3450,7 @@ static void path_free(void *data)
 	g_free(adapter);
 }
 
+/*为此adapter注册media_adapter*/
 int media_register(struct btd_adapter *btd_adapter)
 {
 	struct media_adapter *adapter;
@@ -3446,6 +3460,7 @@ int media_register(struct btd_adapter *btd_adapter)
 	adapter->apps = queue_new();
 	adapter->so_timestamping = -1;
 
+	/*注册media接口*/
 	if (!g_dbus_register_interface(btd_get_dbus_connection(),
 					adapter_get_path(btd_adapter),
 					MEDIA_INTERFACE,

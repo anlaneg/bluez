@@ -1563,7 +1563,7 @@ int main(int argc, char *argv[])
 	/* no need to keep parsed option in memory */
 	free_options();
 
-	rfkill_init();
+	rfkill_init();/*支持全局禁止*/
 
 	DBG("Entering main loop");
 

@@ -43,6 +43,7 @@ GIOChannel *gatt_connect(const char *src, const char *dst,
 
 	/* Local adapter */
 	if (src != NULL) {
+		/*使用源地址*/
 		if (!strncmp(src, "hci", 3))
 			hci_devba(atoi(src + 3), &sba);
 		else
@@ -64,6 +65,7 @@ GIOChannel *gatt_connect(const char *src, const char *dst,
 		sec = BT_IO_SEC_LOW;
 
 	if (psm == 0)
+		/*未提供psm,使用ATT channel id*/
 		chan = bt_io_connect(connect_cb, NULL, NULL, &tmp_err,
 				BT_IO_OPT_SOURCE_BDADDR, &sba,
 				BT_IO_OPT_SOURCE_TYPE, BDADDR_LE_PUBLIC,
@@ -73,6 +75,7 @@ GIOChannel *gatt_connect(const char *src, const char *dst,
 				BT_IO_OPT_SEC_LEVEL, sec,
 				BT_IO_OPT_INVALID);
 	else
+		/*使用psm进行连接*/
 		chan = bt_io_connect(connect_cb, NULL, NULL, &tmp_err,
 				BT_IO_OPT_SOURCE_BDADDR, &sba,
 				BT_IO_OPT_DEST_BDADDR, &dba,

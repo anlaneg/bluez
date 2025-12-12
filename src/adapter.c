@@ -1081,8 +1081,10 @@ struct btd_device *btd_adapter_find_device(struct btd_adapter *adapter,
 	 * update LE or BR/EDR support information.
 	 */
 	if (bdaddr_type == BDADDR_BREDR)
+		/*开启BR/EDR*/
 		device_set_bredr_support(device);
 	else
+		/*开启LE*/
 		device_set_le_support(device, bdaddr_type);
 
 	return device;
@@ -3817,7 +3819,7 @@ static void device_connect(struct btd_adapter *adapter, const bdaddr_t *dst,
 				BT_IO_OPT_SOURCE_TYPE, BDADDR_BREDR,
 				BT_IO_OPT_DEST_BDADDR, dst,
 				BT_IO_OPT_DEST_TYPE, BDADDR_BREDR,
-				BT_IO_OPT_PSM, SDP_PSM,
+				BT_IO_OPT_PSM, SDP_PSM,/*连接到SDP*/
 				BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_LOW,
 				BT_IO_OPT_INVALID);
 	else
@@ -5305,7 +5307,7 @@ static void probe_profile(struct btd_profile *profile, void *data/*btd_adapter�
 		/*跳过没有adapter_probe回调的*/
 		return;
 
-	/*触发adapter_probe回调，检查此adapter是否可应用此profiles*/
+	/*触发adapter_probe回调，检查此adapter是否可应用此profiles，如可应用，返回>=0*/
 	err = profile->adapter_probe(profile, adapter);
 	if (err < 0) {
 		/*probe失败*/
@@ -5326,7 +5328,7 @@ void adapter_add_profile(struct btd_adapter *adapter, gpointer p/*btd_profile结
 	if (!adapter->initialized)
 		return;/*此adapter还未初始化，不处理*/
 
-	probe_profile(profile, adapter);
+	probe_profile(profile, adapter);/*检查此adapter是否可应用*/
 
 	g_slist_foreach(adapter->devices, device_probe_profile, profile);
 }
@@ -11185,6 +11187,7 @@ bool btd_le_connect_before_pairing(void)
 	return false;
 }
 
+/*检查adapter是否有settings标记*/
 bool btd_adapter_has_settings(struct btd_adapter *adapter, uint32_t settings)
 {
 	if (!adapter)

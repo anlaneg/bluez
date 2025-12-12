@@ -360,7 +360,7 @@ void register_server_service(void)
 	sdp_attr_add(server, SDP_ATTR_RECORD_HANDLE,
 				sdp_data_alloc(SDP_UINT32, &server->handle));/*添加record handle*/
 
-	sdp_uuid16_create(&classID, SDP_SERVER_SVCLASS_ID);
+	sdp_uuid16_create(&classID, SDP_SERVER_SVCLASS_ID);/*指定classid*/
 	classIDList = sdp_list_append(0, &classID);
 	sdp_set_service_classes(server, classIDList);
 	sdp_list_free(classIDList, 0);
@@ -725,15 +725,16 @@ static sdp_record_t *extract_pdu_server(bdaddr_t *device, uint8_t *p,
 	SDPDBG("Look ahead attr id : %d", lookAheadAttrId);
 
 	if (lookAheadAttrId == SDP_ATTR_RECORD_HANDLE) {
+		/*遇到record handle属性，正好取handle*/
 		if (bufsize < (sizeof(uint8_t) * 2) +
 					sizeof(uint16_t) + sizeof(uint32_t)) {
 			SDPDBG("Unexpected end of packet");
 			return NULL;
 		}
 		handle = get_be32(p + sizeof(uint8_t) + sizeof(uint16_t) +
-							sizeof(uint8_t));
+							sizeof(uint8_t));/*取得handle*/
 		SDPDBG("SvcRecHandle : 0x%x", handle);
-		rec = sdp_record_find(handle);/*利用handle查询record*/
+		rec = sdp_record_find(handle);/*利用handle先查询record*/
 	} else if (handleExpected != 0xffffffff)
 		rec = sdp_record_find(handleExpected);/*利用handleExpected查询record*/
 
@@ -742,10 +743,11 @@ static sdp_record_t *extract_pdu_server(bdaddr_t *device, uint8_t *p,
 		rec = sdp_record_alloc();
 		rec->attrlist = NULL;
 		if (lookAheadAttrId == SDP_ATTR_RECORD_HANDLE) {
+			//使用报文中指定的record添加
 			rec->handle = handle;
 			sdp_record_add(device, rec);
 		} else if (handleExpected != 0xffffffff) {
-			rec->handle = handleExpected;/*使用handleExpected做为handle*/
+			rec->handle = handleExpected;/*使用指定的handleExpected做为handle，并添加*/
 			sdp_record_add(device, rec);
 		}
 	} else {
@@ -804,7 +806,7 @@ static sdp_record_t *extract_pdu_server(bdaddr_t *device, uint8_t *p,
 /*
  * Add the newly created service record to the service repository
  */
-int service_register_req(sdp_req_t *req, sdp_buf_t *rsp)
+int service_register_req(sdp_req_t *req/*要添加的服务请求*/, sdp_buf_t *rsp)
 {
 	int scanned = 0;
 	sdp_data_t *handle;
@@ -825,12 +827,14 @@ int service_register_req(sdp_req_t *req, sdp_buf_t *rsp)
 		goto invalid;
 
 	if (rec->handle == 0xffffffff) {
+		/*申请handle*/
 		rec->handle = sdp_next_handle();
 		if (rec->handle < 0x10000) {
 			sdp_record_free(rec);
 			goto invalid;
 		}
 	} else {
+		/*查询handle*/
 		if (sdp_record_find(rec->handle)) {
 			/* extract_pdu_server will add the record handle
 			 * if it is missing. So instead of failing, skip
@@ -839,20 +843,21 @@ int service_register_req(sdp_req_t *req, sdp_buf_t *rsp)
 		}
 	}
 
-	sdp_record_add(&req->device, rec);/*添加sdp记录*/
+	sdp_record_add(&req->device, rec);/*添加此sdp记录*/
 	if (!(req->flags & SDP_RECORD_PERSIST))
 		sdp_svcdb_set_collectable(rec, req->sock);
 
 	handle = sdp_data_alloc(SDP_UINT32, &rec->handle);
-	sdp_attr_replace(rec, SDP_ATTR_RECORD_HANDLE, handle);/*添加record handle属性*/
+	sdp_attr_replace(rec, SDP_ATTR_RECORD_HANDLE, handle);/*更新record handle属性*/
 
 success:
 	/* if the browse group descriptor is NULL,
 	 * ensure that the record belongs to the ROOT group */
 	if (sdp_data_get(rec, SDP_ATTR_BROWSE_GRP_LIST) == NULL) {
+		/*无SDP_ATTR_BROWSE_GRP_LIST属性*/
 		uuid_t uuid;
 		sdp_uuid16_create(&uuid, PUBLIC_BROWSE_GROUP);
-		sdp_pattern_add_uuid(rec, &uuid);
+		sdp_pattern_add_uuid(rec, &uuid);/*添加PUBLIC_BROWSE_GROUP pattern*/
 	}
 
 	update_db_timestamp();

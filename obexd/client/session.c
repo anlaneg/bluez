@@ -548,7 +548,7 @@ static int session_connect(struct obc_session *session,
 	}
 
 	session->id = transport->connect(session->source, session->destination,
-			driver->uuid/*服务对应的uuid*/,
+			driver->uuid/*要连接的服务对应的uuid*/,
 			session->channel ? session->channel : session->psm,
 			transport_func, callback);
 	if (session->id == 0) {

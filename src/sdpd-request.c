@@ -134,8 +134,10 @@ struct attrid {
  * sequence. The data type of elements found in the
  * sequence is returned in the reference pDataType
  */
-static int extract_des(uint8_t *buf, int len, sdp_list_t **svcReqSeq/*出叁，返回一组序列*/, uint8_t *pDataType/*出参，元素类型*/, uint8_t expectedType)
+static int extract_des(uint8_t *buf/*pdu参数*/, int len/*buf长度*/, sdp_list_t **svcReqSeq/*出叁，返回一组序列*/,
+		uint8_t *pDataType/*出参，元素类型*/, uint8_t expectedType)
 {
+	/*buf中必须是SDP_SEQ8或者SDP_SEQ16类型的数据*/
 	uint8_t seqType;
 	int scanned, data_size = 0;
 	short numberOfElements = 0;
@@ -150,13 +152,15 @@ static int extract_des(uint8_t *buf, int len, sdp_list_t **svcReqSeq/*出叁，�
 
 	SDPDBG("Seq type : %d", seqType);
 	if (!scanned || (seqType != SDP_SEQ8 && seqType != SDP_SEQ16)) {
-		error("Unknown seq type");/*只能是seq8,seq16两种类型*/
+		/*数据有误或者数据类型不为seq8,seq16两种类型*/
+		error("Unknown seq type");
 		return -1;
 	}
+	/*由以上可知buf+scanned其后即为SEQ类型取值*/
 	p = buf + scanned;
-	bufsize = len - scanned;/*剩余长度*/
+	bufsize = len - scanned;/*剩余待解析长度*/
 
-	SDPDBG("Data size : %d", data_size);
+	SDPDBG("Data size : %d", data_size);/*显示SEQ类型总长度*/
 
 	for (;;) {
 		char *pElem = NULL;
@@ -180,10 +184,12 @@ static int extract_des(uint8_t *buf, int len, sdp_list_t **svcReqSeq/*出叁，�
 			}
 		} else if (expectedType == SDP_TYPE_ATTRID &&
 				(dataType != SDP_UINT16 && dataType != SDP_UINT32)) {
+			/*期待类型为ATTRID时，仅支持uint16/uint32两种*/
 			SDPDBG("->Unexpected Data type (expected 0x%02x or 0x%02x)",
 								SDP_UINT16, SDP_UINT32);
 			goto failed;
 		} else if (expectedType != SDP_TYPE_ATTRID && dataType != expectedType) {
+			/*其它期待类型必须与解析出来的一致*/
 			SDPDBG("->Unexpected Data type (expected 0x%02x)", expectedType);
 			goto failed;
 		}
@@ -199,6 +205,7 @@ static int extract_des(uint8_t *buf, int len, sdp_list_t **svcReqSeq/*出叁，�
 			}
 
 			if (expectedType == SDP_TYPE_ATTRID) {
+				/*attrid解析，设置解析结果*/
 				struct attrid *aid;
 				aid = malloc(sizeof(struct attrid));
 				aid->dtd = dataType;
@@ -217,7 +224,7 @@ static int extract_des(uint8_t *buf, int len, sdp_list_t **svcReqSeq/*出叁，�
 			bufsize -= sizeof(uint16_t);
 			break;
 		case SDP_UINT32:
-			p += sizeof(uint8_t);
+			p += sizeof(uint8_t);/*跳过类型*/
 			seqlen += sizeof(uint8_t);
 			bufsize -= sizeof(uint8_t);
 			if (bufsize < (int)sizeof(uint32_t)) {
@@ -255,7 +262,7 @@ static int extract_des(uint8_t *buf, int len, sdp_list_t **svcReqSeq/*出叁，�
 				goto failed;
 			}
 
-			pElem = (char *) puuid;
+			pElem = (char *) puuid;/*使pElem指向解析获得的值*/
 			seqlen += localSeqLength;
 			p += localSeqLength;
 			bufsize -= localSeqLength;
@@ -264,7 +271,7 @@ static int extract_des(uint8_t *buf, int len, sdp_list_t **svcReqSeq/*出叁，�
 			return -1;
 		}
 		if (status == 0) {
-			pSeq = sdp_list_append(pSeq, pElem);/*存入解析的值*/
+			pSeq = sdp_list_append(pSeq, pElem);/*串连存入解析获得的值*/
 			numberOfElements++;
 			SDPDBG("No of elements : %d", numberOfElements);
 
@@ -277,10 +284,11 @@ static int extract_des(uint8_t *buf, int len, sdp_list_t **svcReqSeq/*出叁，�
 	}
 	*svcReqSeq = pSeq;
 	scanned += seqlen;
-	*pDataType = dataType;/*数据类型*/
+	*pDataType = dataType;/*最后一个元素的数据类型*/
 	return scanned;
 
 failed:
+	/*解析出错*/
 	sdp_list_free(pSeq, free);
 	return -1;
 }
@@ -307,7 +315,7 @@ static int sdp_set_cstate_pdu(sdp_buf_t *buf, sdp_cont_state_t *cstate)
 }
 
 static int sdp_cstate_get(sdp_req_t *req, uint8_t *buffer, size_t len,
-			sdp_cont_state_t **cstate, sdp_cont_info_t **cinfo)
+			sdp_cont_state_t **cstate/*出参，请求中包含的ContinuationState*/, sdp_cont_info_t **cinfo)
 {
 	/*取长度，ContinuationState consists of an 8-bit count*/
 	uint8_t cStateSize = *buffer;
@@ -315,7 +323,7 @@ static int sdp_cstate_get(sdp_req_t *req, uint8_t *buffer, size_t len,
 	SDPDBG("Continuation State size : %d", cStateSize);
 
 	if (cStateSize == 0) {
-		/*长度为零*/
+		/*长度为零,即请求中没有ContinuationState*/
 		/* Cleanup cstates if request doesn't contain a cstate */
 		sdp_cstate_cleanup(req->sock);
 		*cstate = NULL;
@@ -337,7 +345,7 @@ static int sdp_cstate_get(sdp_req_t *req, uint8_t *buffer, size_t len,
 	if (!(*cstate))
 		return -ENOMEM;
 
-	memcpy(*cstate, buffer, sizeof(sdp_cont_state_t));
+	memcpy(*cstate, buffer, sizeof(sdp_cont_state_t));/*复制buffer中的cstate*/
 
 	SDPDBG("Cstate TS : 0x%x", (*cstate)->timestamp);
 	SDPDBG("Bytes sent : %d", (*cstate)->cStateValue.maxBytesSent);
@@ -368,20 +376,25 @@ static int sdp_match_uuid(sdp_list_t *search/*一组查询用uuid*/, sdp_list_t 
 	int patlen = sdp_list_len(pattern);
 
 	if (patlen < sdp_list_len(search))
-		return -1;/*search的长度大于pattern长度，报错*/
+		/*search的长度大于pattern长度，报错*/
+		return -1;
+	/*遍历查询filter列表,这个列表元素均为uuid*/
 	for (; search; search = search->next) {
 		uuid_t *uuid128;
-		void *data = search->data;/*采用uuid查询*/
+		void *data = search->data;
 		sdp_list_t *list;
 		if (data == NULL)
 			return -1;
 
 		/* create 128-bit form of the search UUID */
-		uuid128 = sdp_uuid_to_uuid128((uuid_t *)data);/*转换为uuid128*/
-		list = sdp_list_find(pattern, uuid128, sdp_uuid128_cmp);/*在pattern列表中查询uuid128*/
+		/*均转换为uuid128*/
+		uuid128 = sdp_uuid_to_uuid128((uuid_t *)data);
+		/*在pattern列表中查询此uuid128*/
+		list = sdp_list_find(pattern, uuid128, sdp_uuid128_cmp);
 		bt_free(uuid128);
 		if (!list)
-			return 0;/*没有查询到或者部分匹配*/
+			/*没有查询到，返回0*/
+			return 0;
 	}
 	return 1;/*完全匹配*/
 }
@@ -391,7 +404,8 @@ static int sdp_match_uuid(sdp_list_t *search/*一组查询用uuid*/, sdp_list_t 
  * (a sequence of UUIDs) and calls the matching function
  * to find matching services
  */
-static int service_search_req(sdp_req_t *req, sdp_buf_t *buf)
+/*处理服务查询请求，按请求要求的ServiceSearchPattern对应的service record handle并填充到buffer中*/
+static int service_search_req(sdp_req_t *req/*请求*/, sdp_buf_t *buf/*响应buffer*/)
 {
 	int status = 0, i, plen, mlen, mtu, scanned;
 	sdp_list_t *pattern = NULL;
@@ -403,15 +417,15 @@ static int service_search_req(sdp_req_t *req, sdp_buf_t *buf)
 	int handleSize = 0;
 	uint32_t cStateId = 0;
 	uint8_t *pTotalRecordCount, *pCurrentRecordCount;
-	uint8_t *pdata = req->buf + sizeof(sdp_pdu_hdr_t);/*参数指针*/
-	size_t data_left = req->len - sizeof(sdp_pdu_hdr_t);
+	uint8_t *pdata = req->buf + sizeof(sdp_pdu_hdr_t);/*跳过head,指向参数*/
+	size_t data_left = req->len - sizeof(sdp_pdu_hdr_t);/*叁数长度*/
 
-	/*取出ServiceSearchPattern*/
+	/*解析SEQ结构取出ServiceSearchPattern（一组UUID)*/
 	scanned = extract_des(pdata, data_left, &pattern, &dtd, SDP_TYPE_UUID/*这种必须是uuid*/);
 
 	if (scanned == -1) {
 		status = SDP_INVALID_SYNTAX;
-		goto done;
+		goto done;/*格式有误*/
 	}
 	pdata += scanned;
 	data_left -= scanned;
@@ -429,7 +443,8 @@ static int service_search_req(sdp_req_t *req, sdp_buf_t *buf)
 		goto done;
 	}
 
-	expected = get_be16(pdata);/*取MaximumServiceRecordCount，响应的数目不得超过此值*/
+	/*取MaximumServiceRecordCount（2字节），响应的数目不得超过此值*/
+	expected = get_be16(pdata);
 
 	SDPDBG("Expected count: %d", expected);
 	SDPDBG("Bytes scanned : %d", scanned);
@@ -441,27 +456,27 @@ static int service_search_req(sdp_req_t *req, sdp_buf_t *buf)
 	 * Check if continuation state exists, if yes attempt
 	 * to get rsp remainder from continuation info, else send error
 	 */
-	if (sdp_cstate_get(req, pdata, data_left, &cstate, &cinfo) < 0) {
-		/*取ContinuationState失败*/
+	/*取ContinuationState参数*/
+	if (sdp_cstate_get(req, pdata/*cstate参数起始指针*/, data_left, &cstate, &cinfo) < 0) {
 		status = SDP_INVALID_SYNTAX;
 		goto done;
 	}
 
 	mtu = req->mtu - sizeof(sdp_pdu_hdr_t) - sizeof(uint16_t) - sizeof(uint16_t) - SDP_CONT_STATE_SIZE;
-	actual = MIN(expected, mtu >> 2);
+	actual = MIN(expected, mtu >> 2);/*结合本端mtu考虑实际可返回的长度（右移2是为了除4，以便获知handle可存放数目）*/
 
 	/* make space in the rsp buffer for total and current record counts */
-	pdata = buf->data;
+	pdata = buf->data;/*使pdata指向响应内容*/
 
 	/* total service record count = 0 */
 	pTotalRecordCount = pdata;
-	put_be16(0, pdata);
+	put_be16(0, pdata);/*预留TotalServiceRecordCount响应位置（暂计为0）*/
 	pdata += sizeof(uint16_t);
 	buf->data_size += sizeof(uint16_t);
 
 	/* current service record count = 0 */
 	pCurrentRecordCount = pdata;
-	put_be16(0, pdata);
+	put_be16(0, pdata);/*预留起始的CurrentServiceRecordCount(暂计为0）*/
 	pdata += sizeof(uint16_t);
 	buf->data_size += sizeof(uint16_t);
 
@@ -477,9 +492,9 @@ static int service_search_req(sdp_req_t *req, sdp_buf_t *buf)
 			SDPDBG("Checking svcRec : 0x%x", rec->handle);
 
 			if (sdp_match_uuid(pattern, rec->pattern) > 0/*匹配，即pattern是rec->pattern子集*/ &&
-					sdp_check_access(rec->handle, &req->device)/*匹配*/) {
+					sdp_check_access(rec->handle, &req->device)/*检查device是否匹配*/) {
 				rsp_count++;/*响应数增加*/
-				put_be32(rec->handle, pdata);/*存入pdata*/
+				put_be32(rec->handle, pdata);/*将record handle存入响应中*/
 				pdata += sizeof(uint32_t);
 				handleSize += sizeof(uint32_t);
 			}
@@ -614,7 +629,7 @@ static int extract_attrs(sdp_record_t *rec, sdp_list_t *seq, sdp_buf_t *buf)
 
 	SDPDBG("Entries in attr seq : %d", sdp_list_len(seq));
 
-	sdp_gen_record_pdu(rec, &pdu);
+	sdp_gen_record_pdu(rec, &pdu);/*填写record属性*/
 
 	for (; seq; seq = seq->next) {
 		struct attrid *aid = seq->data;
@@ -625,12 +640,13 @@ static int extract_attrs(sdp_record_t *rec, sdp_list_t *seq, sdp_buf_t *buf)
 			uint16_t attr = aid->uint16;
 			sdp_data_t *a = sdp_data_get(rec, attr);
 			if (a)
-				sdp_append_to_pdu(buf, a);
+				sdp_append_to_pdu(buf, a);/*填充此属性到buf*/
 		} else if (aid->dtd == SDP_UINT32) {
+			/*这种是一个属性range*/
 			uint32_t range = aid->uint32;
 			uint16_t attr;
-			uint16_t low = (0xffff0000 & range) >> 16;
-			uint16_t high = 0x0000ffff & range;
+			uint16_t low = (0xffff0000 & range) >> 16;/*取属性range的查询下界*/
+			uint16_t high = 0x0000ffff & range;/*取属性range的查询上界*/
 			sdp_data_t *data;
 
 			SDPDBG("attr range : 0x%x", range);
@@ -638,12 +654,14 @@ static int extract_attrs(sdp_record_t *rec, sdp_list_t *seq, sdp_buf_t *buf)
 			SDPDBG("High id : 0x%x", high);
 
 			if (low == 0x0000 && high == 0xffff && pdu.data_size <= buf->buf_size) {
+				/*所有的都attr都需要，直接复制pdu*/
 				/* copy it */
 				memcpy(buf->data, pdu.data, pdu.data_size);
 				buf->data_size = pdu.data_size;
 				break;
 			}
 			/* (else) sub-range of attributes */
+			/*自low到high填充属性到buf*/
 			for (attr = low; attr < high; attr++) {
 				data = sdp_data_get(rec, attr);
 				if (data)
@@ -653,6 +671,7 @@ static int extract_attrs(sdp_record_t *rec, sdp_list_t *seq, sdp_buf_t *buf)
 			if (data)
 				sdp_append_to_pdu(buf, data);
 		} else {
+			/*不支持其它类型*/
 			error("Unexpected data type : 0x%x", aid->dtd);
 			error("Expect uint16_t or uint32_t");
 			free(pdu.data);
@@ -704,6 +723,7 @@ static int sdp_cstate_rsp(sdp_cont_info_t *cinfo, sdp_cont_state_t *cstate,
  * service record handle) exists, then call the attribute
  * streaming function
  */
+/*处理服务属性查询*/
 static int service_attr_req(sdp_req_t *req, sdp_buf_t *buf)
 {
 	sdp_cont_state_t *cstate = NULL;
@@ -714,6 +734,7 @@ static int service_attr_req(sdp_req_t *req, sdp_buf_t *buf)
 	int scanned = 0;
 	unsigned int max_rsp_size;
 	int status = 0, plen, mlen;
+	/*指向参数指针*/
 	uint8_t *pdata = req->buf + sizeof(sdp_pdu_hdr_t);
 	size_t data_left = req->len - sizeof(sdp_pdu_hdr_t);
 	uint32_t handle;
@@ -723,6 +744,7 @@ static int service_attr_req(sdp_req_t *req, sdp_buf_t *buf)
 		goto done;
 	}
 
+	/*取得请求中指明的ServiceRecordHandle parameter*/
 	handle = get_be32(pdata);
 
 	pdata += sizeof(uint32_t);
@@ -733,6 +755,7 @@ static int service_attr_req(sdp_req_t *req, sdp_buf_t *buf)
 		goto done;
 	}
 
+	/*取得请求中指明的MaximumAttributeByteCount*/
 	max_rsp_size = get_be16(pdata);
 
 	pdata += sizeof(uint16_t);
@@ -744,6 +767,8 @@ static int service_attr_req(sdp_req_t *req, sdp_buf_t *buf)
 	}
 
 	/* extract the attribute list */
+	/*取AttributeIDList参数
+	 * 如查查所有属性：All attributes can be requested by specifying the range 0x0000 to 0xFFFF.*/
 	scanned = extract_des(pdata, data_left, &seq, &dtd, SDP_TYPE_ATTRID);
 	if (scanned == -1) {
 		status = SDP_INVALID_SYNTAX;
@@ -764,6 +789,7 @@ static int service_attr_req(sdp_req_t *req, sdp_buf_t *buf)
 	 * if continuation state exists, attempt
 	 * to get rsp remainder from cache, else send error
 	 */
+	/*取ContinuationState参数*/
 	if (sdp_cstate_get(req, pdata, data_left, &cstate, &cinfo) < 0) {
 		status = SDP_INVALID_SYNTAX;
 		goto done;
@@ -777,6 +803,7 @@ static int service_attr_req(sdp_req_t *req, sdp_buf_t *buf)
 	 * a minimum size of 0x0007 has to be used for data field
 	 */
 	if (max_rsp_size < 0x0007) {
+		/*按标准规定，此参数不得小于7*/
 		status = SDP_INVALID_SYNTAX;
 		goto done;
 	}
@@ -800,7 +827,7 @@ static int service_attr_req(sdp_req_t *req, sdp_buf_t *buf)
 		}
 	} else {
 		sdp_record_t *rec = sdp_record_find(handle);
-		status = extract_attrs(rec, seq, buf);
+		status = extract_attrs(rec, seq, buf);/*填充服务属性查询结果*/
 		if (buf->data_size > max_rsp_size) {
 			sdp_cont_state_t newState;
 
@@ -858,6 +885,7 @@ static int service_search_attr_req(sdp_req_t *req, sdp_buf_t *buf)
 	tmpbuf.data = NULL;
 	pdata = req->buf + sizeof(sdp_pdu_hdr_t);
 	data_left = req->len - sizeof(sdp_pdu_hdr_t);
+	/*读取ServiceSearchPattern*/
 	scanned = extract_des(pdata, data_left, &pattern, &dtd, SDP_TYPE_UUID);
 	if (scanned == -1) {
 		status = SDP_INVALID_SYNTAX;
@@ -875,6 +903,7 @@ static int service_search_attr_req(sdp_req_t *req, sdp_buf_t *buf)
 		goto done;
 	}
 
+	/*读取MaximumAttributeByteCount*/
 	max = get_be16(pdata);
 
 	pdata += sizeof(uint16_t);
@@ -888,6 +917,7 @@ static int service_search_attr_req(sdp_req_t *req, sdp_buf_t *buf)
 	}
 
 	/* extract the attribute list */
+	/*读取AttributeIDList*/
 	scanned = extract_des(pdata, data_left, &seq, &dtd, SDP_TYPE_ATTRID);
 	if (scanned == -1) {
 		status = SDP_INVALID_SYNTAX;
@@ -909,6 +939,7 @@ static int service_search_attr_req(sdp_req_t *req, sdp_buf_t *buf)
 	 * if continuation state exists attempt
 	 * to get rsp remainder from cache, else send error
 	 */
+	/*读取ContinuationState*/
 	if (sdp_cstate_get(req, pdata, data_left, &cstate, &cinfo) < 0) {
 		status = SDP_INVALID_SYNTAX;
 		goto done;
@@ -938,8 +969,9 @@ static int service_search_attr_req(sdp_req_t *req, sdp_buf_t *buf)
 			sdp_record_t *rec = p->data;
 			if (sdp_match_uuid(pattern, rec->pattern) > 0 &&
 					sdp_check_access(rec->handle, &req->device)) {
+				/*记录rec被命中*/
 				rsp_count++;
-				status = extract_attrs(rec, seq, &tmpbuf);
+				status = extract_attrs(rec, seq, &tmpbuf);/*填充属性*/
 
 				SDPDBG("Response count : %d", rsp_count);
 				SDPDBG("Local PDU size : %d", tmpbuf.data_size);
@@ -1015,19 +1047,21 @@ done:
  */
 static void process_request(sdp_req_t *req)
 {
+	/*指向request sdp pdu header*/
 	sdp_pdu_hdr_t *reqhdr = (sdp_pdu_hdr_t *)req->buf;
 	sdp_pdu_hdr_t *rsphdr;
 	sdp_buf_t rsp;
 	uint8_t *buf = malloc(USHRT_MAX);
 	int status = SDP_INVALID_SYNTAX;
 
-	memset(buf, 0, USHRT_MAX);
-	rsp.data = buf + sizeof(sdp_pdu_hdr_t);
+	memset(buf, 0, USHRT_MAX);/*清零*/
+	rsp.data = buf + sizeof(sdp_pdu_hdr_t);/*指向sdp pdu后面*/
 	rsp.data_size = 0;
 	rsp.buf_size = USHRT_MAX - sizeof(sdp_pdu_hdr_t);
-	rsphdr = (sdp_pdu_hdr_t *)buf;
+	rsphdr = (sdp_pdu_hdr_t *)buf;/*指向sdp pdu header*/
 
 	if (ntohs(reqhdr->plen) != req->len - sizeof(sdp_pdu_hdr_t)) {
+		/*长度有误*/
 		status = SDP_INVALID_PDU_SIZE;
 		goto send_rsp;
 	}
@@ -1040,39 +1074,41 @@ static void process_request(sdp_req_t *req)
 		/*收到服务查询请求*/
 		SDPDBG("Got a svc srch req");
 		status = service_search_req(req, &rsp);
-		rsphdr->pdu_id = SDP_SVC_SEARCH_RSP;
+		rsphdr->pdu_id = SDP_SVC_SEARCH_RSP;/*指明响应code*/
 		break;
 	case SDP_SVC_ATTR_REQ:
+		/*收到服务属性查询请求*/
 		SDPDBG("Got a svc attr req");
 		status = service_attr_req(req, &rsp);
 		rsphdr->pdu_id = SDP_SVC_ATTR_RSP;
 		break;
 	case SDP_SVC_SEARCH_ATTR_REQ:
+		/*收到服务及服务属性查询请求*/
 		SDPDBG("Got a svc srch attr req");
 		status = service_search_attr_req(req, &rsp);
 		rsphdr->pdu_id = SDP_SVC_SEARCH_ATTR_RSP;
 		break;
 	/* Following requests are allowed only for local connections */
 	case SDP_SVC_REGISTER_REQ:
-		/*收到服务注册请求*/
 		SDPDBG("Service register request");
 		if (req->local) {
+			/*仅响应本地服务注册请求（但远端可以发起查询）*/
 			status = service_register_req(req, &rsp);
 			rsphdr->pdu_id = SDP_SVC_REGISTER_RSP;
 		}
 		break;
 	case SDP_SVC_UPDATE_REQ:
-		/*收到服务更新请求*/
 		SDPDBG("Service update request");
 		if (req->local) {
+			/*仅响应服务更新请求*/
 			status = service_update_req(req, &rsp);
 			rsphdr->pdu_id = SDP_SVC_UPDATE_RSP;
 		}
 		break;
 	case SDP_SVC_REMOVE_REQ:
-		/*移除服务请求*/
 		SDPDBG("Service removal request");
 		if (req->local) {
+			/*仅响应移除服务请求*/
 			status = service_remove_req(req, &rsp);
 			rsphdr->pdu_id = SDP_SVC_REMOVE_RSP;
 		}
@@ -1104,8 +1140,7 @@ send_rsp:
 	rsp.data = buf;
 
 	/* stream the rsp PDU */
-	if (send(req->sock, rsp.data, rsp.data_size, 0) < 0)
-		/*执行响应失败*/
+	if (send(req->sock, rsp.data/*响应报文*/, rsp.data_size, 0) < 0)
 		error("send: %s (%d)", strerror(errno), errno);
 
 	SDPDBG("Bytes Sent : %d", rsp.data_size);
@@ -1174,7 +1209,7 @@ void handle_request(int sk, uint8_t *data, int len)
 		bacpy(&req.device, BDADDR_ANY);
 		bacpy(&req.bdaddr, BDADDR_LOCAL);
 		req.mtu = 2048;
-		req.local = 1;
+		req.local = 1;/*指明为本机请求*/
 	}
 
 	req.sock = sk;

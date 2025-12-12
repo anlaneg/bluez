@@ -233,6 +233,7 @@ static gboolean search_process_cb(GIOChannel *chan, GIOCondition cond,
 	return TRUE;
 }
 
+/*用于发送sdp search请求*/
 static gboolean connect_watch(GIOChannel *chan, GIOCondition cond,
 							gpointer user_data)
 {
@@ -254,6 +255,7 @@ static gboolean connect_watch(GIOChannel *chan, GIOCondition cond,
 	if (err != 0)
 		goto failed;/*发生错误，报错*/
 
+	/*设置sdp查询结果处理，触发ctxt->cb回调*/
 	if (sdp_set_notify(ctxt->session, search_completed_cb, ctxt) < 0) {
 		err = -EIO;
 		goto failed;
@@ -262,7 +264,7 @@ static gboolean connect_watch(GIOChannel *chan, GIOCondition cond,
 	search = sdp_list_append(NULL, &ctxt->uuid);
 	attrids = sdp_list_append(NULL, &range);
 	if (sdp_service_search_attr_async(ctxt->session,
-				search, SDP_ATTR_REQ_RANGE, attrids) < 0) {
+				search/*要查询的服务uuid*/, SDP_ATTR_REQ_RANGE, attrids) < 0) {
 		sdp_list_free(attrids, NULL);
 		sdp_list_free(search, NULL);
 		err = -EIO;
@@ -290,6 +292,7 @@ failed:
 	return FALSE;
 }
 
+/*创建sdp search context*/
 static int create_search_context(struct search_context **ctxt,
 					const bdaddr_t *src/*源地址*/,
 					const bdaddr_t *dst/*目的地址(sdp server对应地址)*/,
@@ -346,7 +349,7 @@ static int create_search_context_full(struct search_context **ctxt,
 					const bdaddr_t *src,
 					const bdaddr_t *dst,
 					uuid_t *uuid, uint16_t flags,
-					void *user_data, bt_callback_t cb,
+					void *user_data, bt_callback_t cb/*查询响应处理回调*/,
 					bt_destroy_t destroy,
 					gboolean filter_svc_class)
 {
@@ -355,7 +358,7 @@ static int create_search_context_full(struct search_context **ctxt,
 	if (err < 0)
 		return err;
 
-	(*ctxt)->cb = cb;
+	(*ctxt)->cb = cb;/*设置查询响应处理回调*/
 	(*ctxt)->destroy = destroy;
 	(*ctxt)->user_data = user_data;
 	(*ctxt)->filter_svc_class = filter_svc_class;
@@ -364,7 +367,7 @@ static int create_search_context_full(struct search_context **ctxt,
 }
 
 int bt_search(const bdaddr_t *src, const bdaddr_t *dst,
-			uuid_t *uuid, bt_callback_t cb, void *user_data,
+			uuid_t *uuid, bt_callback_t cb/*查询响应处理回调*/, void *user_data,
 			bt_destroy_t destroy, uint16_t flags)
 {
 	struct search_context *ctxt = NULL;
@@ -385,7 +388,7 @@ int bt_search(const bdaddr_t *src, const bdaddr_t *dst,
 }
 
 int bt_search_service(const bdaddr_t *src/*本端地址*/, const bdaddr_t *dst/*远端地址*/,
-			uuid_t *uuid, bt_callback_t cb, void *user_data,
+			uuid_t *uuid, bt_callback_t cb/*查询响应处理回调*/, void *user_data,
 			bt_destroy_t destroy, uint16_t flags)
 {
 	struct search_context *ctxt = NULL;

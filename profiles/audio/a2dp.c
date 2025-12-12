@@ -116,13 +116,13 @@ struct a2dp_setup {
 };
 
 struct a2dp_server {
-	struct btd_adapter *adapter;
+	struct btd_adapter *adapter;/*关联的adapter*/
 	GSList *sinks;
 	GSList *sources;
 	uint32_t source_record_id;
 	uint32_t sink_record_id;
 	gboolean sink_enabled;
-	gboolean source_enabled;
+	gboolean source_enabled;/*标记A2DP_SINK_UUID已注册*/
 	uint64_t seid_pool;
 	GIOChannel *io;
 	struct queue *seps;
@@ -142,17 +142,18 @@ struct a2dp_last_used {
 };
 
 struct a2dp_channel {
-	struct a2dp_server *server;
-	struct btd_device *device;
+	struct a2dp_server *server;/*对应的a2dp server*/
+	struct btd_device *device;/*对应的设备*/
 	GIOChannel *io;
 	guint io_id;
-	unsigned int state_id;
+	unsigned int state_id;/*state_cb id编号，见channel_new*/
 	unsigned int auth_id;
 	struct avdtp *session;
 	struct queue *seps;
 	struct a2dp_last_used *last_used;
 };
 
+/*记录所有a2dp_server，每个adapter一个a2dp_server*/
 static GSList *servers = NULL;
 static GSList *setups = NULL;
 static unsigned int cb_id = 0;
@@ -2528,6 +2529,7 @@ static struct a2dp_channel *channel_new(struct a2dp_server *server,
 	chan->seps = queue_new();
 	chan->state_id = avdtp_add_state_cb(device, avdtp_state_cb, chan);
 
+	/*增加此channel*/
 	if (!queue_push_tail(server->channels, chan)) {
 		g_free(chan);
 		return NULL;
@@ -2538,11 +2540,12 @@ static struct a2dp_channel *channel_new(struct a2dp_server *server,
 
 	chan->io = g_io_channel_ref(io);
 	chan->io_id = g_io_add_watch(io, G_IO_ERR | G_IO_HUP | G_IO_NVAL,
-					(GIOFunc) disconnect_cb, chan);
+					(GIOFunc) disconnect_cb, chan);/*注册disconnect处理*/
 
 	return chan;
 }
 
+/*比较device*/
 static bool match_by_device(const void *data, const void *user_data)
 {
 	const struct a2dp_channel *chan = data;
@@ -2626,6 +2629,7 @@ static void auth_cb(DBusError *derr, void *user_data)
 	chan->auth_id = 0;
 
 	if (derr && dbus_error_is_set(derr)) {
+		/*指明拒绝*/
 		error("Access denied: %s", derr->message);
 		goto fail;
 	}
@@ -2707,11 +2711,13 @@ static void confirm_cb(GIOChannel *io, gpointer data)
 
 	DBG("AVDTP: incoming connect from %s", address);
 
+	/*利用src获取adapter,并在adapter中查找dst对应的device*/
 	device = btd_adapter_find_device(adapter_find(&src), &dst,
 								BDADDR_BREDR);
 	if (!device)
 		goto drop;
 
+	/*查询此device对应的channel*/
 	chan = queue_find(server->channels, match_by_device, device);
 	if (chan) {
 		struct a2dp_setup *setup;
@@ -2788,6 +2794,7 @@ static bool a2dp_server_listen(struct a2dp_server *server)
 	return false;
 }
 
+/*创建a2dp server*/
 static struct a2dp_server *a2dp_server_register(struct btd_adapter *adapter)
 {
 	struct a2dp_server *server;
@@ -2829,7 +2836,7 @@ static void a2dp_unregister_sep(struct a2dp_sep *sep)
 
 static void a2dp_server_unregister(struct a2dp_server *server)
 {
-	servers = g_slist_remove(servers, server);
+	servers = g_slist_remove(servers, server);/*移除此server*/
 	queue_destroy(server->channels, channel_free);
 	queue_destroy(server->seps, NULL);
 
@@ -2854,6 +2861,7 @@ struct a2dp_sep *a2dp_add_sep(struct btd_adapter *adapter, uint8_t type,
 	uint32_t *record_id;
 	sdp_record_t *record;
 
+	/*取此adapter对应的a2dp server*/
 	server = find_server(servers, adapter);
 	if (server == NULL) {
 		if (err)
@@ -2902,8 +2910,9 @@ struct a2dp_sep *a2dp_add_sep(struct btd_adapter *adapter, uint8_t type,
 	}
 
 	if (*record_id != 0)
-		goto add;
+		goto add;/*此id已设置*/
 
+	/*创建a2dp record*/
 	record = a2dp_record(type);
 	if (!record) {
 		error("Unable to allocate new service record");
@@ -2930,7 +2939,7 @@ struct a2dp_sep *a2dp_add_sep(struct btd_adapter *adapter, uint8_t type,
 		return NULL;
 	}
 
-	*record_id = record->handle;
+	*record_id = record->handle;/*设置handle*/
 
 add:
 	*l = g_slist_append(*l, sep);
@@ -3627,6 +3636,7 @@ static int a2dp_sink_connect(struct btd_service *service)
 
 	DBG("path %s", path);
 
+	/*取此adapter对应的a2dp_server*/
 	server = find_server(servers, adapter);
 	if (!server || !server->source_enabled) {
 		DBG("Unexpected error: cannot find server");
@@ -3635,7 +3645,7 @@ static int a2dp_sink_connect(struct btd_service *service)
 
 	/* Return protocol not available if no record/endpoint exists */
 	if (server->source_record_id == 0)
-		return -ENOPROTOOPT;
+		return -ENOPROTOOPT;/*record_id未设置,看a2dp_add_sep*/
 
 	return sink_connect(service);
 }
@@ -3659,8 +3669,9 @@ static int a2dp_source_server_probe(struct btd_profile *p,
 
 	server = find_server(servers, adapter);
 	if (server != NULL)
-		goto done;
+		goto done;/*此adapter对应的server已存在*/
 
+	/*创建a2dp server*/
 	server = a2dp_server_register(adapter);
 	if (server == NULL)
 		return -EPROTONOSUPPORT;
@@ -3680,7 +3691,7 @@ static void a2dp_source_server_remove(struct btd_profile *p,
 
 	server = find_server(servers, adapter);
 	if (!server)
-		return;
+		return;/*不存在，返回*/
 
 	g_slist_free_full(server->sources,
 					(GDestroyNotify) a2dp_unregister_sep);
@@ -3744,6 +3755,7 @@ static void a2dp_sink_server_remove(struct btd_profile *p,
 	a2dp_server_unregister(server);
 }
 
+/*为此adapter注册media server*/
 static int media_server_probe(struct btd_adapter *adapter)
 {
 	DBG("path %s", adapter_get_path(adapter));

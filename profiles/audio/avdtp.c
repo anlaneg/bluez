@@ -415,6 +415,7 @@ struct avdtp {
 	gboolean stream_setup;
 };
 
+/*记录系统所有avdtp_state_callback*/
 static GSList *state_callbacks = NULL;
 static struct queue *streams = NULL;
 
@@ -3985,7 +3986,7 @@ unsigned int avdtp_add_state_cb(struct btd_device *dev,
 	state_cb = g_new(struct avdtp_state_callback, 1);
 	state_cb->cb = cb;
 	state_cb->dev = dev;
-	state_cb->id = ++id;
+	state_cb->id = ++id;/*分配id*/
 	state_cb->user_data = user_data;
 
 	state_callbacks = g_slist_append(state_callbacks, state_cb);

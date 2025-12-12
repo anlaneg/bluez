@@ -13,6 +13,7 @@ typedef void (*obc_transport_func)(GIOChannel *io, GError *err,
 
 struct obc_transport {
 	const char *name;
+	/*与服务service进行连接*/
 	guint (*connect) (const char *source, const char *destination,
 				const char *service, uint16_t port,
 				obc_transport_func func, void *user_data);

@@ -325,7 +325,7 @@ static void accept_add(GIOChannel *io, BtIOConnect connect, gpointer user_data,
 	accept->user_data = user_data;
 	accept->destroy = destroy;
 
-	cond = G_IO_OUT | G_IO_ERR | G_IO_HUP | G_IO_NVAL;
+	cond = G_IO_OUT | G_IO_ERR | G_IO_HUP | G_IO_NVAL;/*关注写事件*/
 	g_io_add_watch_full(io, G_PRIORITY_HIGH, cond, accept_cb, accept,
 					(GDestroyNotify) accept_remove);
 }

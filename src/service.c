@@ -288,6 +288,7 @@ int btd_service_connect(struct btd_service *service)
 	/*触发profile connect回调*/
 	err = profile->connect(service);
 	if (err == 0) {
+		/*连接服务成功，返回0*/
 		service->initiator = true;
 		change_state(service, BTD_SERVICE_STATE_CONNECTING, 0);/*变更为connecting状态*/
 		return 0;

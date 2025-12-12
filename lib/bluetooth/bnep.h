@@ -80,7 +80,7 @@ struct bnep_setup_conn_req {
 	uint8_t  type;
 	uint8_t  ctrl;
 	uint8_t  uuid_size;/*uuid长度*/
-	uint8_t  service[0];
+	uint8_t  service[0];/*请求的服务编号*/
 } __attribute__((packed));
 
 struct bnep_set_filter_req {

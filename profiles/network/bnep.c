@@ -364,7 +364,7 @@ struct bnep *bnep_new(int sk, uint16_t local_role/*本端服务号*/, uint16_t r
 	g_io_channel_set_close_on_unref(session->io, TRUE);
 	session->watch = g_io_add_watch(session->io,
 				G_IO_IN | G_IO_ERR | G_IO_HUP | G_IO_NVAL,
-					(GIOFunc) bnep_setup_cb, session);
+					(GIOFunc) bnep_setup_cb/*可读时，创建bnep接口*/, session);
 
 	return session;
 }

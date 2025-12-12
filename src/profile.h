@@ -38,11 +38,14 @@ struct btd_profile {
 	 */
 	bool testing;/*是否测试性功能*/
 
+	/*检查service是否可应用于此设备（如无此回调则无法创建btd_service），返回0，则应用成功*/
 	int (*device_probe) (struct btd_service *service);
 	/*设备自此service中移除时，此回调调用*/
 	void (*device_remove) (struct btd_service *service);
 
+	/*检查此service是否可连接成功*/
 	int (*connect) (struct btd_service *service);
+	/*与此服务断开连接*/
 	int (*disconnect) (struct btd_service *service);
 
 	int (*accept) (struct btd_service *service);

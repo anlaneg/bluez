@@ -3625,7 +3625,8 @@ static int profile_add(struct external_profile *profile, const char *uuid)
 	return 0;
 }
 
-static void add_profile(void *data/*要注册的profile*/, void *user_data)
+/*注册profile,注册profile给adapter*/
+static void add_profile(void *data/*要注册的profile*/, void *user_data/*adapter指针*/)
 {
 	struct btd_adapter *adapter = user_data;
 

@@ -38,6 +38,7 @@ extern "C" {
  */
 #define SDP_UUID	0x0001
 #define UDP_UUID	0x0002
+/*用于获取channel*/
 #define RFCOMM_UUID	0x0003
 #define TCP_UUID	0x0004
 #define TCS_BIN_UUID	0x0005
@@ -238,11 +239,36 @@ extern "C" {
  * Possible values for attribute-id are listed below.
  * See SDP Spec, section "Service Attribute Definitions" for more details.
  */
+/*当前版本定义的用于记录service record handle，其值是一个uint32*/
 #define SDP_ATTR_RECORD_HANDLE			0x0000
+/*ServiceClassIDList 属性由一个数据元素序列构成，序列中的每个数据元素均为
+ *  UUID（通用唯一标识符），用于表示某一特定服务记录所遵循的服务类别。
+ *  ServiceClassIDList 属性必须包含至少一个服务类别 UUID。
+ *  */
 #define SDP_ATTR_SVCLASS_ID_LIST		0x0001
+/*ServiceRecordState 是一个 32 位整数，用于为服务属性（Service Attributes）的缓存提供便利。
+ * 若该属性包含在某条服务记录中，则当服务记录内添加、删除任一其他属性值或修改任一其他属性值时，
+ * 其自身的值必须随之改变。
+ * 这一机制允许客户端仅检查这一个属性的值：若自上次检查后，该属性值未发生变化，客户端即可确定服务记录内的其他所有属性值均未改变。
+ * */
 #define SDP_ATTR_RECORD_STATE			0x0002
+/**
+ * ServiceID 是一个通用唯一标识符（UUID），用于全局且唯一地标识服务记录所描述的服务实例。
+ * 若同一服务通过多个 SDP 服务器（服务发现协议服务器）中的服务记录进行描述，此服务属性将发挥尤为重要的作用。
+ */
 #define SDP_ATTR_SERVICE_ID			0x0003
+/*ProtocolDescriptorList 属性用于描述一个或多个协议栈，这些协议栈可用于访问该服务记录所描述的服务。
+ * 若 ProtocolDescriptorList 仅描述一个协议栈，其格式为一个数据元素序列。该序列中的每个元素均为一个协议描述符；
+ * 而每个协议描述符本身又是一个数据元素序列，其第一个元素是标识该协议的 UUID，后续元素则是该协议特有的参数
+ * （可能的协议特有参数包括协议版本号和连接端口号）。协议描述符需按 “访问服务所用协议的从低层到高层” 顺序排列。
+ * 若存在多种协议栈均可用于访问该服务，ProtocolDescriptorList 则采用 “数据元素选项” 格式。
+ * 该格式中的每个成员均为前文所述的 “数据元素序列”（即单个协议栈的描述序列）
+ **/
 #define SDP_ATTR_PROTO_DESC_LIST		0x0004
+/*BrowseGroupList 属性由一个数据元素序列构成，序列中的每个元素均为 UUID（通用唯一标识符），
+ * 该 UUID 代表此服务记录所属的浏览组。顶层浏览组 ID 对应的 UUID 名为 “PublicBrowseRoot”
+ * （公共浏览根节点），它代表浏览层级结构的根节点。
+*/
 #define SDP_ATTR_BROWSE_GRP_LIST		0x0005
 #define SDP_ATTR_LANG_BASE_ATTR_ID_LIST		0x0006
 #define SDP_ATTR_SVCINFO_TTL			0x0007
@@ -352,28 +378,45 @@ extern "C" {
  * The size are computed post-facto in the API and are not known apriori
  */
 #define SDP_DATA_NIL		0x00
+/*以SDP_UINT8为例，对应的{datatype:1,size:0},即为1个字节的无符号数*/
 #define SDP_UINT8		0x08
+/*对应的{datatype:1,size:1},即为2个字节的无符号数*/
 #define SDP_UINT16		0x09
+/*对应的{datatype:1,size:2},即为4个字节的无符号数*/
 #define SDP_UINT32		0x0A
+/*对应的{datatype:1,size:3},即为8个字节的无符号数*/
 #define SDP_UINT64		0x0B
+/*对应的{datatype:1,size:4},即为16个字节的无符号数*/
 #define SDP_UINT128		0x0C
+/*对应的{datatype:2,size:0},即为1个字节的有符号数*/
 #define SDP_INT8		0x10
+/*对应的{datatype:2,size:1},即为2个字节的有符号数*/
 #define SDP_INT16		0x11
+/*对应的{datatype:2,size:2},即为4个字节的有符号数*/
 #define SDP_INT32		0x12
+/*对应的{datatype:2,size:3},即为8个字节的有符号数*/
 #define SDP_INT64		0x13
+/*对应的{datatype:2,size:4},即为16个字节的有符号数*/
 #define SDP_INT128		0x14
+/*对应的{datatype:3,size:0},即为uuid类型，且长度为1字节*/
 #define SDP_UUID_UNSPEC		0x18
-/*指明由uint16表示uuid*/
+/*对应的{datatype:3,size:1},即为uuid类型，且长度为2字节*/
 #define SDP_UUID16		0x19
-/*指明由uint32表示uuid*/
+/*对应的{datatype:3,size:2},即为uuid类型，且长度为4字节*/
 #define SDP_UUID32		0x1A
-/*指明由uint128表示uuid*/
+/*对应的{datatype:3,size:4},即为uuid类型，且长度为16字节*/
 #define SDP_UUID128		0x1C
+/*对应的{datatype:4,size:0},即为字符串类型，且长度为1字节*/
 #define SDP_TEXT_STR_UNSPEC	0x20
+/*对应的{datatype:4,size:5},即为字符串类型，采用<type,l,v>来表示，l指向为占8字节*/
 #define SDP_TEXT_STR8		0x25
 #define SDP_TEXT_STR16		0x26
 #define SDP_TEXT_STR32		0x27
+/*对应的{datatype:5,size:0},即为布尔类型*/
 #define SDP_BOOL		0x28
+/*对应的{datatype:6,size:0},即为SEQ类型，
+ * 其相当于struct类型,<t,l,v>中的v即为“子类型描述",且采用l限制了所有“子类型描述”的长度
+ * “子类型描述”即为以上各类型*/
 #define SDP_SEQ_UNSPEC		0x30
 #define SDP_SEQ8		0x35
 #define SDP_SEQ16		0x36
@@ -382,6 +425,7 @@ extern "C" {
 #define SDP_ALT8		0x3D
 #define SDP_ALT16		0x3E
 #define SDP_ALT32		0x3F
+/*对应的{datatype:8,size:0},即为URL类型，与字符串格式同*/
 #define SDP_URL_STR_UNSPEC	0x40
 #define SDP_URL_STR8		0x45
 #define SDP_URL_STR16		0x46
@@ -422,7 +466,7 @@ extern "C" {
  * SDP PDU
  */
 typedef struct {
-	uint8_t  pdu_id;/*命令code*/
+	uint8_t  pdu_id;/*命令code，例如：SDP_SVC_SEARCH_REQ*/
 	uint16_t tid;/*事务id*/
 	uint16_t plen;/*参数长度，其后为参数*/
 } __attribute__ ((packed)) sdp_pdu_hdr_t;
@@ -488,16 +532,16 @@ typedef struct {
 
 typedef struct {
 	uint8_t *data;
-	uint32_t data_size;
-	uint32_t buf_size;
+	uint32_t data_size;/*data已填充长度*/
+	uint32_t buf_size;/*buffer可使用长度(data可填充长度）*/
 } sdp_buf_t;
 
 typedef struct {
 	uint32_t handle;/*record唯一编号*/
 
 	/* Search pattern: a sequence of all UUIDs seen in this record */
-	sdp_list_t *pattern;/*存储一组uuids*/
-	sdp_list_t *attrlist;
+	sdp_list_t *pattern;/*存储查询用的一组uuids*/
+	sdp_list_t *attrlist;/*服务属性*/
 
 	/* Main service class for Extended Inquiry Response */
 	uuid_t svclass;/*服务类型*/

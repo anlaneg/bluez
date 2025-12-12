@@ -50,18 +50,19 @@ typedef enum {
 } conn_state;
 
 struct network_peer {
-	struct btd_device *device;
+	struct btd_device *device;/*peer对应的device*/
 	GSList		*connections;
 };
 
 struct network_conn {
 	struct btd_service *service;
 	char		dev[16];	/* Interface name */
+	/*对端角色*/
 	uint16_t	id;		/* Role: Service Class Identifier */
 	conn_state	state;
 	GIOChannel	*io;
 	guint		dc_id;
-	struct network_peer *peer;
+	struct network_peer *peer;/*指明对端情况*/
 	DBusMessage	*connect;
 	struct bnep	*session;
 };
@@ -223,7 +224,7 @@ static void bnep_conn_cb(char *iface, int err, void *data)
 	g_dbus_emit_property_changed(conn, path,
 					NETWORK_PEER_INTERFACE, "UUID");
 
-	nc->state = CONNECTED;
+	nc->state = CONNECTED;/*状态变更为connected*/
 	nc->dc_id = device_add_disconnect_watch(nc->peer->device, disconnect_cb,
 								nc, NULL);
 
@@ -240,16 +241,18 @@ static void connect_cb(GIOChannel *chan, GError *err, gpointer data)
 	int sk, perr;
 
 	if (err) {
-		/*建连失败*/
+		/*建连失败，退出*/
 		error("%s", err->message);
 		goto failed;
 	}
 
+	/*创建bnep*/
 	sk = g_io_channel_unix_get_fd(nc->io);
 	nc->session = bnep_new(sk, BNEP_SVC_PANU/*本端角色*/, nc->id/*对端角色*/, BNEP_INTERFACE);
 	if (!nc->session)
 		goto failed;
 
+	/*设置回调，连接到对端*/
 	perr = bnep_connect(nc->session, bnep_conn_cb, bnep_disconn_cb, nc, nc);
 	if (perr < 0) {
 		error("bnep connect(): %s (%d)", strerror(-perr), -perr);
@@ -292,13 +295,16 @@ static DBusMessage *local_connect(DBusConnection *conn,
 
 	service = btd_device_get_service(peer->device, uuid_str);
 	if (service == NULL)
+		/*此设备不支持此服务*/
 		return btd_error_not_supported(msg);
 
 	nc = btd_service_get_user_data(service);
 
 	if (nc->connect != NULL)
+		/*已有存在的连接*/
 		return btd_error_busy(msg);
 
+	/*连接不存在，创建连接*/
 	err = connection_connect(nc->service);
 	if (err < 0)
 		return btd_error_failed(msg, strerror(-err));
@@ -312,7 +318,7 @@ static DBusMessage *local_connect(DBusConnection *conn,
 int connection_connect(struct btd_service *svc)
 {
 	struct network_conn *nc = btd_service_get_user_data(svc);
-	struct network_peer *peer = nc->peer;
+	struct network_peer *peer = nc->peer;/*取对端*/
 	uint16_t id = get_pan_srv_id(btd_service_get_profile(svc)->remote_uuid);
 	GError *err = NULL;
 	const bdaddr_t *src;
@@ -323,11 +329,12 @@ int connection_connect(struct btd_service *svc)
 	if (nc->state != DISCONNECTED)
 		return -EALREADY;
 
-	/*源地址*/
+	/*源地址（通过peer设备查找其所属的adapter,再由adapter获取地址）*/
 	src = btd_adapter_get_address(device_get_adapter(peer->device));
-	/*目的地址*/
+	/*目的地址（取peer设备地址）*/
 	dst = device_get_address(peer->device);
 
+	/*与对端建立连接*/
 	nc->io = bt_io_connect(connect_cb, nc,
 				NULL/*无连接destroy处理*/, &err,
 				BT_IO_OPT_SOURCE_BDADDR, src,
@@ -340,7 +347,7 @@ int connection_connect(struct btd_service *svc)
 	if (!nc->io)
 		return -EIO;
 
-	nc->state = CONNECTING;
+	nc->state = CONNECTING;/*状态变更为connecting*/
 
 	return 0;
 }
@@ -488,7 +495,7 @@ static const GDBusMethodTable connection_methods[] = {
 	{ GDBUS_ASYNC_METHOD("Connect",
 				GDBUS_ARGS({"uuid", "s"}),
 				GDBUS_ARGS({"interface", "s"}),
-				local_connect) },
+				local_connect/*建立连接*/) },
 	{ GDBUS_METHOD("Disconnect",
 			NULL, NULL, local_disconnect) },
 	{ }
@@ -523,6 +530,7 @@ void connection_unregister(struct btd_service *svc)
 						NETWORK_PEER_INTERFACE);
 }
 
+/*创建network peer*/
 static struct network_peer *create_peer(struct btd_device *device)
 {
 	struct network_peer *peer;
@@ -533,6 +541,7 @@ static struct network_peer *create_peer(struct btd_device *device)
 
 	path = device_get_path(device);
 
+	/*注册connect接口*/
 	if (g_dbus_register_interface(btd_get_dbus_connection(), path,
 					NETWORK_PEER_INTERFACE,
 					connection_methods,
@@ -561,7 +570,7 @@ int connection_register(struct btd_service *svc)
 
 	peer = find_peer(peers, device);
 	if (!peer) {
-		peer = create_peer(device);/*创建peer*/
+		peer = create_peer(device);/*此device之前未知，创建peer*/
 		if (!peer)
 			return -1;
 		peers = g_slist_append(peers, peer);
@@ -570,7 +579,7 @@ int connection_register(struct btd_service *svc)
 	nc = g_new0(struct network_conn, 1);
 	nc->id = id;/*service编号(网络角色编号）*/
 	nc->service = btd_service_ref(svc);
-	nc->state = DISCONNECTED;
+	nc->state = DISCONNECTED;/*断连状态*/
 	nc->peer = peer;
 
 	btd_service_set_user_data(svc, nc);/*为service设置私有数据*/

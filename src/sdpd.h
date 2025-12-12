@@ -21,13 +21,13 @@
 typedef struct request {
 	bdaddr_t device;/*请求方地址*/
 	bdaddr_t bdaddr;
-	int      local;
+	int      local;/*是否local请求*/
 	int      sock;
 	int      mtu;
 	int      flags;
-	uint8_t  *buf;
+	uint8_t  *buf;/*请求buffer长度*/
 	int      len;
-	uint8_t  opcode;
+	uint8_t  opcode;/*记录请求指明的pdu_id*/
 } sdp_req_t;
 
 void sdp_cstate_cleanup(int sock);

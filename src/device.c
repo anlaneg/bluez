@@ -2718,6 +2718,7 @@ int btd_device_connect_services(struct btd_device *dev, GSList *services)
 			dev->pending = g_slist_append(dev->pending, service);
 		}
 	} else {
+		/*无service,需要先创建并建立services，再连接*/
 		dev->pending = create_pending_list(dev, NULL);
 	}
 
@@ -5652,7 +5653,7 @@ static void dev_probe(struct btd_profile *p, void *user_data)
 
 void device_probe_profile(gpointer a, gpointer b)
 {
-	struct btd_device *device = a;
+	struct btd_device *device = a;/*设备*/
 	struct btd_profile *profile = b;
 	struct btd_service *service;
 
@@ -6704,7 +6705,7 @@ static int device_browse_sdp(struct btd_device *device, DBusMessage *msg)
 	req->sdp_flags = get_sdp_flags(device);
 
 	err = bt_search(btd_adapter_get_address(adapter),
-			&device->bdaddr, &uuid, browse_cb, req, NULL,
+			&device->bdaddr, &uuid, browse_cb/*处理查询结果*/, req, NULL,
 			req->sdp_flags);
 	if (err < 0) {
 		browse_request_free(req);
@@ -8121,6 +8122,7 @@ static void service_state_changed(struct btd_service *service,
 		device_profile_disconnected(device, profile, err);
 }
 
+/*检查dev设备是否支持remote_uuid指明的服务*/
 struct btd_service *btd_device_get_service(struct btd_device *dev,
 						const char *remote_uuid)
 {

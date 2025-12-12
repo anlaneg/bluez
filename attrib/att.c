@@ -130,8 +130,9 @@ static void get_uuid(uint8_t type, const void *val, bt_uuid_t *uuid)
 	}
 }
 
-uint16_t enc_read_by_grp_req(uint16_t start, uint16_t end, bt_uuid_t *uuid,
-						uint8_t *pdu, size_t len)
+/*构造ATT_OP_READ_BY_GROUP_REQ查询报文*/
+uint16_t enc_read_by_grp_req(uint16_t start/*起始handle*/, uint16_t end/*终止handle*/, bt_uuid_t *uuid,
+						uint8_t *pdu/*出参，查询报文*/, size_t len)
 {
 	uint16_t uuid_len;
 
@@ -148,9 +149,9 @@ uint16_t enc_read_by_grp_req(uint16_t start, uint16_t end, bt_uuid_t *uuid,
 	/* Attribute Opcode (1 octet) */
 	pdu[0] = ATT_OP_READ_BY_GROUP_REQ;
 	/* Starting Handle (2 octets) */
-	put_le16(start, &pdu[1]);
+	put_le16(start, &pdu[1]);/*首个查询handle*/
 	/* Ending Handle (2 octets) */
-	put_le16(end, &pdu[3]);
+	put_le16(end, &pdu[3]);/*最后一个查询handle*/
 	/* Attribute Group Type (2 or 16 octet UUID) */
 	put_uuid_le(uuid, &pdu[5]);
 

@@ -117,6 +117,7 @@ static void connect_cb(GIOChannel *io, GError *err, gpointer user_data)
 	GError *gerr = NULL;
 
 	if (err) {
+		/*连接出错*/
 		g_printerr("%s\n", err->message);
 		got_error = TRUE;
 		g_main_loop_quit(event_loop);
@@ -126,6 +127,7 @@ static void connect_cb(GIOChannel *io, GError *err, gpointer user_data)
 				BT_IO_OPT_CID, &cid, BT_IO_OPT_INVALID);
 
 	if (gerr) {
+		/*取mtu失败*/
 		g_printerr("Can't detect MTU, using default: %s",
 								gerr->message);
 		g_error_free(gerr);

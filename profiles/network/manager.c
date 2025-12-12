@@ -70,6 +70,7 @@ static int panu_server_probe(struct btd_profile *p, struct btd_adapter *adapter)
 
 	DBG("path %s", path);
 
+	/*为给定的adapter注册panu服务*/
 	return server_register(adapter, BNEP_SVC_PANU);
 }
 
@@ -80,7 +81,7 @@ static void panu_server_remove(struct btd_profile *p,
 
 	DBG("path %s", path);
 
-	/*注册panu网络服务*/
+	/*移除panu网络服务*/
 	server_unregister(adapter, BNEP_SVC_PANU);
 }
 
@@ -90,7 +91,7 @@ static int gn_server_probe(struct btd_profile *p, struct btd_adapter *adapter)
 
 	DBG("path %s", path);
 
-	/*注册gn网络服务*/
+	/*为给定的adapter注册gn网络服务*/
 	return server_register(adapter, BNEP_SVC_GN);
 }
 

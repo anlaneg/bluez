@@ -62,7 +62,9 @@ static int estr2ba(char *str, bdaddr_t *ba)
 /* Pass args to the inquiry/search handler */
 struct search_context {
 	char		*svc;		/* Service */
+	/*要查询的group*/
 	uuid_t		group;		/* Browse group */
+	/*显示方式*/
 	int		view;		/* View mode */
 	uint32_t	handle;		/* Service record handle */
 };
@@ -1042,6 +1044,7 @@ static int cmd_setseq(int argc, char **argv)
 	return status;
 }
 
+/*显示value(实际为uuid)对应的service class字面值*/
 static void print_service_class(void *value, void *userData)
 {
 	char ServiceClassUUID_str[MAX_LEN_SERVICECLASS_UUID_STR];
@@ -1049,6 +1052,7 @@ static void print_service_class(void *value, void *userData)
 
 	sdp_uuid2strn(uuid, UUID_str, MAX_LEN_UUID_STR);
 	sdp_svclass_uuid2strn(uuid, ServiceClassUUID_str, MAX_LEN_SERVICECLASS_UUID_STR);
+	/*执行显示*/
 	if (uuid->type != SDP_UUID128)
 		printf("  \"%s\" (0x%s)\n", ServiceClassUUID_str, UUID_str);
 	else
@@ -1069,7 +1073,7 @@ static void print_service_desc(void *value, void *user)
 			sdp_uuid2strn(&p->val.uuid, UUID_str, MAX_LEN_UUID_STR);
 			sdp_proto_uuid2strn(&p->val.uuid, str, sizeof(str));
 			proto = sdp_uuid_to_proto(&p->val.uuid);
-			printf("  \"%s\" (0x%s)\n", str, UUID_str);
+			printf("  \"%s\" (0x%s)\n", str, UUID_str);/*显示协议uuid,及其代表的意义*/
 			break;
 		case SDP_UINT8:
 			if (proto == RFCOMM_UUID)
@@ -1140,7 +1144,7 @@ static void print_profile_desc(void *value, void *userData)
 /*
  * Parse a SDP record in user friendly form.
  */
-static void print_service_attr(sdp_record_t *rec)
+static void print_service_attr(sdp_record_t *rec/*要显示的记录*/)
 {
 	sdp_list_t *list = 0, *proto = 0;
 
@@ -1148,11 +1152,14 @@ static void print_service_attr(sdp_record_t *rec)
 
 	printf("Service RecHandle: 0x%x\n", rec->handle);
 
+	/*显示service class*/
 	if (sdp_get_service_classes(rec, &list) == 0) {
 		printf("Service Class ID List:\n");
 		sdp_list_foreach(list, print_service_class, 0);
 		sdp_list_free(list, free);
 	}
+
+	/*显示protocol*/
 	if (sdp_get_access_protos(rec, &proto) == 0) {
 		printf("Protocol Descriptor List:\n");
 		sdp_list_foreach(proto, print_access_protos, 0);
@@ -3887,7 +3894,7 @@ static int do_search(bdaddr_t *bdaddr, struct search_context *context)
 	sdp_session_t *sess;
 
 	if (!bdaddr) {
-		/*查询本机*/
+		/*未指定地址，则先扫描获得周围所有设备，并执行do_search*/
 		inquiry(do_search, context);
 		return 0;
 	}
@@ -3907,8 +3914,8 @@ static int do_search(bdaddr_t *bdaddr, struct search_context *context)
 			printf("Browsing %s ...\n", str);
 	}
 
-	attrid = sdp_list_append(0, &range);
-	search = sdp_list_append(0, &context->group);
+	attrid = sdp_list_append(0, &range);/*查询所有属性*/
+	search = sdp_list_append(0, &context->group);/*指明要查询的group*/
 	if (sdp_service_search_attr_req(sess, search, SDP_ATTR_REQ_RANGE, attrid, &seq)) {
 		printf("Service Search failed: %s\n", strerror(errno));
 		sdp_list_free(attrid, 0);
@@ -3923,7 +3930,7 @@ static int do_search(bdaddr_t *bdaddr, struct search_context *context)
 		sdp_record_t *rec = (sdp_record_t *) seq->data;
 		struct search_context sub_context;
 
-		/*按view方式显示*/
+		/*按view方式显示记录*/
 		switch (context->view) {
 		case DEFAULT_VIEW:
 			/* Display user friendly form */
@@ -3951,7 +3958,7 @@ static int do_search(bdaddr_t *bdaddr, struct search_context *context)
 		if (sdp_get_group_id(rec, &sub_context.group) != -1) {
 			/* Browse the next level down if not done */
 			if (sub_context.group.value.uuid16 != context->group.value.uuid16)
-				do_search(bdaddr, &sub_context);
+				do_search(bdaddr, &sub_context);/*继续向下查询group*/
 		}
 		next = seq->next;
 		free(seq);
@@ -3988,7 +3995,7 @@ static int cmd_browse(int argc, char **argv)
 	/* Initialise context */
 	memset(&context, '\0', sizeof(struct search_context));
 	/* We want to browse the top-level/root */
-	sdp_uuid16_create(&context.group, PUBLIC_BROWSE_GROUP);
+	sdp_uuid16_create(&context.group, PUBLIC_BROWSE_GROUP);/*默认查询PUBLIC_BROWSE_GROUP*/
 
 	for_each_opt(opt, browse_options, 0) {
 		switch (opt) {
@@ -4002,6 +4009,7 @@ static int cmd_browse(int argc, char **argv)
 			context.view = XML_VIEW;
 			break;
 		case 'u':
+			/*利用数字设置group*/
 			if (sscanf(optarg, "%i", &num) != 1 || num < 0 || num > 0xffff) {
 				printf("Invalid uuid %s\n", optarg);
 				return -1;
@@ -4009,6 +4017,7 @@ static int cmd_browse(int argc, char **argv)
 			sdp_uuid16_create(&context.group, num);
 			break;
 		case 'l':
+			/*使用l2cap uuid设置group*/
 			sdp_uuid16_create(&context.group, L2CAP_UUID);
 			break;
 		default:
@@ -4022,11 +4031,11 @@ static int cmd_browse(int argc, char **argv)
 
 	if (argc >= 1) {
 		bdaddr_t bdaddr;
-		estr2ba(argv[0], &bdaddr);/*指定目的地址*/
+		estr2ba(argv[0], &bdaddr);/*指定目的地址，以便查询*/
 		return do_search(&bdaddr, &context);
 	}
 
-	return do_search(NULL/*本机*/, &context);
+	return do_search(NULL/*未指明目的地址，自发现并查询*/, &context);
 }
 
 static struct option search_options[] = {
@@ -4067,7 +4076,7 @@ static int cmd_search(int argc, char **argv)
 	for_each_opt(opt, search_options, 0) {
 		switch (opt) {
 		case 'b':
-			estr2ba(optarg, &bdaddr);
+			estr2ba(optarg, &bdaddr);/*设置目的地址*/
 			has_addr = 1;
 			break;
 		case 't':
@@ -4327,6 +4336,7 @@ static struct {
 	char *doc;
 } command[] = {
 	{ "search",  cmd_search,      "Search for a service"          },
+	/*显示所有服务*/
 	{ "browse",  cmd_browse,      "Browse all available services" },
 	{ "records", cmd_records,     "Request all records"           },
 	{ "add",     cmd_add,         "Add local service"             },
