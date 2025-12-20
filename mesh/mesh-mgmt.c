@@ -23,16 +23,16 @@
 #include "mesh/mesh-mgmt.h"
 
 struct mesh_controler {
-	int	index;
-	bool	mesh_support;
+	int	index;/*指明controller索引*/
+	bool	mesh_support;/*指明是否支持mesh*/
 	bool	powered;
 };
 
 static mesh_mgmt_read_info_func_t ctl_info;
 static struct mgmt *mgmt_mesh;
-static struct l_queue *ctl_list;
+static struct l_queue *ctl_list;/*用于串连发现的controller*/
 static void *list_user_data;
-static bool mesh_detected;
+static bool mesh_detected;/*是否已执行mesh监测*/
 
 /*mesh对应的uuid并指明0x1,即"开启"*/
 static const uint8_t set_exp_feat_param_mesh[] = {
@@ -60,7 +60,7 @@ static void features_cb(uint8_t status, uint16_t length,
 
 	ctl = l_queue_find(ctl_list, by_index, L_UINT_TO_PTR(index));
 	if (!ctl)
-		return;
+		return;/*此controller不存在,返回*/
 
 	l_debug("Status: %d, Length: %d", status, length);
 	if (status != MGMT_STATUS_NOT_SUPPORTED &&
@@ -69,14 +69,16 @@ static void features_cb(uint8_t status, uint16_t length,
 		if (!mesh_detected) {
 			mgmt_register(mgmt_mesh, MGMT_EV_INDEX_REMOVED,
 					MGMT_INDEX_NONE, index_removed,
-					NULL, NULL);
+					NULL, NULL);/*注册关注controller移除事件*/
 		}
-		mesh_detected = true;
+		mesh_detected = true;/*标明已执行检测*/
 	} else
-		l_debug("Kernel mesh not supported for hci%u", index);
+		l_debug("Kernel mesh not supported for hci%u", index);/*KERNEL表明不支持*/
 
+	/*调用回调,指明当前支持情况(重要流程)*/
 	if (ctl_info)
-		ctl_info(index, true, ctl->powered, ctl->mesh_support,
+		/*触发ctl_info,指明支持情况*/
+		ctl_info(index, true/*软件已UP*/, ctl->powered, ctl->mesh_support,
 							list_user_data);
 }
 
@@ -86,7 +88,7 @@ static void set_exp_mesh_cb(uint8_t status, uint16_t length,
 	int index = L_PTR_TO_UINT(user_data);
 
 	mesh_mgmt_send(MGMT_OP_MESH_READ_FEATURES, index, 0, NULL,
-				features_cb, L_UINT_TO_PTR(index), NULL);
+				features_cb, L_UINT_TO_PTR(index), NULL);/*发送读取mesh features命令*/
 }
 
 static void read_info_cb(uint8_t status, uint16_t length,
@@ -101,9 +103,10 @@ static void read_info_cb(uint8_t status, uint16_t length,
 
 	ctl = l_queue_find(ctl_list, by_index, L_UINT_TO_PTR(index));
 	if (!ctl)
-		return;
+		return;/*此controller已被移除,直接返回*/
 
 	if (status != MGMT_STATUS_SUCCESS) {
+		/*读取设备info失败,将此controller移除掉*/
 		ctl = l_queue_remove_if(ctl_list, by_index,
 						L_UINT_TO_PTR(index));
 		l_error("Failed to read info for hci index %u: %s (0x%02x)",
@@ -111,6 +114,7 @@ static void read_info_cb(uint8_t status, uint16_t length,
 
 		l_warn("Hci dev %d removal detected", index);
 		if (ctl && ctl_info)
+			/*此controller以前存在,前提供了相应回调,在此处调用*/
 			ctl_info(index, false, false, false, list_user_data);
 
 		l_free(ctl);
@@ -118,6 +122,7 @@ static void read_info_cb(uint8_t status, uint16_t length,
 	}
 
 	if (length < sizeof(*rp)) {
+		/*响应失败*/
 		l_error("Read info response too short");
 		return;
 	}
@@ -129,6 +134,7 @@ static void read_info_cb(uint8_t status, uint16_t length,
 					supported_settings, current_settings);
 
 	if (!(supported_settings & MGMT_SETTING_LE)) {
+		/*设备不支持LE,退出*/
 		l_info("Controller hci %u does not support LE", index);
 		l_queue_remove(ctl_list, ctl);
 		l_free(ctl);
@@ -138,13 +144,14 @@ static void read_info_cb(uint8_t status, uint16_t length,
 	if (current_settings & MGMT_SETTING_POWERED)
 		ctl->powered = true;
 
-	/*发送开启mesh功能*/
+	/*向此设备发送开启mesh功能*/
 	mesh_mgmt_send(MGMT_OP_SET_EXP_FEATURE, index,
 			sizeof(set_exp_feat_param_mesh),
 			set_exp_feat_param_mesh,
-			set_exp_mesh_cb/*处理响应*/, L_UINT_TO_PTR(index), NULL);
+			set_exp_mesh_cb/*处理MESH开启响应*/, L_UINT_TO_PTR(index), NULL);
 }
 
+/*添加mesh controler*/
 static void index_added(uint16_t index, uint16_t length, const void *param,
 							void *user_data)
 {
@@ -152,6 +159,7 @@ static void index_added(uint16_t index, uint16_t length, const void *param,
 							L_UINT_TO_PTR(index));
 
 	if (!ctl) {
+		/*此CONTROLLER还不存在,创建 */
 		ctl = l_new(struct mesh_controler, 1);
 		ctl->index = index;
 		l_queue_push_head(ctl_list, ctl);
@@ -159,6 +167,7 @@ static void index_added(uint16_t index, uint16_t length, const void *param,
 		ctl->mesh_support = ctl->powered = false;
 	}
 
+	/*读取此controller信息,并尝试开启mesh功能*/
 	mgmt_send(mgmt_mesh, MGMT_OP_READ_INFO, index, 0, NULL,
 				read_info_cb, L_UINT_TO_PTR(index), NULL);
 }
@@ -167,7 +176,7 @@ static void index_removed(uint16_t index, uint16_t length, const void *param,
 							void *user_data)
 {
 	mgmt_send(mgmt_mesh, MGMT_OP_READ_INFO, index, 0, NULL,
-				read_info_cb, L_UINT_TO_PTR(index), NULL);
+				read_info_cb, L_UINT_TO_PTR(index), NULL);/*此函数用于index移除事件处理,处理时读取指定controller,如果读取失败,则移除*/
 
 }
 
@@ -179,12 +188,14 @@ static void read_index_list_cb(uint8_t status, uint16_t length,
 	int i;
 
 	if (status != MGMT_STATUS_SUCCESS) {
+		/*读取失败*/
 		l_error("Failed to read index list: %s (0x%02x)",
 						mgmt_errstr(status), status);
 		return;
 	}
 
 	if (length < sizeof(*rp)) {
+		/*响应内容长度有误*/
 		l_error("Read index list response sixe too short");
 		return;
 	}
@@ -198,6 +209,7 @@ static void read_index_list_cb(uint8_t status, uint16_t length,
 		return;
 	}
 
+	/*遍历响应的每个controller,检测其MESH功能,并开启*/
 	for (i = 0; i < num; i++) {
 		uint16_t index;
 
@@ -226,7 +238,7 @@ static bool mesh_mgmt_init(void)
 	return true;
 }
 
-bool mesh_mgmt_list(mesh_mgmt_read_info_func_t cb, void *user_data)
+bool mesh_mgmt_list(mesh_mgmt_read_info_func_t cb/*执行controller info执行完成后的回调*/, void *user_data)
 {
 	if (!mesh_mgmt_init())
 		return false;
@@ -236,6 +248,7 @@ bool mesh_mgmt_list(mesh_mgmt_read_info_func_t cb, void *user_data)
 
 	/* Use MGMT to find a candidate controller */
 	l_debug("send read index_list");
+	/*读取controller index*/
 	if (mgmt_send(mgmt_mesh, MGMT_OP_READ_INDEX_LIST,
 					MGMT_INDEX_NONE, 0, NULL,
 					read_index_list_cb, NULL, NULL) <= 0)
@@ -263,8 +276,8 @@ unsigned int mesh_mgmt_send(uint16_t opcode, uint16_t index,
 					callback, user_data, destroy, 0);
 }
 
-unsigned int mesh_mgmt_register(uint16_t event, uint16_t index,
-				mgmt_notify_func_t callback,
+unsigned int mesh_mgmt_register(uint16_t event/*事件*/, uint16_t index/*关注的设备index*/,
+				mgmt_notify_func_t callback/*事件回调*/,
 				void *user_data, mgmt_destroy_func_t destroy)
 {
 	return mgmt_register(mgmt_mesh, event, index, callback,

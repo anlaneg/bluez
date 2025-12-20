@@ -88,6 +88,7 @@ static void update_prompt(uint16_t index)
 	bt_shell_set_prompt(str, COLOR_BLUE);
 }
 
+/*设置mgmt_index,并更新相应的shell提示词*/
 void mgmt_set_index(const char *arg)
 {
 	if (!arg || !strcmp(arg, "none") || !strcmp(arg, "any") ||
@@ -1083,6 +1084,7 @@ static void advmon_removed(uint16_t index, uint16_t len, const void *param,
 					le16_to_cpu(ev->monitor_handle));
 }
 
+/*显示主版本号及修订版本号*/
 static void version_rsp(uint8_t status, uint16_t len, const void *param,
 							void *user_data)
 {
@@ -1108,8 +1110,9 @@ done:
 
 static void cmd_revision(int argc, char **argv)
 {
+	/*读取主版本号及修订版本号*/
 	if (mgmt_send(mgmt, MGMT_OP_READ_VERSION, MGMT_INDEX_NONE,
-				0, NULL, version_rsp, NULL, NULL) == 0) {
+				0, NULL, version_rsp/*处理版本读取响应*/, NULL, NULL) == 0) {
 		error("Unable to send read_version cmd");
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 	}
@@ -1146,12 +1149,14 @@ static void commands_rsp(uint8_t status, uint16_t len, const void *param,
 		goto done;
 	}
 
+	/*显示命令*/
 	print("%u commands:", num_commands);
 	for (i = 0; i < num_commands; i++) {
 		uint16_t op = get_le16(rp->opcodes + i);
 		print("\t%s (0x%04x)", mgmt_opstr(op), op);
 	}
 
+	/*显示event*/
 	print("%u events:", num_events);
 	for (i = 0; i < num_events; i++) {
 		uint16_t ev = get_le16(rp->opcodes + num_commands + i);
@@ -1162,6 +1167,7 @@ done:
 	bt_shell_noninteractive_quit(EXIT_SUCCESS);
 }
 
+/*显示支持的commands/event及其对应opcode*/
 static void cmd_commands(int argc,
 								char **argv)
 {
@@ -1209,6 +1215,7 @@ done:
 	bt_shell_noninteractive_quit(EXIT_SUCCESS);
 }
 
+/*显示未配置的设备列表*/
 static void unconf_index_rsp(uint8_t status, uint16_t len, const void *param,
 							void *user_data)
 {
@@ -1257,6 +1264,7 @@ static void unconf_index_rsp(uint8_t status, uint16_t len, const void *param,
 static void cmd_config(int argc, char **argv)
 {
 	if (mgmt_index == MGMT_INDEX_NONE) {
+		/*未指明设备列表,取未配置的设备列表*/
 		if (!mgmt_send(mgmt, MGMT_OP_READ_UNCONF_INDEX_LIST,
 					MGMT_INDEX_NONE, 0, NULL,
 					unconf_index_rsp, mgmt, NULL)) {
@@ -1428,6 +1436,7 @@ static void index_rsp(uint8_t status, uint16_t len, const void *param,
 	}
 
 	if (len < sizeof(*rp)) {
+		/*响应内容有误*/
 		error("Too small index list reply (%u bytes)", len);
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 	}
@@ -1440,11 +1449,14 @@ static void index_rsp(uint8_t status, uint16_t len, const void *param,
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 	}
 
+	/*输出设备数目*/
 	print("Index list with %u item%s", count, count != 1 ? "s" : "");
 
 	for (i = 0; i < count; i++) {
+		/*取设备索引*/
 		uint16_t index = le16_to_cpu(rp->index[i]);
 
+		/*读取设备信息*/
 		if (!mgmt_send(mgmt, MGMT_OP_READ_INFO, index, 0, NULL,
 					info_rsp, UINT_TO_PTR(index), NULL)) {
 			error("Unable to send read_info cmd");
@@ -1461,6 +1473,7 @@ static void index_rsp(uint8_t status, uint16_t len, const void *param,
 static void cmd_info(int argc, char **argv)
 {
 	if (mgmt_index == MGMT_INDEX_NONE) {
+		/*没有指明设备,读设备列表,然后逐个读取info*/
 		if (!mgmt_send(mgmt, MGMT_OP_READ_INDEX_LIST,
 					MGMT_INDEX_NONE, 0, NULL,
 					index_rsp, mgmt, NULL)) {
@@ -1471,6 +1484,7 @@ static void cmd_info(int argc, char **argv)
 		return;
 	}
 
+	/*指定了设备,直接读取设备信息*/
 	if (!mgmt_send(mgmt, MGMT_OP_READ_INFO, mgmt_index, 0, NULL, info_rsp,
 					UINT_TO_PTR(mgmt_index), NULL)) {
 		error("Unable to send read_info cmd");
@@ -1562,6 +1576,7 @@ static void cmd_extinfo(int argc, char **argv)
 		return;
 	}
 
+	/*读取扩展信息*/
 	if (!mgmt_send(mgmt, MGMT_OP_READ_EXT_INFO, mgmt_index, 0, NULL,
 					ext_info_rsp,
 					UINT_TO_PTR(mgmt_index), NULL)) {
@@ -2182,13 +2197,15 @@ static void auto_power_index_rsp(uint8_t status, uint16_t len,
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 	}
 
+	/*取得设备总数*/
 	count = le16_to_cpu(rp->num_controllers);
 	for (i = 0; i < count; i++) {
 		if (le16_to_cpu(rp->index[i]) == index)
-			found = true;
+			found = true;/*找到指明的设备*/
 	}
 
 	if (!found) {
+		/*没发现*/
 		print("Waiting for index %u to appear", index);
 
 		mgmt_register(mgmt, MGMT_EV_INDEX_ADDED, index,
@@ -2215,6 +2232,7 @@ static void cmd_auto_power(int argc, char **argv)
 	if (index == MGMT_INDEX_NONE)
 		index = 0;
 
+	/*读取设备列表*/
 	if (!mgmt_send(mgmt, MGMT_OP_READ_INDEX_LIST, MGMT_INDEX_NONE, 0, NULL,
 						auto_power_index_rsp,
 						UINT_TO_PTR(index), NULL)) {
@@ -2558,6 +2576,7 @@ static void cmd_setting(uint16_t op, int argc, char **argv)
 	if (index == MGMT_INDEX_NONE)
 		index = 0;
 
+	/*发送命令*/
 	if (send_cmd(mgmt, op, index, sizeof(val), &val, setting_rsp) == 0) {
 		error("Unable to send %s cmd", mgmt_opstr(op));
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
@@ -2592,6 +2611,7 @@ static void cmd_discov(int argc, char **argv)
 	if (index == MGMT_INDEX_NONE)
 		index = 0;
 
+	/*设置设备可发现*/
 	if (send_cmd(mgmt, MGMT_OP_SET_DISCOVERABLE, index, sizeof(cp), &cp,
 							setting_rsp) == 0) {
 		error("Unable to send set_discoverable cmd");
@@ -2861,9 +2881,10 @@ static void cmd_disconnect(int argc, char **argv)
 		index = 0;
 
 	memset(&cp, 0, sizeof(cp));
-	str2ba(argv[0], &cp.addr.bdaddr);
+	str2ba(argv[0], &cp.addr.bdaddr);/*指定设备地址*/
 	cp.addr.type = type;
 
+	/*发送与设备断开连接*/
 	if (mgmt_send(mgmt, MGMT_OP_DISCONNECT, index, sizeof(cp), &cp,
 					disconnect_rsp, NULL, NULL) == 0) {
 		error("Unable to send disconnect cmd");
@@ -6024,23 +6045,23 @@ static const struct bt_shell_menu mgmt_menu = {
 	.pre_run = mgmt_menu_pre_run,
 	.entries = {
 	{ "select",		"<index>",
-		cmd_select,		"Select a different index"	},/**/
+		cmd_select,		"Select a different index"	},/*关注指定设备的event通知*/
 	{ "revision",		NULL,
-		cmd_revision,		"Get the MGMT Revision"		},
+		cmd_revision,		"Get the MGMT Revision"		},/*读取版本号*/
 	{ "commands",		NULL,
-		cmd_commands,		"List supported commands"	},
+		cmd_commands,		"List supported commands"	},/*显示支持的命令及event*/
 	{ "config",		NULL,
-		cmd_config,		"Show configuration info"	},
+		cmd_config,		"Show configuration info"	},/*取未配置的设备列表*/
 	{ "info",		NULL,
-		cmd_info,		"Show controller info"		},
+		cmd_info,		"Show controller info"		},/*显示设备信息*/
 	{ "extinfo",		NULL,
-		cmd_extinfo,		"Show extended controller info"	},
+		cmd_extinfo,		"Show extended controller info"	},/*显示扩展信息*/
 	{ "auto-power",		NULL,
 		cmd_auto_power,		"Power all available features"	},
 	{ "power",		"<on/off>",
 		cmd_power,		"Toggle powered state"		},
 	{ "discov",		"<yes/no/limited> [timeout]",
-		cmd_discov,		"Toggle discoverable state"	},
+		cmd_discov,		"Toggle discoverable state"	},/*设置设备可发现*/
 	{ "connectable",	"<on/off>",
 	cmd_connectable,		"Toggle connectable state"	},
 	{ "fast-conn",		"<on/off>",
@@ -6062,15 +6083,15 @@ static const struct bt_shell_menu mgmt_menu = {
 	{ "advertising",	"<on/off>",
 	cmd_advertising,		"Toggle LE advertising",	},
 	{ "bredr",		"<on/off>",
-		cmd_bredr,		"Toggle BR/EDR support",	},
+		cmd_bredr,		"Toggle BR/EDR support",	},/*设置br/edr模式*/
 	{ "privacy",		"<on/off> [irk]",
 		cmd_privacy,		"Toggle privacy support"	},
 	{ "class",		"<major> <minor>",
 		cmd_class,		"Set device major/minor class"	},
 	{ "disconnect", 	"[-t type] <remote address>",
-		cmd_disconnect,		"Disconnect device"		},
+		cmd_disconnect,		"Disconnect device"		},/*设置断开指定设备*/
 	{ "con",		NULL,
-		cmd_con,		"List connections"		},
+		cmd_con,		"List connections"		},/*列出连接*/
 	{ "find",		"[-l|-b] [-L]",
 		cmd_find,		"Discover nearby devices"	},
 	{ "find-service",	"[-u UUID] [-r RSSI_Threshold] [-l|-b]",
@@ -6182,7 +6203,7 @@ static const struct bt_shell_menu mgmt_menu = {
 	{ "set-flags",		"[-f flags] [-t type] <address>",
 		cmd_set_flags,		"Set device flags"		},
 	{ "hci-cmd",		"<opcode> [event] [timeout] [param...]",
-		cmd_hci_cmd,	"Send HCI Command and wait for Event"	},
+		cmd_hci_cmd,	"Send HCI Command and wait for Event"	},/*执行hci命令*/
 	{} },
 };
 
@@ -6193,6 +6214,7 @@ static void mgmt_debug(const char *str, void *user_data)
 	print("%s%s", prefix, str);
 }
 
+/*添加mgmt_menu及monitor_menu*/
 void mgmt_add_submenu(void)
 {
 	bt_shell_add_submenu(&mgmt_menu);

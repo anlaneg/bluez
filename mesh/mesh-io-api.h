@@ -48,7 +48,7 @@ struct mesh_io {
 	struct l_queue			*rx_regs;
 	struct mesh_io_private		*pvt;/*私有数据*/
 	void				*user_data;
-	const struct mesh_io_api	*api;
+	const struct mesh_io_api	*api;/*默认使用mesh_io_mgmt*/
 };
 
 struct mesh_io_table {

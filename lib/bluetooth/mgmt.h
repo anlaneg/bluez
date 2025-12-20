@@ -777,8 +777,8 @@ struct mgmt_cp_add_adv_patterns_monitor_rssi {
 #define MGMT_OP_SET_MESH_RECEIVER		0x0057
 struct mgmt_cp_set_mesh {
 	uint8_t enable;
-	uint16_t window;
-	uint16_t period;
+	uint16_t window;/*扫描持续的时间,等于period时为一直扫描*/
+	uint16_t period;/*控制器从上一次低功耗（LE）扫描启动，到下一次低功耗（LE）扫描开始前的时间间隔。*/
 	uint8_t num_ad_types;
 	uint8_t ad_types[];
 } __packed;

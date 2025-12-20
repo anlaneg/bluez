@@ -54,9 +54,9 @@ struct bt_iso_qos qos = {
 struct io_data {
 	guint ref;
 	GIOChannel *io;
-	int reject;
-	int disconn;
-	int accept;
+	int reject;/*此值为0时拒绝连接,<0时表示不处理,>0时表示等待时间*/
+	int disconn;/*此值为0时连接后,直接断连,<0时表示不断连,>0时表示等待时间后断连*/
+	int accept;/*此值为0时接受连接,<0时表示不处理,>0时表示等待时间*/
 	int voice;
 	struct bt_iso_qos *qos;
 };
@@ -146,9 +146,10 @@ static void connect_cb(GIOChannel *io, GError *err, gpointer user_data)
 
 	if (err) {
 		printf("Connecting failed: %s\n", err->message);
-		return;
+		return;/*出错了,直接返回*/
 	}
 
+	/*取连接信息*/
 	if (!bt_io_get(io, &err,
 			BT_IO_OPT_DEST, addr,
 			BT_IO_OPT_HANDLE, &handle,
@@ -163,6 +164,7 @@ static void connect_cb(GIOChannel *io, GError *err, gpointer user_data)
 	printf("Successfully connected to %s. handle=%u, class=%02x%02x%02x\n",
 			addr, handle, cls[0], cls[1], cls[2]);
 
+	/*取mtu*/
 	if (!bt_io_get(io, &err, BT_IO_OPT_OMTU, &omtu,
 					BT_IO_OPT_IMTU, &imtu,
 					BT_IO_OPT_INVALID)) {
@@ -179,6 +181,7 @@ static void connect_cb(GIOChannel *io, GError *err, gpointer user_data)
 		printf("key_size=%u\n", key_size);
 
 	if (data->disconn == 0) {
+		/*直接断连*/
 		g_io_channel_shutdown(io, TRUE, NULL);
 		printf("Disconnected\n");
 		return;
@@ -188,6 +191,7 @@ static void connect_cb(GIOChannel *io, GError *err, gpointer user_data)
 		data->io = g_io_channel_ref(io);
 
 	if (data->disconn > 0) {
+		/*等待一段时间后断连*/
 		io_data_ref(data);
 		g_timeout_add_seconds_full(G_PRIORITY_DEFAULT, data->disconn,
 					disconn_timeout, data,
@@ -200,6 +204,7 @@ static void connect_cb(GIOChannel *io, GError *err, gpointer user_data)
 	if (opt_update_sec > 0)
 		update_sec_level(data);
 
+	/*出错调用*/
 	cond = G_IO_NVAL | G_IO_HUP | G_IO_ERR;
 	g_io_add_watch_full(io, G_PRIORITY_DEFAULT, cond, io_watch, data,
 					(GDestroyNotify) io_data_unref);
@@ -210,6 +215,7 @@ static gboolean confirm_timeout(gpointer user_data)
 	struct io_data *data = user_data;
 
 	if (data->reject >= 0) {
+		/*执行连接拒绝*/
 		printf("Rejecting connection\n");
 		g_io_channel_shutdown(data->io, TRUE, NULL);
 		return FALSE;
@@ -222,6 +228,7 @@ static gboolean confirm_timeout(gpointer user_data)
 	if (opt_update_sec > 0)
 		update_sec_level(data);
 
+	/*执行连接接受*/
 	if (!bt_io_accept(data->io, connect_cb, data,
 				(GDestroyNotify) io_data_unref, NULL)) {
 		printf("bt_io_accept() failed\n");
@@ -238,21 +245,25 @@ static void confirm_cb(GIOChannel *io, gpointer user_data)
 	GError *err = NULL;
 
 	if (!bt_io_get(io, &err, BT_IO_OPT_DEST, addr, BT_IO_OPT_INVALID)) {
+		/*自IO中取目的地址失败*/
 		printf("bt_io_get(OPT_DEST): %s\n", err->message);
 		g_clear_error(&err);
 	} else
 		printf("Got confirmation request for %s\n", addr);
 
 	if (data->accept < 0 && data->reject < 0)
+		/*两者均小于零,不处理*/
 		return;
 
 	if (data->reject == 0) {
+		/*拒绝连接*/
 		printf("Rejecting connection\n");
 		g_io_channel_shutdown(io, TRUE, NULL);
 		return;
 	}
 
 	if (data->voice) {
+		/*设置voice,这个值当前仅soc支持*/
 		if (!bt_io_set(io, &err, BT_IO_OPT_VOICE, data->voice,
 							BT_IO_OPT_INVALID)) {
 			printf("bt_io_set(OPT_VOICE): %s\n", err->message);
@@ -264,6 +275,7 @@ static void confirm_cb(GIOChannel *io, gpointer user_data)
 	io_data_ref(data);
 
 	if (data->accept == 0) {
+		/*接受连接*/
 		if (!bt_io_accept(io, connect_cb, data,
 					(GDestroyNotify) io_data_unref,
 					&err)) {
@@ -273,8 +285,10 @@ static void confirm_cb(GIOChannel *io, gpointer user_data)
 			return;
 		}
 	} else {
+		/*取等待时间*/
 		int seconds = (data->reject > 0) ?
 						data->reject : data->accept;
+		/*指明超时时间到后,调用confirm_timeout*/
 		g_timeout_add_seconds_full(G_PRIORITY_DEFAULT, seconds,
 					confirm_timeout, data,
 					(GDestroyNotify) io_data_unref);
@@ -299,6 +313,7 @@ static void l2cap_connect(const char *src, const char *dst, uint8_t addr_type,
 		src_type = BDADDR_BREDR;
 
 	if (src)
+		/*指定源情况下的连接*/
 		data->io = bt_io_connect(connect_cb, data,
 					(GDestroyNotify) io_data_unref,
 					&err,
@@ -312,6 +327,7 @@ static void l2cap_connect(const char *src, const char *dst, uint8_t addr_type,
 					BT_IO_OPT_PRIORITY, prio,
 					BT_IO_OPT_INVALID);
 	else
+		/*未指定源情况下的连接*/
 		data->io = bt_io_connect(connect_cb, data,
 					(GDestroyNotify) io_data_unref,
 					&err,
@@ -343,9 +359,11 @@ static void l2cap_listen(const char *src, uint8_t addr_type, uint16_t psm,
 	GError *err = NULL;
 
 	if (defer) {
+		/*此时提供confirm回调*/
 		conn = NULL;
 		cfm = confirm_cb;
 	} else {
+		/*此时提供connect回调*/
 		conn = connect_cb;
 		cfm = NULL;
 	}
@@ -359,6 +377,7 @@ static void l2cap_listen(const char *src, uint8_t addr_type, uint16_t psm,
 	data = io_data_new(NULL, reject, disconn, accept);
 
 	if (src)
+		/*指定源地址时的监听*/
 		l2_srv = bt_io_listen(conn, cfm, data,
 					(GDestroyNotify) io_data_unref,
 					&err,
@@ -370,6 +389,7 @@ static void l2cap_listen(const char *src, uint8_t addr_type, uint16_t psm,
 					BT_IO_OPT_CENTRAL, central,
 					BT_IO_OPT_INVALID);
 	else
+		/*未指定源地址时的监听*/
 		l2_srv = bt_io_listen(conn, cfm, data,
 					(GDestroyNotify) io_data_unref,
 					&err,
@@ -381,6 +401,7 @@ static void l2cap_listen(const char *src, uint8_t addr_type, uint16_t psm,
 					BT_IO_OPT_INVALID);
 
 	if (!l2_srv) {
+		/*监听不成功*/
 		printf("Listening failed: %s\n", err->message);
 		g_error_free(err);
 		exit(EXIT_FAILURE);
@@ -400,12 +421,13 @@ static void rfcomm_connect(const char *src, const char *dst, uint8_t ch,
 	data = io_data_new(NULL, -1, disconn, -1);
 
 	if (src)
+		/*已知源地址情况下的连接*/
 		data->io = bt_io_connect(connect_cb, data,
 						(GDestroyNotify) io_data_unref,
 						&err,
 						BT_IO_OPT_SOURCE, src,
 						BT_IO_OPT_DEST, dst,
-						BT_IO_OPT_CHANNEL, ch,
+						BT_IO_OPT_CHANNEL/*标明为BT_IO_RFCOMM类型*/, ch,
 						BT_IO_OPT_SEC_LEVEL, sec,
 						BT_IO_OPT_INVALID);
 	else
@@ -569,7 +591,7 @@ static void iso_connect(const char *src, const char *dst, int disconn)
 						&err,
 						BT_IO_OPT_SOURCE, src,
 						BT_IO_OPT_DEST, dst,
-						BT_IO_OPT_MODE, BT_IO_MODE_ISO,
+						BT_IO_OPT_MODE, BT_IO_MODE_ISO/*指明采用ISO类型协议*/,
 						BT_IO_OPT_QOS, data->qos,
 						BT_IO_OPT_INVALID);
 	else
@@ -697,6 +719,7 @@ static void sig_term(int sig)
 	g_main_loop_quit(main_loop);
 }
 
+/*执行client与server连接,并按参数要求接受,拒绝,断开*/
 int main(int argc, char *argv[])
 {
 	GOptionContext *context;
@@ -714,17 +737,21 @@ int main(int argc, char *argv[])
 		opt_defer, opt_sec, opt_update_sec, opt_priority, opt_voice);
 
 	if (opt_psm || opt_cid) {
+		/*使用l2cap协议*/
 		if (argc > 1)
+			/*做为client执行连接*/
 			l2cap_connect(opt_dev, argv[1], opt_addr_type,
 					opt_psm, opt_cid, opt_disconn,
 					opt_sec, opt_priority);
 		else
+			/*做为server执行监听*/
 			l2cap_listen(opt_dev, opt_addr_type, opt_psm, opt_cid,
 					opt_defer, opt_reject, opt_disconn,
 					opt_accept, opt_sec, opt_central);
 	}
 
 	if (opt_channel != -1) {
+		/*使用rfcomm协议*/
 		if (argc > 1)
 			rfcomm_connect(opt_dev, argv[1], opt_channel,
 							opt_disconn, opt_sec);
@@ -735,6 +762,7 @@ int main(int argc, char *argv[])
 	}
 
 	if (opt_sco) {
+		/*使用sco协议*/
 		if (argc > 1)
 			sco_connect(opt_dev, argv[1], opt_disconn, opt_voice);
 		else
@@ -743,6 +771,7 @@ int main(int argc, char *argv[])
 	}
 
 	if (opt_iso) {
+		/*使用ISO协议*/
 		if (argc > 1)
 			iso_connect(opt_dev, argv[1], opt_disconn);
 		else

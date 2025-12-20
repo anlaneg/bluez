@@ -1136,6 +1136,7 @@ bool mesh_crypto_packet_decode(const uint8_t *packet, uint8_t packet_len,
 	return true;
 }
 
+/*生成随机的num_bytes字节*/
 bool mesh_get_random_bytes(void *buf, size_t num_bytes)
 {
 	ssize_t len;

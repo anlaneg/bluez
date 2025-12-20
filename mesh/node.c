@@ -434,8 +434,9 @@ static void init_net_settings(struct mesh_node *node)
 							node->mpb_period, true);
 }
 
-static bool init_from_storage(struct mesh_config_node *db_node,
-			const uint8_t uuid[16], struct mesh_config *cfg,
+/*当json配置文件被加载成功后,此函数将被调用*/
+static bool init_from_storage(struct mesh_config_node *db_node/*自配置文件中解析而来的内容*/,
+			const uint8_t uuid[16], struct mesh_config *cfg/*构造的配置*/,
 			void *user_data)
 {
 	unsigned int num_ele;
@@ -447,6 +448,7 @@ static bool init_from_storage(struct mesh_config_node *db_node,
 
 	l_queue_push_tail(nodes, node);/*增加node*/
 
+	/*将db_node中的内容填充到mesh_node中*/
 	node->comp.cid = db_node->cid;
 	node->comp.pid = db_node->pid;
 	node->comp.vid = db_node->vid;

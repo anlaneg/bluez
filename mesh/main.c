@@ -85,11 +85,13 @@ static void mesh_ready_callback(void *user_data, bool success)
 
 	l_info("mesh_ready_callback");
 	if (!success) {
+		/*mesh初始化失败*/
 		l_error("Failed to start mesh");
 		l_main_quit();
 		return;
 	}
 
+	/*mesh初始化成功,初始化dbus*/
 	if (!dbus_init(dbus)) {
 		l_error("Failed to initialize mesh D-Bus resources");
 		l_main_quit();
@@ -100,7 +102,7 @@ static void request_name_callback(struct l_dbus *dbus, bool success,
 					bool queued, void *user_data)
 {
 	if (!success && io_type != MESH_IO_TYPE_UNIT_TEST) {
-		l_info("Request name failed");
+		l_info("Request name failed");/*请求名称失败*/
 		l_main_quit();
 		return;
 	}
@@ -164,7 +166,7 @@ static bool parse_io(const char *optarg, enum mesh_io_type *type/*出参，io类
 		*opts = index;
 
 		optarg += strlen("auto");
-		*index = MGMT_INDEX_NONE;
+		*index = MGMT_INDEX_NONE;/*指明设备未知*/
 		return true;
 
 		return false;
@@ -180,7 +182,7 @@ static bool parse_io(const char *optarg, enum mesh_io_type *type/*出参，io类
 
 		optarg++;
 
-		/*取index*/
+		/*取设备index*/
 		if (sscanf(optarg, "hci%d", index) == 1)
 			return true;
 
@@ -218,7 +220,7 @@ int main(int argc, char *argv[])
 	int hci_index;
 
 	if (!l_main_init())
-		return -1;/*初始化失败*/
+		return -1;/*初始化ell失败*/
 
 	l_log_set_stderr();
 
@@ -269,7 +271,7 @@ int main(int argc, char *argv[])
 			dbus_debug = true;/*开启dbus debug*/
 			break;
 		case 'h':
-			usage();
+			usage();/*显示帮助信息*/
 			status = EXIT_SUCCESS;
 			goto done;
 		default:
@@ -297,9 +299,9 @@ int main(int argc, char *argv[])
 
 	/*选择dbus*/
 	if (io_type != MESH_IO_TYPE_UNIT_TEST)
-		dbus = l_dbus_new_default(L_DBUS_SYSTEM_BUS);
+		dbus = l_dbus_new_default(L_DBUS_SYSTEM_BUS);/*使用system bus*/
 	else {
-		dbus = l_dbus_new_default(L_DBUS_SESSION_BUS);
+		dbus = l_dbus_new_default(L_DBUS_SESSION_BUS);/*使用session bus*/
 		prctl(PR_SET_PDEATHSIG, SIGSEGV);
 	}
 

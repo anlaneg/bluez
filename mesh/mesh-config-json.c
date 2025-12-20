@@ -42,7 +42,7 @@
 
 struct mesh_config {
 	json_object *jnode;
-	char *node_dir_path;
+	char *node_dir_path;/*配置文件路径及名称*/
 	uint8_t uuid[16];
 	uint32_t write_seq;
 	struct timeval write_time;
@@ -110,6 +110,7 @@ static bool save_config(json_object *jnode, const char *fname)
 	return result;
 }
 
+/*取关键字对应的值(按int考虑)*/
 static bool get_int(json_object *jobj, const char *keyword, int *value)
 {
 	json_object *jvalue;
@@ -321,6 +322,7 @@ static void jarray_key_del(json_object *jarray, int16_t idx)
 	}
 }
 
+/*读取unicastAddress配置*/
 static bool read_unicast_address(json_object *jobj, uint16_t *unicast)
 {
 	json_object *jvalue;
@@ -380,6 +382,7 @@ static bool read_seq_number(json_object *jobj, uint32_t *seq_number)
 	return true;
 }
 
+/*读取'{"IVindex":$idx, "IVupdate":$update}'串中的内容*/
 static bool read_iv_index(json_object *jobj, uint32_t *idx, bool *update)
 {
 	int tmp;
@@ -398,6 +401,7 @@ static bool read_iv_index(json_object *jobj, uint32_t *idx, bool *update)
 	return true;
 }
 
+/*取'{"token":'$token'}'取值*/
 static bool read_token(json_object *jobj, uint8_t token[8])
 {
 	json_object *jvalue;
@@ -416,6 +420,7 @@ static bool read_token(json_object *jobj, uint8_t token[8])
 	return true;
 }
 
+/*取'{"deviceKey":'$key_buf'}'取值*/
 static bool read_device_key(json_object *jobj, uint8_t key_buf[16])
 {
 	json_object *jvalue;
@@ -1378,6 +1383,7 @@ static void parse_features(json_object *jconfig, struct mesh_config_node *node)
 	node->modes.relay.interval = interval;
 }
 
+/*'{"cid":$node->cid, "pid":$node->pid,"vid":$node->vid,"crpl":$node->crpl}'取值*/
 static bool parse_composition(json_object *jcomp, struct mesh_config_node *node)
 {
 	json_object *jvalue;
@@ -2463,8 +2469,8 @@ bool mesh_config_update_crpl(struct mesh_config *cfg, uint16_t crpl)
 }
 
 /*加载配置文件json格式*/
-static bool load_node(const char *fname, const uint8_t uuid[16],
-				mesh_config_node_func_t cb, void *user_data)
+static bool load_node(const char *fname/*配置文件名称*/, const uint8_t uuid[16],
+				mesh_config_node_func_t cb/*JSON文件解析成功,此回调将被调用*/, void *user_data)
 {
 	int fd;
 	char *str;
@@ -2475,6 +2481,7 @@ static bool load_node(const char *fname, const uint8_t uuid[16],
 	struct mesh_config_node node;
 
 	if (!cb) {
+		/*必须提供回调*/
 		l_info("Node read callback is required");
 		return false;
 	}
@@ -2483,26 +2490,27 @@ static bool load_node(const char *fname, const uint8_t uuid[16],
 
 	fd = open(fname, O_RDONLY);
 	if (fd < 0)
-		return false;
+		return false;/*打开文件失败*/
 
 	if (fstat(fd, &st) == -1) {
 		close(fd);
 		return false;
 	}
 
+	/*申请文件大小相等的内容*/
 	str = (char *) l_new(char, st.st_size + 1);
 	if (!str) {
 		close(fd);
 		return false;
 	}
 
-	sz = read(fd, str, st.st_size);/*取得文件大小*/
+	sz = read(fd, str, st.st_size);/*取得文件内容*/
 	if (sz != st.st_size) {
 		l_error("Failed to read configuration file %s", fname);
 		goto done;
 	}
 
-	jnode = json_tokener_parse(str);/*解析文件内容*/
+	jnode = json_tokener_parse(str);/*解析JSON文件内容*/
 	if (!jnode)
 		goto done;
 
@@ -2513,20 +2521,22 @@ static bool load_node(const char *fname, const uint8_t uuid[16],
 	node.appkeys = l_queue_new();
 	node.pages = l_queue_new();
 
+	/*读取配置jnode,填充node(这时的node是局部变量)*/
 	result = read_node(jnode, &node);
 
 	if (result) {
+		/*解析json成功,触发CB回调*/
 		struct mesh_config *cfg = l_new(struct mesh_config, 1);
 
 		cfg->jnode = jnode;
-		memcpy(cfg->uuid, uuid, 16);
+		memcpy(cfg->uuid, uuid, 16);/*设置UUID*/
 		cfg->node_dir_path = l_strdup(fname);
 		cfg->write_seq = node.seq_number;
 		cfg->idles = l_queue_new();
 		gettimeofday(&cfg->write_time, NULL);
 
 		/*触发回调*/
-		result = cb(&node, uuid, cfg, user_data);
+		result = cb(&node/*解析的内容均存在此node中*/, uuid, cfg, user_data);
 
 		if (!result) {
 			l_free(cfg->idles);
@@ -2638,15 +2648,15 @@ bool mesh_config_save(struct mesh_config *cfg, bool no_wait,
 }
 
 /*加载node.json*/
-bool mesh_config_load_nodes(const char *cfgdir_name/*配置目录*/, mesh_config_node_func_t cb/*配置处理回调*/,
-								void *user_data)
+bool mesh_config_load_nodes(const char *cfgdir_name/*配置目录*/, mesh_config_node_func_t cb/*配置加载成功的处理回调*/,
+								void *user_data/*回调参数*/)
 {
 	DIR *cfgdir;
 	struct dirent *entry;
 	size_t path_len = strlen(cfgdir_name) + strlen(cfgnode_name) +
 								strlen(bak_ext);
 
-	create_dir(cfgdir_name);
+	create_dir(cfgdir_name);/*创建配置目录*/
 	cfgdir = opendir(cfgdir_name);/*打开配置目录*/
 	if (!cfgdir) {
 		l_error("Failed to open mesh node storage directory: %s",
@@ -2669,7 +2679,7 @@ bool mesh_config_load_nodes(const char *cfgdir_name/*配置目录*/, mesh_config
 			continue;
 
 		if (!str2hex(entry->d_name, node_len, uuid, sizeof(uuid)))
-			continue;/*跳过目录格式有误的*/
+			continue;/*跳过目录格式有误的,例如'.','..'*/
 
 		/*拼好配置文件夹名称，文件名称*/
 		dirname = l_strdup_printf("%s/%s", cfgdir_name, entry->d_name);
@@ -2679,9 +2689,9 @@ bool mesh_config_load_nodes(const char *cfgdir_name/*配置目录*/, mesh_config
 		if (!load_node(fname, uuid, cb, user_data)) {
 
 			/* Fall-back to Backup version */
-			bak = l_strdup_printf("%s%s", fname, bak_ext);
+			bak = l_strdup_printf("%s%s", fname, bak_ext);/*构造备份文件名称*/
 
-			/*尝试备份配置*/
+			/*加载配置文件失败,尝试加载备份配置*/
 			if (load_node(bak, uuid, cb, user_data)) {
 				remove(fname);
 				rename(bak, fname);

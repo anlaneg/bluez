@@ -85,7 +85,7 @@ struct connect {
 };
 
 struct accept {
-	BtIOConnect connect;
+	BtIOConnect connect;/*连接成功后执行*/
 	gpointer user_data;
 	GDestroyNotify destroy;
 };
@@ -178,17 +178,19 @@ static gboolean check_nval(GIOChannel *io)
 	return FALSE;
 }
 
+/*触发connect回调*/
 static gboolean accept_cb(GIOChannel *io, GIOCondition cond,
 							gpointer user_data)
 {
 	struct accept *accept = user_data;
-	GError *gerr = NULL;
+	GError *gerr = NULL;/*默认无错误,为空*/
 
 	/* If the user aborted this accept attempt */
 	if ((cond & G_IO_NVAL) || check_nval(io))
 		return FALSE;
 
 	if (cond & (G_IO_HUP | G_IO_ERR)) {
+		/*IO ERROR,获取错误原因*/
 		int err, sk_err, sock = g_io_channel_unix_get_fd(io);
 		socklen_t len = sizeof(sk_err);
 
@@ -201,7 +203,8 @@ static gboolean accept_cb(GIOChannel *io, GIOCondition cond,
 			ERROR_FAILED(&gerr, "HUP or ERR on socket", -err);
 	}
 
-	accept->connect(io, gerr, accept->user_data);
+	/*执行连接*/
+	accept->connect(io, gerr/*错误信息*/, accept->user_data);
 
 	g_clear_error(&gerr);
 
@@ -279,8 +282,8 @@ static gboolean server_cb(GIOChannel *io, GIOCondition cond,
 	return TRUE;
 }
 
-static void server_add(GIOChannel *io, BtIOConnect connect/*当新的client被accept时，如果confirm回调不为NULL,则调用*/,
-				BtIOConfirm confirm/*当新的client被accept时，如果此回调不为NULL,则调用*/, gpointer user_data/*回调参数*/,
+static void server_add(GIOChannel *io, BtIOConnect connect/*当新的client被accept时，如果confirm回调为NULL,则调用此函数*/,
+				BtIOConfirm confirm/*当新的client被accept时，如果confirm回调不为NULL,则调用*/, gpointer user_data/*回调参数*/,
 				GDestroyNotify destroy)
 {
 	struct server *server;
@@ -325,8 +328,8 @@ static void accept_add(GIOChannel *io, BtIOConnect connect, gpointer user_data,
 	accept->user_data = user_data;
 	accept->destroy = destroy;
 
-	cond = G_IO_OUT | G_IO_ERR | G_IO_HUP | G_IO_NVAL;/*关注写事件*/
-	g_io_add_watch_full(io, G_PRIORITY_HIGH, cond, accept_cb, accept,
+	cond = G_IO_OUT | G_IO_ERR | G_IO_HUP | G_IO_NVAL;/*关注写事件,可写时调用accept_cb*/
+	g_io_add_watch_full(io, G_PRIORITY_HIGH, cond, accept_cb/*新连接可写时调用*/, accept,
 					(GDestroyNotify) accept_remove);
 }
 
@@ -998,6 +1001,7 @@ static gboolean parse_set_opts(struct set_opts *opts, GError **err,
 			opts->sec_level = va_arg(args, int);/*填充opts->sec_level*/
 			break;
 		case BT_IO_OPT_CHANNEL:
+			/*通过此选项指明类型为rfcomm*/
 			opts->type = BT_IO_RFCOMM;
 			opts->channel = va_arg(args, int);
 			break;
@@ -1030,7 +1034,7 @@ static gboolean parse_set_opts(struct set_opts *opts, GError **err,
 		case BT_IO_OPT_MODE:
 			opts->mode = va_arg(args, int);
 			if (opts->mode == BT_IO_MODE_ISO) {
-				opts->type = BT_IO_ISO;
+				opts->type = BT_IO_ISO;/*指明采用ISO类型协议*/
 				if (opts->src_type == BDADDR_BREDR)
 					opts->src_type = BDADDR_LE_PUBLIC;
 				if (opts->dst_type == BDADDR_BREDR)
@@ -1194,8 +1198,8 @@ static int get_le_mode(int sock, uint8_t *mode)
 	return 0;
 }
 
-static gboolean l2cap_get(int sock, GError **err, BtIOOption opt1,
-								va_list args)
+static gboolean l2cap_get(int sock/*socket fd*/, GError **err, BtIOOption opt1/*第一个选项*/,
+								va_list args/*保存了第一个选项对应的填写目标及后续第二个选项及其填写目标*/)
 {
 	BtIOOption opt = opt1;
 	struct sockaddr_l2 src, dst;
@@ -1236,7 +1240,7 @@ static gboolean l2cap_get(int sock, GError **err, BtIOOption opt1,
 	}
 
 parse_opts:
-	while (opt != BT_IO_OPT_INVALID) {
+	while (opt != BT_IO_OPT_INVALID/*结束标记为遇到invalid选项*/) {
 		switch (opt) {
 		case BT_IO_OPT_SOURCE:
 			ba2str(&src.l2_bdaddr, va_arg(args, char *));/*将源地址格式化为字符串填充到va中*/
@@ -1400,7 +1404,7 @@ parse_opts:
 			return FALSE;
 		}
 
-		opt = va_arg(args, int);
+		opt = va_arg(args, int);/*取下一个参数*/
 	}
 
 	return TRUE;
@@ -1813,6 +1817,7 @@ static gboolean iso_get(int sock, GError **err, BtIOOption opt1, va_list args)
 	return TRUE;
 }
 
+/*按不同协议类型取参数填充到opt1中*/
 static gboolean get_valist(GIOChannel *io, BtIOType type/*协议类型*/, GError **err,
 						BtIOOption opt1, va_list args)
 {
@@ -1838,7 +1843,8 @@ static gboolean get_valist(GIOChannel *io, BtIOType type/*协议类型*/, GError
 	}
 }
 
-gboolean bt_io_accept(GIOChannel *io, BtIOConnect connect, gpointer user_data,
+/*当新连入的连接可写时执行connect*/
+gboolean bt_io_accept(GIOChannel *io, BtIOConnect connect/*新连接可写时执行*/, gpointer user_data,
 					GDestroyNotify destroy, GError **err)
 {
 	int sock;
@@ -1941,6 +1947,7 @@ gboolean bt_io_bcast_accept(GIOChannel *io, BtIOConnect connect,
 	return TRUE;
 }
 
+/*按选项及选项参数设置io中的相应值*/
 gboolean bt_io_set(GIOChannel *io, GError **err, BtIOOption opt1, ...)
 {
 	va_list args;
@@ -1949,6 +1956,7 @@ gboolean bt_io_set(GIOChannel *io, GError **err, BtIOOption opt1, ...)
 	int sock;
 	BtIOType type;
 
+	/*选将参数指明的选项值填充到opts中*/
 	va_start(args, opt1);
 	ret = parse_set_opts(&opts, err, opt1, args);
 	va_end(args);
@@ -1962,6 +1970,7 @@ gboolean bt_io_set(GIOChannel *io, GError **err, BtIOOption opt1, ...)
 
 	sock = g_io_channel_unix_get_fd(io);
 
+	/*再按SOCKET类型,取opts中的值进行设置(由下可知不同socket支持的设置值不同)*/
 	switch (type) {
 	case BT_IO_L2CAP:
 		return l2cap_set(sock, opts.src_type, opts.sec_level, opts.imtu,
@@ -1982,12 +1991,14 @@ gboolean bt_io_set(GIOChannel *io, GError **err, BtIOOption opt1, ...)
 
 }
 
-gboolean bt_io_get(GIOChannel *io, GError **err, BtIOOption opt1, ...)
+/*按选项指明的选项,自IO中获取相应的值并填充到选项后面的参数中*/
+gboolean bt_io_get(GIOChannel *io, GError **err, BtIOOption opt1/*第一个选项*/, .../*保存了第一个选项对应的填写目标及后续第二个选项及其填写目标*/)
 {
 	va_list args;
 	gboolean ret;
 	BtIOType type;
 
+	/*取协议类型*/
 	type = bt_io_get_type(io, err);
 	if (type == BT_IO_INVALID)
 		return FALSE;
@@ -2164,7 +2175,7 @@ GIOChannel *bt_io_connect(BtIOConnect connect/*执行到对端的连接成功，
 }
 
 /*执行监听
- * 当新的client被accept时，如果confirm回调不为NULL,则调用connect
+ * 当新的client被accept时，如果confirm回调为NULL,则调用connect
  * 当新的client被accept时，如果confirm回调不为NULL,则调用confirm
  * */
 GIOChannel *bt_io_listen(BtIOConnect connect, BtIOConfirm confirm,
@@ -2179,7 +2190,7 @@ GIOChannel *bt_io_listen(BtIOConnect connect, BtIOConfirm confirm,
 
 	/*解析args参数列表并填充opts*/
 	va_start(args, opt1);
-	ret = parse_set_opts(&opts/*出参*/, err, opt1, args);
+	ret = parse_set_opts(&opts/*出参,获得参数*/, err, opt1, args);
 	va_end(args);
 
 	if (ret == FALSE)

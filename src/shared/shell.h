@@ -48,9 +48,9 @@ struct bt_shell_menu {
 
 struct bt_shell_opt {
 	const struct option *options;
-	size_t optno;
-	const char *optstr;
-	const char ***optarg;
+	size_t optno;/*指定options数组大小*/
+	const char *optstr;/*短选项列表*/
+	const char ***optarg;/*指定options数组中各项对应的命令行解析获得的参数*/
 	const char **help;
 };
 

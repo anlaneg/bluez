@@ -44,11 +44,14 @@ int main(int argc, char *argv[])
 {
 	int status;
 
+	/*SHELL初始化*/
 	bt_shell_init(argc, argv, &opt);
 
+	/*添加菜单*/
 	mgmt_add_submenu();
 	mgmt_set_index(index_option);
 	bt_shell_attach(fileno(stdin));
+	/*执行shell*/
 	status = bt_shell_run();
 
 	mgmt_remove_submenu();

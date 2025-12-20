@@ -38,7 +38,7 @@ struct loop_data {
 
 /* List of Supported Mesh-IO Types */
 static const struct mesh_io_table table[] = {
-	{MESH_IO_TYPE_MGMT,	&mesh_io_mgmt},
+	{MESH_IO_TYPE_MGMT,	&mesh_io_mgmt},/*MESH_IO_TYPE_MGMT类型对应的api*/
 	{MESH_IO_TYPE_GENERIC,	&mesh_io_generic},
 	{MESH_IO_TYPE_UNIT_TEST, &mesh_io_unit},
 };
@@ -71,15 +71,17 @@ static void refresh_rx(void *a, void *b)
 							rx_reg->user_data);
 }
 
-static void ctl_alert(int index, bool up, bool pwr, bool mesh, void *user_data)
+/*重要流程,用于处理ctrl检测后的情况反馈*/
+static void ctl_alert(int index, bool up, bool pwr, bool mesh/*是否支持mesh*/, void *user_data)
 {
 	enum mesh_io_type type = L_PTR_TO_UINT(user_data);
 	const struct mesh_io_api *api = NULL;
 
-	l_warn("index %u up:%d pwr: %d mesh: %d", index, up, pwr, mesh);
+	l_warn("index %u up:%d pwr: %d mesh: %d", index, up, pwr, mesh);/*指明此controller的MESH状态*/
 
 	/* If specific IO controller requested, honor it */
 	if (default_io->favored_index != MGMT_INDEX_NONE) {
+		/*我们关注了具体的一个controller,但当前controller与我们关注的不同,则忽略*/
 		if (default_io->favored_index != index)
 			return;
 
@@ -87,7 +89,7 @@ static void ctl_alert(int index, bool up, bool pwr, bool mesh, void *user_data)
 			l_warn("HCI%u failed to start generic IO %s",
 				index, pwr ? ": already powered on" : "");
 			if (default_io->ready)
-				default_io->ready(default_io->user_data, false);
+				default_io->ready(default_io->user_data, false/*指明失败*/);
 		}
 	}
 
@@ -105,15 +107,16 @@ static void ctl_alert(int index, bool up, bool pwr, bool mesh, void *user_data)
 
 	/* If we already have an API, keep using it */
 	if (!up || default_io->api)
-		return;
+		return;/*没有UP或者我们已经有api了,直接返回*/
 
+	/*依据类型,选择不同的API*/
 	if (mesh && type != MESH_IO_TYPE_GENERIC)
-		api = io_api(MESH_IO_TYPE_MGMT);
+		api = io_api(MESH_IO_TYPE_MGMT);/*对于非generic的类型,使用此api*/
 	else if (!pwr)
 		api = io_api(MESH_IO_TYPE_GENERIC);
 
 	if (api) {
-		default_io->index = index;
+		default_io->index = index;/*指明controller索引*/
 		default_io->api = api;
 		api->init(default_io, &index, default_io->user_data);
 		l_queue_foreach(default_io->rx_regs, refresh_rx, default_io);
@@ -152,7 +155,7 @@ static struct mesh_io_reg *find_by_filter(struct l_queue *rx_regs,
 }
 
 /*创建并初始化default_io*/
-struct mesh_io *mesh_io_new(enum mesh_io_type type/*io类型*/, void *opts,
+struct mesh_io *mesh_io_new(enum mesh_io_type type/*io类型*/, void *opts/*此类型对应的参数*/,
 				mesh_io_ready_func_t cb, void *user_data)
 {
 	const struct mesh_io_api *api = NULL;
@@ -171,7 +174,7 @@ struct mesh_io *mesh_io_new(enum mesh_io_type type/*io类型*/, void *opts,
 		if (!mesh_mgmt_list(ctl_alert, L_UINT_TO_PTR(type)))
 			goto fail;
 
-		return default_io;
+		return default_io;/*针对这类type,直接返回default_io*/
 	}
 
 	api = io_api(type);
@@ -199,12 +202,12 @@ void mesh_io_destroy(struct mesh_io *io)
 bool mesh_io_get_caps(struct mesh_io *io, struct mesh_io_caps *caps)
 {
 	if (io != default_io)
-		return false;
+		return false;/*与default_io不同,直接返失败*/
 
 	if (io && io->api && io->api->caps)
 		return io->api->caps(io, caps);
 
-	return false;
+	return false;/*无API直接返回失败*/
 }
 
 bool mesh_io_register_recv_cb(struct mesh_io *io, const uint8_t *filter/*AD Structure结构体标记*/,

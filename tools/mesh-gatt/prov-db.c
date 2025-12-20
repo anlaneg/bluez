@@ -42,6 +42,7 @@
 static const char *prov_filename;
 static const char *local_filename;
 
+/*打开文件,读取所有内容*/
 static char* prov_file_read(const char *filename)
 {
 	int fd;
@@ -77,6 +78,7 @@ static char* prov_file_read(const char *filename)
 	return str;
 }
 
+/*将jmain内容写入到配置文件*/
 static void prov_file_write(json_object *jmain, bool local)
 {
 	FILE *outfile;
@@ -1347,6 +1349,7 @@ static bool parse_node_composition(struct mesh_node *node, json_object *jcomp)
 	return parse_composition_elements(node, jelements);
 }
 
+/*解析node节点*/
 static bool parse_node(json_object *jnode, bool local)
 {
 	json_object *jconfig;
@@ -1362,11 +1365,13 @@ static bool parse_node(json_object *jnode, bool local)
 	/* Device key */
 	if (!json_object_object_get_ex(jnode, "deviceKey", &jvalue) ||
 								!jvalue) {
+		/*没有填写devicekey,生成并添加*/
 		if (!mesh_get_random_bytes(key, 16))
 			return false;
 
 		add_key(jnode, "deviceKey", key);
 	} else {
+		/*自配置中提取device key*/
 		value_str = (char *)json_object_get_string(jvalue);
 		if (!str2hex(value_str, strlen(value_str), key, 16))
 			return false;;
@@ -1377,27 +1382,27 @@ static bool parse_node(json_object *jnode, bool local)
 	if (!node)
 		return false;
 
-	node_set_device_key(node, key);
+	node_set_device_key(node, key);/*设置device key*/
 
 	json_object_object_get_ex(jnode, "IVindex", &jint);
 	if (jint)
 		idx = json_object_get_int(jint);
 	else
-		idx = 0;
+		idx = 0;/*如不存在,定为0*/
 
-	node_set_iv_index(node, idx);
+	node_set_iv_index(node, idx);/*设置iv index*/
 	if (local) {
 		bool update = false;
 		json_object_object_get_ex(jnode, "IVupdate", &jint);
 		if (jint)
 			update = json_object_get_int(jint) ? true : false;
-		net_set_iv_index(idx, update);
+		net_set_iv_index(idx, update);/*设置iv update*/
 	}
 
 	if (json_object_object_get_ex(jnode, "sequenceNumber", &jint) &&
 									jint) {
 		int seq = json_object_get_int(jint);
-		node_set_sequence_number(node, seq);
+		node_set_sequence_number(node, seq);/*设置sequence number*/
 	}
 
 	/* Composition is mandatory for local node */
@@ -1413,7 +1418,7 @@ static bool parse_node(json_object *jnode, bool local)
 	if (!jconfig) {
 		if (local) {
 			/* This is an unprovisioned local device */
-			goto done;
+			goto done;/*local容许没有configuration配置*/
 		} else {
 			node_free(node);
 			return false;
@@ -1483,12 +1488,14 @@ static bool read_json_db(const char *filename, bool provisioner, bool local)
 	int len;
 	int i;
 	uint32_t index;
-	bool refresh = false;
-	bool res = false;
+	bool refresh = false;/*默认不刷新文件*/
+	bool res = false;/*默认解析有误*/
 
+	/*读取文件*/
 	str = prov_file_read(filename);
 	if (!str) return false;
 
+	/*解析内容*/
 	jmain = json_tokener_parse(str);
 	if (!jmain)
 		goto done;
@@ -1497,12 +1504,13 @@ static bool read_json_db(const char *filename, bool provisioner, bool local)
 		json_object *jnode;
 		bool result;
 
+		/*取node节点*/
 		json_object_object_get_ex(jmain, "node", &jnode);
 		if (!jnode) {
 			bt_shell_printf("Cannot find \"node\" object");
 			goto done;
 		} else
-			result = parse_node(jnode, true);
+			result = parse_node(jnode, true);/*解析JNODE*/
 
 		/*
 		* If local node is provisioner, the rest of mesh settings
@@ -1670,13 +1678,14 @@ done:
 	return res;
 }
 
-bool prov_db_read(const char *filename)
+bool prov_db_read(const char *filename/*文件名称*/)
 {
 	prov_filename = filename;
 	return read_json_db(filename, true, false);
 }
 
-bool prov_db_read_local_node(const char *filename, bool provisioner)
+/*加载local_node.json文件*/
+bool prov_db_read_local_node(const char *filename/*文件名称*/, bool provisioner)
 {
 	local_filename = filename;
 	return read_json_db(filename, provisioner, true);

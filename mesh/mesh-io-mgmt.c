@@ -100,6 +100,7 @@ static uint32_t instant_remaining_ms(uint32_t instant)
 	return instant;
 }
 
+/*检查地址是否相等*/
 static bool find_by_addr(const void *a, const void *b)
 {
 	const struct dup_filter *filter = a;
@@ -107,6 +108,7 @@ static bool find_by_addr(const void *a, const void *b)
 	return !memcmp(filter->addr, b, 6);
 }
 
+/*检查地址是否为0,并且filter->data与参数一致*/
 static bool find_by_adv(const void *a, const void *b)
 {
 	const struct dup_filter *filter = a;
@@ -157,6 +159,7 @@ static bool filter_dups(const uint8_t *addr, const uint8_t *adv,
 		addr = zero_addr;
 
 	if (adv[1] == BT_AD_MESH_PROV) {
+		/*通过adv(UINT64_t类型)检查*/
 		filter = l_queue_find(pvt->dup_filters, find_by_adv, adv);
 
 		if (!filter && addr != zero_addr)
@@ -165,11 +168,13 @@ static bool filter_dups(const uint8_t *addr, const uint8_t *adv,
 		l_queue_remove(pvt->dup_filters, filter);
 
 	} else {
+		/*移除此地址,并返回结果*/
 		filter = l_queue_remove_if(pvt->dup_filters, find_by_addr,
 									addr);
 	}
 
 	if (!filter) {
+		/*没有此FILTER,创建*/
 		filter = l_new(struct dup_filter, 1);
 		memcpy(filter->addr, addr, 6);
 	}
@@ -218,7 +223,7 @@ static void process_rx(uint16_t index, struct mesh_io_private *pvt, int8_t rssi,
 	if (index != pvt->send_idx && data[0] == BT_AD_MESH_BEACON)
 		return;
 
-	print_packet("RX", data, len);
+	print_packet("RX", data, len);/*显示收到的内容*/
 	l_queue_foreach(pvt->io->rx_regs, process_rx_callbacks, &rx);
 }
 
@@ -228,6 +233,7 @@ static void send_cmplt(uint16_t index, uint16_t length,
 	/* print_packet("Mesh Send Complete", param, length); */
 }
 
+/*收到device found事件*/
 static void event_device_found(uint16_t index, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -239,13 +245,14 @@ static void event_device_found(uint16_t index, uint16_t length,
 	uint16_t adv_len;
 	uint16_t len = 0;
 
+	/*这里1表示 BDADDR_LE_PUBLIC,2表示BDADDR_LE_RANDOM,由于是LE模式,故地址类型只能是以上两种*/
 	if (ev->addr.type < 1 || ev->addr.type > 2)
 		return;
 
 	instant = get_instant();
 	adv = ev->eir;
 	adv_len = ev->eir_len;
-	addr = ev->addr.bdaddr.b;
+	addr = ev->addr.bdaddr.b;/*地址*/
 
 	if (filter_dups(addr, adv, instant))
 		return;
@@ -264,6 +271,7 @@ static void event_device_found(uint16_t index, uint16_t length,
 			break;
 
 		if (adv[1] >= BT_AD_MESH_PROV && adv[1] <= BT_AD_MESH_BEACON)
+			/*处理收*/
 			process_rx(index, pvt, ev->rssi, instant, addr,
 							adv + 1, adv[0]);
 
@@ -310,6 +318,7 @@ static bool find_active(const void *a, const void *b)
 	return false;
 }
 
+/*显示开启状态*/
 static void mesh_up(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -326,6 +335,7 @@ static void le_up(uint8_t status, uint16_t length,
 	l_debug("HCI%d LE up status: %d", index, status);
 }
 
+/*收到LE设置命令响应后调用*/
 static void ctl_up(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -337,23 +347,24 @@ static void ctl_up(uint8_t status, uint16_t length,
 
 	l_debug("HCI%d is up status: %d", index, status);
 	if (status)
-		return;
+		return;/*设置失败,返回*/
 
 	len = sizeof(struct mgmt_cp_set_mesh) + sizeof(mesh_ad_types);
 	mesh = l_malloc(len);
 
-	mesh->enable = 1;
-	mesh->window = L_CPU_TO_LE16(0x1000);
-	mesh->period = L_CPU_TO_LE16(0x1000);
+	mesh->enable = 1;/*指明开启*/
+	mesh->window = L_CPU_TO_LE16(0x1000);/*指定le扫描时长(当window与PERIOD相等时,将持续扫描)*/
+	mesh->period = L_CPU_TO_LE16(0x1000);/*指定le扫描间隔*/
 	mesh->num_ad_types = sizeof(mesh_ad_types);
-	memcpy(mesh->ad_types, mesh_ad_types, sizeof(mesh_ad_types));
+	memcpy(mesh->ad_types, mesh_ad_types, sizeof(mesh_ad_types));/*设置广播类型*/
 
 	pvt->rx_id = mesh_mgmt_register(MGMT_EV_MESH_DEVICE_FOUND,
 				MGMT_INDEX_NONE, event_device_found, pvt,
-				NULL);
+				NULL);/*注册关注设备发现事件*/
 	pvt->tx_id = mesh_mgmt_register(MGMT_EV_MESH_PACKET_CMPLT,
 					index, send_cmplt, pvt, NULL);
 
+	/*开启扫描*/
 	mesh_mgmt_send(MGMT_OP_SET_MESH_RECEIVER, index, len, mesh,
 			mesh_up, L_UINT_TO_PTR(index), NULL);
 	l_debug("done %d mesh startup", index);
@@ -363,12 +374,13 @@ static void ctl_up(uint8_t status, uint16_t length,
 	if (pvt->send_idx == MGMT_INDEX_NONE) {
 		pvt->send_idx = index;
 		if (pvt && pvt->io && pvt->io->ready) {
-			pvt->io->ready(pvt->io->user_data, true);
+			pvt->io->ready(pvt->io->user_data, true/*指明成功*/);
 			pvt->io->ready = NULL;
 		}
 	}
 }
 
+/*MGMT_OP_READ_INFO命令响应处理*/
 static void read_info_cb(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -383,12 +395,14 @@ static void read_info_cb(uint8_t status, uint16_t length,
 		return;
 
 	if (status != MGMT_STATUS_SUCCESS) {
+		/*响应不成功*/
 		l_error("Failed to read info for hci index %u: %s (0x%02x)",
 				index, mgmt_errstr(status), status);
 		return;
 	}
 
 	if (length < sizeof(*rp)) {
+		/*响应参数过短*/
 		l_error("Read info response too short");
 		return;
 	}
@@ -398,10 +412,10 @@ static void read_info_cb(uint8_t status, uint16_t length,
 
 	if (!(supported_settings & MGMT_SETTING_LE)) {
 		l_info("Controller hci %u does not support LE", index);
-		return;
+		return;/*不支持LE*/
 	}
 
-	if (!(current_settings & MGMT_SETTING_POWERED)) {
+	if (!(current_settings & MGMT_SETTING_POWERED)) {/*没有设置POWERD*/
 		unsigned char power[] = { 0x01 };
 
 		/* TODO: Initialize this HCI controller */
@@ -422,11 +436,12 @@ static void read_info_cb(uint8_t status, uint16_t length,
 		/* Share this controller with bluetoothd */
 		mesh_mgmt_send(MGMT_OP_SET_LE, index,
 				sizeof(le), &le,
-				ctl_up, L_UINT_TO_PTR(index), NULL);
+				ctl_up, L_UINT_TO_PTR(index), NULL);/*开启LE模式*/
 
 	}
 }
 
+/*用于初始化*/
 static bool dev_init(struct mesh_io *io, void *opts, void *user_data)
 {
 	uint16_t index = *(int *)opts;
@@ -438,8 +453,9 @@ static bool dev_init(struct mesh_io *io, void *opts, void *user_data)
 
 	pvt->send_idx = MGMT_INDEX_NONE;
 
+	/*读取此controller的INFO*/
 	mesh_mgmt_send(MGMT_OP_READ_INFO, index, 0, NULL,
-				read_info_cb, L_UINT_TO_PTR(index), NULL);
+				read_info_cb/*处理响应*/, L_UINT_TO_PTR(index), NULL);
 
 	pvt->dup_filters = l_queue_new();
 	pvt->tx_pkts = l_queue_new();

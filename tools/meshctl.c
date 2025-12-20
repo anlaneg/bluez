@@ -1900,10 +1900,11 @@ int main(int argc, char *argv[])
 	char *mesh_dir = NULL;
 
 	bt_shell_init(argc, argv, &opt);
-	bt_shell_set_menu(&main_menu);
+	bt_shell_set_menu(&main_menu);/*设置主菜单*/
 	bt_shell_set_prompt(PROMPT_OFF, NULL);
 
 	if (!config_dir) {
+		/*尝试配置目录,确定mesh_dir*/
 		char *home;
 
 		home = getenv("XDG_CONFIG_HOME");
@@ -1924,6 +1925,7 @@ int main(int argc, char *argv[])
 		}
 
 	} else {
+		/*使用参数指明的mesh_dir*/
 		mesh_dir = g_strdup_printf("%s", config_dir);
 	}
 
@@ -1934,12 +1936,12 @@ int main(int argc, char *argv[])
 	len = strlen(mesh_dir);
 
 	if (len && mesh_dir[len - 1] != '/')
-		extra = 1;
+		extra = 1;/*未以'/'结尾*/
 	else
 		extra = 0;
 
 	mesh_local_config_filename = g_malloc(len + strlen("local_node.json")
-									+ 2);
+									+ 2);/*这里加2,用于补'\0',及考虑可能的补'\/'*/
 	if (!mesh_local_config_filename)
 		goto fail;
 
@@ -1947,21 +1949,22 @@ int main(int argc, char *argv[])
 	if (!mesh_prov_db_filename)
 		goto fail;
 
-	sprintf(mesh_local_config_filename, "%s", mesh_dir);
+	sprintf(mesh_local_config_filename, "%s", mesh_dir);/*写目录*/
 
 	if (extra)
-		sprintf(mesh_local_config_filename + len , "%c", '/');
+		sprintf(mesh_local_config_filename + len , "%c", '/');/*如有必要补'/'*/
 
 	sprintf(mesh_local_config_filename + len + extra, "%s",
-							"local_node.json");
-	len = len + extra + strlen("local_node.json");
+							"local_node.json");/*生成local_node.json文件路径*/
+	len = len + extra + strlen("local_node.json");/*获得总长度*/
 
 	if (!prov_db_read_local_node(mesh_local_config_filename, true)) {
 		g_printerr("Failed to parse local node configuration file %s\n",
 			mesh_local_config_filename);
-		goto fail;
+		goto fail;/*加载local_node.json节点失败,退出*/
 	}
 
+	/*同样的,构造prov_db.json文件*/
 	sprintf(mesh_prov_db_filename, "%s", mesh_dir);
 	len = strlen(mesh_dir);
 
@@ -1973,6 +1976,7 @@ int main(int argc, char *argv[])
 	sprintf(mesh_prov_db_filename + len + extra, "%s", "prov_db.json");
 
 	if (!prov_db_read(mesh_prov_db_filename)) {
+		/*读取prov_db.json失败,报错*/
 		g_printerr("Failed to parse provisioning database file %s\n",
 			mesh_prov_db_filename);
 		goto fail;

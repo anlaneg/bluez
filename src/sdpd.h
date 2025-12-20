@@ -61,6 +61,7 @@ uint32_t sdp_next_handle(void);
 
 uint32_t sdp_get_time(void);
 
+/*是否开启unix socket方式的SDP SERVER*/
 #define SDP_SERVER_COMPAT (1 << 0)
 #define SDP_SERVER_CENTRAL (1 << 1)
 

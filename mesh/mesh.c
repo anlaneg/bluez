@@ -68,7 +68,7 @@ struct bt_mesh {
 	//"General/FriendQueueSize"配置设置
 	uint8_t friend_queue_sz;
 	uint8_t max_filters;
-	bool initialized;
+	bool initialized;/*指明是否已初始化完成*/
 };
 
 struct join_data{
@@ -179,11 +179,12 @@ static void io_ready_callback(void *user_data, bool result)
 	if (mesh.initialized)
 		return;
 
-	mesh.initialized = true;/*指明已初始化*/
+	mesh.initialized = true;/*指明已初始化完成*/
 
 	if (result)
 		node_attach_io_all(mesh.io);
 
+	/*触发回调*/
 	req->cb(req->user_data, result);
 
 	l_free(req);
@@ -235,6 +236,7 @@ static void parse_settings(const char *mesh_conf_fname)
 		l_free(str);
 	}
 
+	/*取relay配置*/
 	str = l_settings_get_string(settings, "General", "Relay");
 	if (str) {
 		if (!strcasecmp(str, "false"))
@@ -266,7 +268,7 @@ done:
 
 bool mesh_init(const char *config_dir/*配置文件目录*/, const char *mesh_conf_fname/*配置文件*/,
 					enum mesh_io_type type/*io类型*/, void *opts/*io类型对应参数*/,
-					mesh_ready_func_t cb, void *user_data)
+					mesh_ready_func_t cb/*mesh ready时此回调将被调用*/, void *user_data)
 {
 	struct mesh_io_caps caps;
 	struct mesh_init_request *req;
@@ -299,10 +301,11 @@ bool mesh_init(const char *config_dir/*配置文件目录*/, const char *mesh_co
 	req->cb = cb;
 	req->user_data = user_data;
 
+	/*创建mesh io*/
 	mesh.io = mesh_io_new(type, opts, io_ready_callback, req);
 	if (!mesh.io) {
 		l_free(req);
-		return false;
+		return false;/*创建IO失败*/
 	}
 
 	l_debug("io %p", mesh.io);
@@ -913,9 +916,9 @@ static struct l_dbus_message *import_call(struct l_dbus *dbus,
 static void setup_network_interface(struct l_dbus_interface *iface)
 {
 	l_dbus_interface_method(iface, "Join", 0, join_network_call, "",
-							"oay", "app", "uuid");
+							"oay", "app", "uuid");/*请求加入网络*/
 
-	l_dbus_interface_method(iface, "Cancel", 0, cancel_join_call, "", "");
+	l_dbus_interface_method(iface, "Cancel", 0, cancel_join_call, "", "");/*取消加入网络*/
 
 	l_dbus_interface_method(iface, "Attach", 0, attach_call,
 					"oa(ya(qa{sv}))", "ot", "node",

@@ -41,7 +41,7 @@ static int l2cap_sock = -1, unix_sock = -1;
  * l2cap and unix sockets over which discovery and registration clients
  * access us respectively
  */
-static int init_server(uint16_t mtu, int central, int compat)
+static int init_server(uint16_t mtu, int central, int compat/*是否创建local sdp server*/)
 {
 	struct l2cap_options opts;
 	struct sockaddr_l2 l2addr;

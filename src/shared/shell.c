@@ -72,15 +72,15 @@ typedef enum {
 } mode_type_t;
 
 static struct {
-	bool init;
-	char *name;
+	bool init;/*是否已初始化*/
+	char *name;/*程序名称*/
 	char history[256];
 	int argc;
 	char **argv;
 	mode_type_t mode;
 	bool zsh;
 	bool monitor;
-	int timeout;
+	int timeout;/*超时时间*/
 	int init_fd;
 	struct queue *inputs;
 
@@ -962,6 +962,7 @@ int bt_shell_release_prompt(const char *input)
 static void rl_handler(char *input)
 {
 	if (!input) {
+		/*执行退出操作*/
 		rl_insert_text("quit");
 		rl_redisplay();
 		rl_crlf();
@@ -1325,7 +1326,7 @@ static void rl_init(void)
 	rl_erase_empty_line = 1;
 	rl_callback_handler_install(NULL, rl_handler/*指定命令行处理方式*/);
 
-	rl_init_history();
+	rl_init_history();/*初始化HISTRORY*/
 }
 
 static const struct option main_options[] = {
@@ -1366,25 +1367,26 @@ void bt_shell_init(int argc, char **argv, const struct bt_shell_opt *opt)
 	size_t offset;
 	char *endptr = NULL;
 
-	offset = sizeof(main_options) / sizeof(struct option);
+	offset = sizeof(main_options) / sizeof(struct option);/*取选项数组大小*/
 
-	memcpy(options, main_options, sizeof(struct option) * offset);
+	memcpy(options, main_options, sizeof(struct option) * offset);/*复制main_options到options中*/
 
 	if (opt) {
 		memcpy(options + offset, opt->options,
-				sizeof(struct option) * opt->optno);
-		snprintf(optstr, sizeof(optstr), "+mhvs:t:%s", opt->optstr);
+				sizeof(struct option) * opt->optno);/*复制opt中提供的options*/
+		snprintf(optstr, sizeof(optstr), "+mhvs:t:%s", opt->optstr);/*复制短选项值*/
 	} else
-		snprintf(optstr, sizeof(optstr), "+mhvs:t:");
+		snprintf(optstr, sizeof(optstr), "+mhvs:t:");/*未提供opt,使用已有的短选项值*/
 
 	data.name = strrchr(argv[0], '/');
 	if (!data.name)
 		data.name = strdup(argv[0]);/*进程名称*/
 	else
-		data.name = strdup(++data.name);
+		data.name = strdup(++data.name);/*使用文件名称*/
 
 	data.init_fd = -1;
 
+	/*解析参数*/
 	while ((c = getopt_long(argc, argv, optstr, options, &index)) != -1) {
 		switch (c) {
 		case 'v':
@@ -1399,6 +1401,7 @@ void bt_shell_init(int argc, char **argv, const struct bt_shell_opt *opt)
 			goto done;
 		case 's':
 			if (optarg && data.init_fd < 0) {
+				/*打开初始化脚本(多个参数时仅执行一次)*/
 				data.init_fd = open(optarg, O_RDONLY);
 				if (data.init_fd < 0)
 					printf("Unable to open %s: %s (%d)\n",
@@ -1417,6 +1420,7 @@ void bt_shell_init(int argc, char **argv, const struct bt_shell_opt *opt)
 			break;
 		case 'm':
 			data.monitor = true;
+			/*打开log socket*/
 			if (bt_log_open() < 0) {
 				data.monitor = false;
 				printf("Unable to open logging channel\n");
@@ -1426,7 +1430,7 @@ void bt_shell_init(int argc, char **argv, const struct bt_shell_opt *opt)
 			if (index < 0) {
 				for (index = 0; options[index].val; index++) {
 					if (c == options[index].val)
-						break;
+						break;/*遇到其它自定义命令对应的选项*/
 				}
 			}
 
@@ -1437,29 +1441,32 @@ void bt_shell_init(int argc, char **argv, const struct bt_shell_opt *opt)
 					return;
 				}
 
-				*opt->optarg[index - offset] = optarg ? : "";
+				*opt->optarg[index - offset] = optarg ? : "";/*记录此选项的参数*/
 			}
 		}
 
 		index = -1;
 	}
 
+	/*设置SHELL变量名称*/
 	bt_shell_set_env("SHELL", data.name);
 
 	data.argc = argc - optind;
 	data.argv = argv + optind;
 	optind = 0;
+	/*如果仍其参数未解析,则为非交互,否则为交互*/
 	data.mode = (data.argc > 0) ? MODE_NON_INTERACTIVE : MODE_INTERACTIVE;
 
 done:
+	/*如为非交互,则填写非交互环境变量*/
 	if (data.mode == MODE_NON_INTERACTIVE)
 		bt_shell_set_env("NON_INTERACTIVE", &data.mode);
 
 	mainloop_init();
 
 	/* Always set stdout as line buffered */
-	setlinebuf(stdout);
-	rl_init();
+	setlinebuf(stdout);/*变更为行buffer*/
+	rl_init();/*初始化readlink*/
 
 	data.init = true;
 	data.inputs = queue_new();
@@ -1642,13 +1649,14 @@ bool bt_shell_set_menu(const struct bt_shell_menu *menu)
 	return true;
 }
 
+/*添加子菜单*/
 bool bt_shell_add_submenu(const struct bt_shell_menu *menu)
 {
 	if (!menu)
 		return false;
 
 	if (!data.main)
-		/*未设置main menu,将其设置为主menu*/
+		/*未设置main menu,将其设置为生效menu及根menu*/
 		return bt_shell_set_menu(menu);
 
 	if (!data.submenus)
@@ -1698,11 +1706,13 @@ bool bt_shell_attach(int fd)
 		return false;
 
 	if (data.mode == MODE_INTERACTIVE) {
+		/*直接交互*/
 		io_set_read_handler(input->io, input_read, input, NULL);
 		io_set_disconnect_handler(input->io, input_hup, input, NULL);
 	}
 
 	if (data.mode == MODE_NON_INTERACTIVE) {
+		/*非直接交互方式*/
 		if (shell_exec(data.argc, data.argv) < 0) {
 			bt_shell_noninteractive_quit(EXIT_FAILURE);
 			return true;
@@ -1740,6 +1750,7 @@ static bool match_env(const void *data, const void *user_data)
 	return !strcmp(env->name, name);
 }
 
+/*为环境变量$name设置其对应的值*/
 void bt_shell_set_env(const char *name, void *value)
 {
 	struct bt_shell_env *env;

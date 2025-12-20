@@ -65,7 +65,7 @@ struct mesh_node {
 	uint16_t oob;
 	uint16_t features;
 	uint8_t dev_uuid[16];
-	uint8_t dev_key[16];
+	uint8_t dev_key[16];/*由配置而来(或者随机生成的device key)*/
 	uint8_t num_ele;
 	uint8_t ttl;
 	bool provisioner;
@@ -320,6 +320,7 @@ uint16_t node_get_primary(struct mesh_node *node)
 		return node->primary;
 }
 
+/*设置device key*/
 void node_set_device_key(struct mesh_node *node, uint8_t *key)
 
 {

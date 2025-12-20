@@ -104,23 +104,24 @@ int create_dir(const char *dir_name)
 
 	err = stat(dir_name, &st);
 	if (!err && S_ISREG(st.st_mode))
-		return 0;
+		return 0;/*存在,且为普通文件,则返回*/
 
 	memset(dir, 0, PATH_MAX + 1);
 	strcat(dir, "/");
 
-	prev = strchr(dir_name, '/');
+	prev = strchr(dir_name, '/');/*取第一层目录名称*/
 
 	while (prev) {
-		next = strchr(prev + 1, '/');
+		next = strchr(prev + 1, '/');/*取下一层目录名称*/
 		if (!next)
 			break;
 
 		if (next - prev == 1) {
 			prev = next;
-			continue;
+			continue;/*遇到'//'情况,跳过*/
 		}
 
+		/*创建父目录*/
 		strncat(dir, prev + 1, next - prev);
 		if (mkdir(dir, 0755) != 0 && errno != EEXIST)
 			l_error("Failed to create dir(%d): %s", errno, dir);
@@ -128,6 +129,7 @@ int create_dir(const char *dir_name)
 		prev = next;
 	}
 
+	/*创建目录*/
 	if (mkdir(dir_name, 0755) != 0 && errno != EEXIST)
 		l_error("Failed to create dir(%d): %s", errno, dir_name);
 

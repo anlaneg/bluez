@@ -1540,7 +1540,7 @@ int main(int argc, char *argv[])
 
 	if (btd_opts.mode != BT_MODE_LE) {
 		if (option_compat == TRUE)
-			sdp_flags |= SDP_SERVER_COMPAT;/*SDP SERVER开启兼容*/
+			sdp_flags |= SDP_SERVER_COMPAT;/*SDP SERVER开启兼容(此情况下local SDP SERVER才能启动)*/
 
 		start_sdp_server(sdp_mtu, sdp_flags);/*启动sdp server*/
 
