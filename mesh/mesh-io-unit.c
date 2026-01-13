@@ -507,7 +507,7 @@ static bool tx_cancel(struct mesh_io *io, const uint8_t *data, uint8_t len)
 static bool recv_register(struct mesh_io *io, const uint8_t *filter,
 			uint8_t len, mesh_io_recv_func_t cb, void *user_data)
 {
-	return true;/*无处理*/
+	return true;/*当前无处理*/
 }
 
 static bool recv_deregister(struct mesh_io *io, const uint8_t *filter,

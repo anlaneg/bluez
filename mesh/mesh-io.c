@@ -66,6 +66,7 @@ static void refresh_rx(void *a, void *b)
 	struct mesh_io_reg *rx_reg = a;
 	struct mesh_io *io = b;
 
+	/*重新注册filter*/
 	if (io->api && io->api->reg)
 		io->api->reg(io, rx_reg->filter, rx_reg->len, rx_reg->cb,
 							rx_reg->user_data);
@@ -156,7 +157,7 @@ static struct mesh_io_reg *find_by_filter(struct l_queue *rx_regs,
 
 /*创建并初始化default_io*/
 struct mesh_io *mesh_io_new(enum mesh_io_type type/*io类型*/, void *opts/*此类型对应的参数*/,
-				mesh_io_ready_func_t cb, void *user_data)
+				mesh_io_ready_func_t cb/*当完成api初始化后,此CB会被调用*/, void *user_data)
 {
 	const struct mesh_io_api *api = NULL;
 
@@ -165,7 +166,7 @@ struct mesh_io *mesh_io_new(enum mesh_io_type type/*io类型*/, void *opts/*此�
 		return NULL;/*已初始化,返回NULL*/
 
 	default_io = l_new(struct mesh_io, 1);
-	default_io->ready = cb;
+	default_io->ready = cb;/*当完成api初始化后,此CB会被调用*/
 	default_io->user_data = user_data;
 	default_io->favored_index = *(int *) opts;
 	default_io->rx_regs = l_queue_new();
@@ -184,6 +185,7 @@ struct mesh_io *mesh_io_new(enum mesh_io_type type/*io类型*/, void *opts/*此�
 
 	default_io->api = api;/*设置default_io对应的api*/
 
+	/*执行API初始化*/
 	if (!api->init(default_io, opts, user_data))
 		goto fail;
 
@@ -210,9 +212,10 @@ bool mesh_io_get_caps(struct mesh_io *io, struct mesh_io_caps *caps)
 	return false;/*无API直接返回失败*/
 }
 
-bool mesh_io_register_recv_cb(struct mesh_io *io, const uint8_t *filter/*AD Structure结构体标记*/,
-				uint8_t len/*结构体filter长度*/, mesh_io_recv_func_t cb,
-				void *user_data)
+/*注册收包回调*/
+bool mesh_io_register_recv_cb(struct mesh_io *io, const uint8_t *filter/*AD Structure结构体匹配(用于确定对应的收包函数)*/,
+				uint8_t len/*结构体filter长度*/, mesh_io_recv_func_t cb/*收包函数*/,
+				void *user_data/*收包函数参数*/)
 {
 	struct mesh_io_reg *rx_reg;
 
@@ -222,7 +225,7 @@ bool mesh_io_register_recv_cb(struct mesh_io *io, const uint8_t *filter/*AD Stru
 	if (io != default_io || !cb || !filter || !len)
 		return false;
 
-	rx_reg = find_by_filter(io->rx_regs, filter, len);/*查找旧的*/
+	rx_reg = find_by_filter(io->rx_regs, filter, len);/*查找旧的filter注册情况*/
 
 	l_free(rx_reg);
 	l_queue_remove(io->rx_regs, rx_reg);/*移除旧的*/
@@ -234,7 +237,7 @@ bool mesh_io_register_recv_cb(struct mesh_io *io, const uint8_t *filter/*AD Stru
 	rx_reg->user_data = user_data;
 	memcpy(rx_reg->filter, filter, len);/*填写filter*/
 
-	l_queue_push_head(io->rx_regs, rx_reg);/*添加新的*/
+	l_queue_push_head(io->rx_regs, rx_reg);/*增加新的filter*/
 
 	/*注册此filter*/
 	if (io && io->api && io->api->reg)
@@ -295,16 +298,17 @@ static void loop_unprv_beacon(const uint8_t *data, uint16_t len)
 }
 
 bool mesh_io_send(struct mesh_io *io, struct mesh_io_send_info *info,
-					const uint8_t *data, uint16_t len/*data长度*/)
+					const uint8_t *data/*要发送的内容*/, uint16_t len/*data长度*/)
 {
 	if (io && io != default_io)
-		return false;
+		return false;/*指明IO时,必须是default_io*/
 
 	if (!io)
-		io = default_io;
+		io = default_io;/*不指明io时,使用default_io*/
 
 	/* Loop unprovisioned beacons for local clients */
 	if (!memcmp(data, unprv_filter, sizeof(unprv_filter)))
+		/*前两个字节是unprv_filter*/
 		loop_unprv_beacon(data, len);
 
 	if (io && io->api && io->api->send)

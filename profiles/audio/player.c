@@ -33,6 +33,11 @@
 
 #include "player.h"
 
+/*org.bluez.MediaPlayer1：归属 BlueZ 项目，由 BlueZ 开发团队维护和迭代，
+ * 仅适用于 Linux 蓝牙生态，无跨平台通用性，其接口定义严格贴合蓝牙 AVRCP
+ * 协议的指令集（如播放、暂停、上一曲、下一曲等 AVRCP 核心命令）。
+ * BLUZE实现此接口,用于APP向其发送消息
+ * */
 #define MEDIA_PLAYER_INTERFACE "org.bluez.MediaPlayer1"
 #define MEDIA_FOLDER_INTERFACE "org.bluez.MediaFolder1"
 #define MEDIA_ITEM_INTERFACE "org.bluez.MediaItem1"
@@ -460,6 +465,7 @@ static gboolean get_obexport(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+/*利用dbus消息处理player的动作*/
 static DBusMessage *media_player_play(DBusConnection *conn, DBusMessage *msg,
 								void *data)
 {
@@ -468,12 +474,15 @@ static DBusMessage *media_player_play(DBusConnection *conn, DBusMessage *msg,
 	int err;
 
 	if (cb->cbs->play == NULL)
+		/*无相应回调,响应不支持*/
 		return btd_error_not_supported(msg);
 
+	/*触发相应播放回调(通过BT向外发送play动作)*/
 	err = cb->cbs->play(mp, cb->user_data);
 	if (err < 0)
 		return btd_error_failed(msg, strerror(-err));
 
+	/*响应支持情况*/
 	return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
 }
 
@@ -766,8 +775,11 @@ void media_player_total_items_complete(struct media_player *mp,
 	}
 }
 
+/*MediaPlayer1接口的player方法,用于通过BT发送相应的命令给对端*/
 static const GDBusMethodTable media_player_methods[] = {
+	/*响应dbus PLAY命令*/
 	{ GDBUS_METHOD("Play", NULL, NULL, media_player_play) },
+	/*响应dbus Pause命令*/
 	{ GDBUS_METHOD("Pause", NULL, NULL, media_player_pause) },
 	{ GDBUS_METHOD("Stop", NULL, NULL, media_player_stop) },
 	{ GDBUS_METHOD("Next", NULL, NULL, media_player_next) },
@@ -1292,8 +1304,8 @@ struct media_player *media_player_controller_create(const char *path,
 	mp->progress = g_timer_new();
 
 	if (!g_dbus_register_interface(btd_get_dbus_connection(),
-					mp->path, MEDIA_PLAYER_INTERFACE,
-					media_player_methods,
+					mp->path, MEDIA_PLAYER_INTERFACE,/*注册MediaPlayer1接口*/
+					media_player_methods,/*BLUEZ实现此接口供外部APP调用*/
 					media_player_signals,
 					media_player_properties, mp, NULL)) {
 		error("D-Bus failed to register %s path", mp->path);
@@ -1977,7 +1989,7 @@ done:
 }
 
 void media_player_set_callbacks(struct media_player *mp,
-				const struct media_player_callback *cbs,
+				const struct media_player_callback *cbs/*指明采用哪种处理回调*/,
 				void *user_data)
 {
 	struct player_callback *cb;
@@ -1986,10 +1998,10 @@ void media_player_set_callbacks(struct media_player *mp,
 		g_free(mp->cb);
 
 	cb = g_new0(struct player_callback, 1);
-	cb->cbs = cbs;
+	cb->cbs = cbs;/*设置CB动作处理回调*/
 	cb->user_data = user_data;
 
-	mp->cb = cb;
+	mp->cb = cb;/*设置CB*/
 }
 
 struct media_item *media_player_set_playlist_item(struct media_player *mp,

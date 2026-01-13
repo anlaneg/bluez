@@ -59,10 +59,13 @@ struct avdtp_error {
 #define AVDTP_BAD_STATE				0x31
 
 /* SEP types definitions */
+/*作为音频数据的发送端*/
 #define AVDTP_SEP_TYPE_SOURCE			0x00
+/*作为音频数据的接收端*/
 #define AVDTP_SEP_TYPE_SINK			0x01
 
 /* Media types definitions */
+/*音频*/
 #define AVDTP_MEDIA_TYPE_AUDIO			0x00
 #define AVDTP_MEDIA_TYPE_VIDEO			0x01
 #define AVDTP_MEDIA_TYPE_MULTIMEDIA		0x02
@@ -164,7 +167,7 @@ struct avdtp_sep_ind {
 				void *user_data);
 	gboolean (*get_capability) (struct avdtp *session,
 					struct avdtp_local_sep *sep,
-					gboolean get_all,
+					gboolean get_all/*是否获取所有sep的能力列表*/,
 					GSList **caps, uint8_t *err,
 					void *user_data);
 	gboolean (*set_configuration) (struct avdtp *session,

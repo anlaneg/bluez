@@ -67,6 +67,11 @@
 
 #define MEDIA_INTERFACE "org.bluez.Media1"
 #define MEDIA_ENDPOINT_INTERFACE "org.bluez.MediaEndpoint1"
+/*org.mpris.MediaPlayer2.Player：归属 freedesktop.org 社区，
+ * 是跨桌面环境（GNOME、KDE、XFCE）的通用规范，
+ * 支持 Linux、BSD 等类 Unix 系统，其接口定义不绑定任何具体硬件协议，仅聚焦于媒体播放的通用控制逻辑。
+ * APP实现此接口,用于bluez向其发送消息
+ * */
 #define MEDIA_PLAYER_INTERFACE "org.mpris.MediaPlayer2.Player"
 
 #define REQUEST_TIMEOUT (3 * 1000)		/* 3 seconds */
@@ -88,9 +93,10 @@ struct media_app {
 struct media_adapter {
 	struct btd_adapter	*btd_adapter;
 	struct queue		*apps;		/* Application list */
-	/*记录所有注册的endpoints*/
+	/*记录所有注册的endpoints,media_endpoint类型*/
 	GSList			*endpoints;	/* Endpoints list */
 #ifdef HAVE_AVRCP
+	/*记录所有注册的player*/
 	GSList			*players;	/* Players list */
 #endif
 	int			so_timestamping;
@@ -113,13 +119,16 @@ struct media_endpoint {
 	/*发送方标识*/
 	char			*sender;	/* Endpoint DBus bus id */
 	char			*path;		/* Endpoint object path */
+	/*endpoint类型,例如A2DP_SINK_UUID*/
 	char			*uuid;		/* Endpoint property UUID */
+	/*支持的音频编码格式*/
 	uint8_t			codec;		/* Endpoint codec */
 	uint16_t                cid;            /* Endpoint company ID */
 	uint16_t                vid;            /* Endpoint vendor codec ID */
 	bool			delay_reporting;/* Endpoint delay_reporting */
 	struct bt_bap_pac_qos	qos;		/* Endpoint qos */
 	uint8_t			*capabilities;	/* Endpoint property capabilities */
+	/*capabilities内存长度*/
 	size_t			size;		/* Endpoint capabilities size */
 	uint8_t                 *metadata;      /* Endpoint property metadata */
 	size_t                  metadata_size;  /* Endpoint metadata size */
@@ -222,7 +231,7 @@ static void media_endpoint_destroy(struct media_endpoint *endpoint)
 static struct media_endpoint *media_adapter_find_endpoint(
 						struct media_adapter *adapter,
 						const char *sender,
-						const char *path,
+						const char *path/*如果为NULL,则不参与匹配*/,
 						const char *uuid)
 {
 	GSList *l;
@@ -598,7 +607,8 @@ static const char *get_path(struct a2dp_sep *sep, void *user_data)
 	return endpoint->path;
 }
 
-static size_t get_capabilities(struct a2dp_sep *sep, uint8_t **capabilities,
+/*返回此endpoint的能力列表长度*/
+static size_t get_capabilities(struct a2dp_sep *sep, uint8_t **capabilities/*出参,此seq的能力列表*/,
 							void *user_data)
 {
 	struct media_endpoint *endpoint = user_data;
@@ -718,7 +728,7 @@ static void a2dp_destroy_endpoint(void *user_data)
 static bool endpoint_init_a2dp_source(struct media_endpoint *endpoint, int *err)
 {
 	endpoint->sep = a2dp_add_sep(endpoint->adapter->btd_adapter,
-					AVDTP_SEP_TYPE_SOURCE, endpoint->codec,
+					AVDTP_SEP_TYPE_SOURCE/*指明添加source*/, endpoint->codec,
 					endpoint->delay_reporting,
 					&a2dp_endpoint, endpoint,
 					a2dp_destroy_endpoint, err);
@@ -728,10 +738,11 @@ static bool endpoint_init_a2dp_source(struct media_endpoint *endpoint, int *err)
 	return true;
 }
 
+/*负责创建A2DP_SINK_UUID类型的endpoint*/
 static bool endpoint_init_a2dp_sink(struct media_endpoint *endpoint, int *err)
 {
 	endpoint->sep = a2dp_add_sep(endpoint->adapter->btd_adapter,
-					AVDTP_SEP_TYPE_SINK, endpoint->codec,
+					AVDTP_SEP_TYPE_SINK/*指明为接收端*/, endpoint->codec,
 					endpoint->delay_reporting,
 					&a2dp_endpoint, endpoint,
 					a2dp_destroy_endpoint, err);
@@ -1357,6 +1368,7 @@ static bool endpoint_init_asha(struct media_endpoint *endpoint,
 	return true;/*默认支持*/
 }
 
+/*检查uuid对应的endpoint在dev对应的meia_adapter是否存在?*/
 static bool endpoint_properties_exists(const char *uuid,
 						struct btd_device *dev,
 						void *user_data)
@@ -1439,9 +1451,10 @@ static bool endpoint_properties_get(const char *uuid,
 	return true;
 }
 
+/*检查是否支持a2dp endpoint*/
 static bool a2dp_endpoint_supported(struct btd_adapter *adapter)
 {
-	/*必须有br/edr标记*/
+	/*必须要有br/edr标记*/
 	if (!btd_adapter_has_settings(adapter, MGMT_SETTING_BREDR))
 		return false;
 
@@ -1488,13 +1501,14 @@ static bool experimental_asha_supported(struct btd_adapter *adapter)
 }
 
 static const struct media_endpoint_init {
-	const char *uuid;
+	const char *uuid;/*此endoint类型*/
+	/*endpoint初始化函数,负责初始化此uuid对应的endpoint*/
 	bool (*func)(struct media_endpoint *endpoint, int *err);
-	bool (*supported)(struct btd_adapter *adapter);
-} init_table[] = {
-	{ A2DP_SOURCE_UUID, endpoint_init_a2dp_source/*a2dp source初始化*/,
+	bool (*supported)(struct btd_adapter *adapter);/*检查adapter是否支持*/
+} init_table[]/*定义不同endpoint的初始化函数等*/ = {
+	{ A2DP_SOURCE_UUID, endpoint_init_a2dp_source/*a2dp source初始化(数据发送端)*/,
 				a2dp_endpoint_supported },
-	{ A2DP_SINK_UUID, endpoint_init_a2dp_sink/*a2dp sink初始化*/,
+	{ A2DP_SINK_UUID, endpoint_init_a2dp_sink/*a2dp sink初始化并监听(数据接收端)*/,
 				a2dp_endpoint_supported },
 	{ PAC_SINK_UUID, endpoint_init_pac_sink,
 				experimental_endpoint_supported },
@@ -1508,13 +1522,14 @@ static const struct media_endpoint_init {
 			experimental_asha_supported },
 };
 
+/*创建endpoint(例如source/sink)*/
 static struct media_endpoint *
 media_endpoint_create(struct media_adapter *adapter,
 						const char *sender,
 						const char *path,
-						const char *uuid,
+						const char *uuid/*要创建的endpoint类型*/,
 						gboolean delay_reporting,
-						uint8_t codec,
+						uint8_t codec/*支持的音频编码格式*/,
 						uint16_t cid,
 						uint16_t vid,
 						struct bt_bap_pac_qos *qos,
@@ -1529,6 +1544,7 @@ media_endpoint_create(struct media_adapter *adapter,
 	size_t i;
 	bool succeeded = false;
 
+	/*申请endpoint*/
 	endpoint = g_new0(struct media_endpoint, 1);
 	endpoint->sender = g_strdup(sender);
 	endpoint->path = g_strdup(path);
@@ -1559,34 +1575,38 @@ media_endpoint_create(struct media_adapter *adapter,
 	for (i = 0; i < ARRAY_SIZE(init_table); i++) {
 		init = &init_table[i];
 
-		/*检查此adapter是否支持*/
+		/*检查此adapter是否支持,不支持跳过*/
 		if (!init->supported(adapter->btd_adapter))
 			continue;
 
 		if (!strcasecmp(init->uuid, uuid)) {
-			/*与此uuid匹配，执行初始化*/
+			/*与此uuid匹配，才执行初始化*/
 			succeeded = init->func(endpoint, err);
 			break;
 		}
 	}
 
 	if (!succeeded) {
+		/*初始化不成功,或者没有找到*/
 		error("Unable initialize endpoint for UUID %s", uuid);
 		media_endpoint_destroy(endpoint);
 		return NULL;
 	}
 
+	/*关注endpoint断开*/
 	endpoint->watch = g_dbus_add_disconnect_watch(btd_get_dbus_connection(),
 						sender, media_endpoint_exit,
 						endpoint, NULL);
 
+	/*在此adapter上查找此endpoint*/
 	if (media_adapter_find_endpoint(adapter, NULL, NULL, uuid) == NULL) {
 		btd_profile_add_custom_prop(uuid, "a{sv}", "MediaEndpoints",
-						endpoint_properties_exists,
+						endpoint_properties_exists/*是否存在*/,
 						endpoint_properties_get,
 						NULL);
 	}
 
+	/*添加此endpoint*/
 	adapter->endpoints = g_slist_append(adapter->endpoints, endpoint);
 	info("Endpoint registered: sender=%s path=%s", sender, path);
 
@@ -1602,7 +1622,7 @@ struct vendor {
 
 /*自props中解出参数*/
 static int parse_properties(DBusMessageIter *props, const char **uuid/*出参，UUID*/,
-				gboolean *delay_reporting, uint8_t *codec,
+				gboolean *delay_reporting, uint8_t *codec/*出参,支持的编解码格式*/,
 				uint16_t *cid, uint16_t *vid,
 				struct bt_bap_pac_qos *qos,
 				uint8_t **capabilities, int *size,
@@ -1633,7 +1653,7 @@ static int parse_properties(DBusMessageIter *props, const char **uuid/*出参，
 		} else if (strcasecmp(key, "Codec") == 0) {
 			if (var != DBUS_TYPE_BYTE)
 				return -EINVAL;
-			dbus_message_iter_get_basic(&value, codec);
+			dbus_message_iter_get_basic(&value, codec);/*取编解码格式*/
 			has_codec = TRUE;
 		} else if (strcasecmp(key, "Vendor") == 0) {
 			if (var != DBUS_TYPE_UINT32)
@@ -1750,7 +1770,7 @@ static DBusMessage *register_endpoint(DBusConnection *conn, DBusMessage *msg,
 		return btd_error_invalid_args(msg);
 
 	/*创建endpoint*/
-	if (media_endpoint_create(adapter, sender/*发送方标识*/, path, uuid, delay_reporting,
+	if (media_endpoint_create(adapter, sender/*发送方标识*/, path, uuid/*要创建的endpoint类型*/, delay_reporting,
 					codec, cid, vid, &qos, capabilities,
 					size, metadata, metadata_size,
 					&err) == NULL) {
@@ -1890,9 +1910,11 @@ static GList *media_player_list_settings(void *user_data)
 	if (mp->settings == NULL)
 		return NULL;
 
+	/*取所有的key(使用list返回)*/
 	return g_hash_table_get_keys(mp->settings);
 }
 
+/*取某一个KEY具体的设置*/
 static const char *media_player_get_setting(const char *key, void *user_data)
 {
 	struct media_player *mp = user_data;
@@ -1967,13 +1989,15 @@ static int media_player_set_setting(const char *key, const char *value,
 
 	DBG("%s = %s", key, value);
 
+	/*取key当前值*/
 	curval = g_hash_table_lookup(mp->settings, key);
 	if (!curval)
 		return -EINVAL;
 
 	if (strcasecmp(curval, value) == 0)
-		return 0;
+		return 0;/*两者相同不再变更,退出*/
 
+	/*构造属性set消息*/
 	msg = dbus_message_new_method_call(mp->sender, mp->path,
 					DBUS_INTERFACE_PROPERTIES, "Set");
 	if (msg == NULL) {
@@ -1982,8 +2006,9 @@ static int media_player_set_setting(const char *key, const char *value,
 	}
 
 	dbus_message_iter_init_append(msg, &iter);
-	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &iface);
+	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &iface);/*指定接口名称*/
 
+	/*只支持以下两种属性设置*/
 	if (strcasecmp(key, "Shuffle") == 0)
 		set_shuffle_setting(&iter, value);
 	else if (strcasecmp(key, "Repeat") == 0)
@@ -1994,6 +2019,7 @@ static int media_player_set_setting(const char *key, const char *value,
 	return 0;
 }
 
+/*取当前track信息所有的KEYS*/
 static GList *media_player_list_metadata(void *user_data)
 {
 	struct media_player *mp = user_data;
@@ -2044,7 +2070,7 @@ static uint32_t media_player_get_position(void *user_data)
 	uint32_t sec, msec;
 
 	if (mp->status == NULL || strcasecmp(mp->status, "Playing") != 0)
-		return mp->position;
+		return mp->position;/*返回当前位置*/
 
 	timedelta = g_timer_elapsed(mp->timer, NULL);
 
@@ -2061,10 +2087,16 @@ static uint32_t media_player_get_duration(void *user_data)
 	return mp->duration;
 }
 
-static bool media_player_send(struct media_player *mp, const char *name)
+/*通过dbus调用相应的MEDIA_PLAYER_INTERFACE接口回调*/
+static bool media_player_send(struct media_player *mp, const char *name/*函数名称*/)
 {
 	DBusMessage *msg;
 
+	/*构造消息,发送"org.mpris.MediaPlayer2.Player"接口
+	 * 在实际使用中，BlueZ 会实现二者的 “桥接”：当蓝牙耳机发送 AVRCP 指令时，
+	 * 转换为 org.mpris.MediaPlayer2.Player 接口的调用，传递给目标媒体播放器；
+	 * (这里执行的是转换成MediaPlayer2调用给本机应用)
+	 * */
 	msg = dbus_message_new_method_call(mp->sender, mp->path,
 					MEDIA_PLAYER_INTERFACE, name);
 	if (msg == NULL) {
@@ -2072,6 +2104,7 @@ static bool media_player_send(struct media_player *mp, const char *name)
 		return false;
 	}
 
+	/*发送dbus消息*/
 	g_dbus_send_message(btd_get_dbus_connection(), msg);
 
 	return true;
@@ -2086,7 +2119,7 @@ static bool media_player_play(void *user_data)
 	if (!mp->play || !mp->control)
 		return false;
 
-	return media_player_send(mp, "Play");
+	return media_player_send(mp, "Play");/*调用dbus play方法*/
 }
 
 static bool media_player_stop(void *user_data)
@@ -2098,7 +2131,7 @@ static bool media_player_stop(void *user_data)
 	if (!mp->control)
 		return false;
 
-	return media_player_send(mp, "Stop");
+	return media_player_send(mp, "Stop");/*调用dbus Stop方法*/
 }
 
 static bool media_player_pause(void *user_data)
@@ -2137,22 +2170,23 @@ static bool media_player_previous(void *user_data)
 	return media_player_send(mp, "Previous");
 }
 
+/*用于为bluez指明如何操作player*/
 static struct avrcp_player_cb player_cb = {
-	.list_settings = media_player_list_settings,
-	.get_setting = media_player_get_setting,
-	.set_setting = media_player_set_setting,
-	.list_metadata = media_player_list_metadata,
+	.list_settings = media_player_list_settings,/*列出所有设置的名称*/
+	.get_setting = media_player_get_setting,/*取具体一个设置名称的值*/
+	.set_setting = media_player_set_setting,/*设置具体一个属性值*/
+	.list_metadata = media_player_list_metadata,/*取当前track信息所有的KEYS*/
 	.get_uid = media_player_get_uid,
-	.get_metadata = media_player_get_metadata,
+	.get_metadata = media_player_get_metadata,/*取具体一个track keY对应的值*/
 	.get_position = media_player_get_position,
 	.get_duration = media_player_get_duration,
-	.get_status = media_player_get_status,
-	.get_name = media_player_get_player_name,
-	.play = media_player_play,
-	.stop = media_player_stop,
-	.pause = media_player_pause,
-	.next = media_player_next,
-	.previous = media_player_previous,
+	.get_status = media_player_get_status,/*取状态*/
+	.get_name = media_player_get_player_name,/*取player名称*/
+	.play = media_player_play,/*处理media播放动作*/
+	.stop = media_player_stop,/*处理media停止动作*/
+	.pause = media_player_pause,/*处理media暂停动作*/
+	.next = media_player_next,/*处理media下一首动作*/
+	.previous = media_player_previous,/*处理media上一首动作*/
 };
 
 static void media_player_exit(DBusConnection *connection, void *user_data)
@@ -2642,7 +2676,8 @@ static struct media_player *media_player_create(struct media_adapter *adapter,
 						path, MEDIA_PLAYER_INTERFACE,
 						"Seeked", position_changed,
 						mp, NULL);
-	mp->player = avrcp_register_player(adapter->btd_adapter, &player_cb,
+	/*创建player*/
+	mp->player = avrcp_register_player(adapter->btd_adapter, &player_cb/*此player支持的动作(这些动作通过"org.mpris.MediaPlayer2.Player"发给app具体完成)*/,
 							mp, media_player_free);
 	if (!mp->player) {
 		if (err)
@@ -2651,6 +2686,7 @@ static struct media_player *media_player_create(struct media_adapter *adapter,
 		return NULL;
 	}
 
+	/*创建settings*/
 	mp->settings = g_hash_table_new_full(g_str_hash, g_str_equal, g_free,
 								g_free);
 
@@ -2665,6 +2701,7 @@ static struct media_player *media_player_create(struct media_adapter *adapter,
 }
 #endif /* HAVE_AVRCP */
 
+/*注册player*/
 static DBusMessage *register_player(DBusConnection *conn, DBusMessage *msg,
 					void *data)
 {
@@ -2683,8 +2720,10 @@ static DBusMessage *register_player(DBusConnection *conn, DBusMessage *msg,
 	dbus_message_iter_next(&args);
 
 	if (media_adapter_find_player(adapter, sender, path) != NULL)
+		/*此player已存在*/
 		return btd_error_already_exists(msg);
 
+	/*创建media player*/
 	mp = media_player_create(adapter, sender, path, &err);
 	if (mp == NULL) {
 		if (err == -EPROTONOSUPPORT)
@@ -2693,6 +2732,7 @@ static DBusMessage *register_player(DBusConnection *conn, DBusMessage *msg,
 			return btd_error_invalid_args(msg);
 	}
 
+	/*设置media player属性*/
 	if (parse_player_properties(mp, &args) == FALSE) {
 		media_player_destroy(mp);
 		return btd_error_invalid_args(msg);
@@ -2808,7 +2848,7 @@ static void app_register_endpoint(void *data, void *user_data)
 	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_BYTE)
 		goto fail;
 
-	dbus_message_iter_get_basic(&iter, &codec);
+	dbus_message_iter_get_basic(&iter, &codec);/*取支持的编解码格式*/
 
 	memset(&vendor, 0, sizeof(vendor));
 
@@ -2916,7 +2956,7 @@ static void app_register_endpoint(void *data, void *user_data)
 		dbus_message_iter_get_basic(&iter, &qos.supported_context);
 	}
 
-	endpoint = media_endpoint_create(app->adapter, app->sender, path, uuid,
+	endpoint = media_endpoint_create(app->adapter, app->sender, path, uuid/*要创建的endpoint类型*/,
 						delay_reporting, codec,
 						vendor.cid, vendor.vid, &qos,
 						capabilities, size,
@@ -2952,6 +2992,7 @@ static void app_register_player(void *data, void *user_data)
 	if (strcmp(iface, MEDIA_PLAYER_INTERFACE))
 		return;
 
+	/*注册player*/
 	player = media_player_create(app->adapter, app->sender, path,
 							&app->err);
 	if (!player)
@@ -3173,6 +3214,7 @@ static void proxy_removed_cb(GDBusProxy *proxy, void *user_data)
 	}
 }
 
+/*创建app*/
 static struct media_app *create_app(DBusConnection *conn, DBusMessage *msg,
 							const char *path)
 {
@@ -3230,6 +3272,7 @@ static bool match_app(const void *a, const void *b)
 				g_strcmp0(app->sender, data->sender) == 0;
 }
 
+/*注册app*/
 static DBusMessage *register_app(DBusConnection *conn, DBusMessage *msg,
 							void *user_data)
 {
@@ -3303,18 +3346,18 @@ static DBusMessage *unregister_app(DBusConnection *conn, DBusMessage *msg,
 static const GDBusMethodTable media_methods[] = {
 	{ GDBUS_METHOD("RegisterEndpoint",
 		GDBUS_ARGS({ "endpoint", "o" }, { "properties", "a{sv}" }),
-		NULL, register_endpoint/*注册endpoint*/) },
+		NULL, register_endpoint/*处理注册endpoint(endpoint会创建并监听)*/) },
 	{ GDBUS_METHOD("UnregisterEndpoint",
 		GDBUS_ARGS({ "endpoint", "o" }), NULL, unregister_endpoint) },
 	{ GDBUS_METHOD("RegisterPlayer",
 		GDBUS_ARGS({ "player", "o" }, { "properties", "a{sv}" }),
-		NULL, register_player) },
+		NULL, register_player) },/*注册player*/
 	{ GDBUS_METHOD("UnregisterPlayer",
 		GDBUS_ARGS({ "player", "o" }), NULL, unregister_player) },
 	{ GDBUS_ASYNC_METHOD("RegisterApplication",
 					GDBUS_ARGS({ "application", "o" },
 						{ "options", "a{sv}" }),
-					NULL, register_app) },
+					NULL, register_app) },/*注册APP*/
 	{ GDBUS_ASYNC_METHOD("UnregisterApplication",
 					GDBUS_ARGS({ "application", "o" }),
 					NULL, unregister_app) },
@@ -3460,7 +3503,7 @@ int media_register(struct btd_adapter *btd_adapter)
 	adapter->apps = queue_new();
 	adapter->so_timestamping = -1;
 
-	/*注册media接口*/
+	/*注册"org.bluez.Media1"接口(响应创建endpoint;PLAYER;APP)*/
 	if (!g_dbus_register_interface(btd_get_dbus_connection(),
 					adapter_get_path(btd_adapter),
 					MEDIA_INTERFACE,

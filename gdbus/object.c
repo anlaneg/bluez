@@ -1222,7 +1222,7 @@ static void append_interfaces(struct generic_data *data, DBusMessageIter *iter)
 	dbus_message_iter_close_container(iter, &array);
 }
 
-static void append_object(gpointer data, gpointer user_data)
+static void append_object(gpointer data, gpointer user_data/*object*/)
 {
 	struct generic_data *child = data;
 	DBusMessageIter *array = user_data;
@@ -1238,6 +1238,7 @@ static void append_object(gpointer data, gpointer user_data)
 	g_slist_foreach(child->objects, append_object, user_data);
 }
 
+/*响应GetManagedObjects方法调用*/
 static DBusMessage *get_objects(DBusConnection *connection,
 				DBusMessage *message, void *user_data)
 {
@@ -1267,11 +1268,12 @@ static DBusMessage *get_objects(DBusConnection *connection,
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
 					&array);
 
+	/*遍历所有objects*/
 	g_slist_foreach(data->objects, append_object, &array);
 
 	dbus_message_iter_close_container(&iter, &array);
 
-	return reply;
+	return reply;/*返回响应消息*/
 }
 
 static const GDBusMethodTable manager_methods[] = {

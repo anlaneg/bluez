@@ -155,6 +155,7 @@ static bool char_is_mesh(GDBusProxy *proxy, const char *target_uuid)
 	return false;
 }
 
+/*检查是否已设置默认ctrl*/
 static gboolean check_default_ctrl(void)
 {
 	if (!default_ctrl) {
@@ -192,16 +193,18 @@ static void print_adapter(GDBusProxy *proxy, const char *description)
 	DBusMessageIter iter;
 	const char *address, *name;
 
+	/*读取address*/
 	if (g_dbus_proxy_get_property(proxy, "Address", &iter) == FALSE)
 		return;
 
-	dbus_message_iter_get_basic(&iter, &address);
+	dbus_message_iter_get_basic(&iter, &address);/*取得地址*/
 
 	if (g_dbus_proxy_get_property(proxy, "Alias", &iter) == TRUE)
-		dbus_message_iter_get_basic(&iter, &name);
+		dbus_message_iter_get_basic(&iter, &name);/*取得别名*/
 	else
 		name = "<unknown>";
 
+	/*显示adapter地址及名称*/
 	bt_shell_printf("%s%s%sController %s %s %s\n",
 				description ? "[" : "",
 				description ? : "",
@@ -321,6 +324,7 @@ static void print_property(GDBusProxy *proxy, const char *name)
 	print_iter("\t", name, &iter);
 }
 
+/*丢弃记录的所有mesh设备*/
 static void forget_mesh_devices()
 {
 	g_list_free_full(default_ctrl->mesh_devices, g_free);
@@ -649,7 +653,7 @@ static void update_device_info(GDBusProxy *proxy)
 	}
 
 	if (adapter != default_ctrl)
-		return;
+		return;/*此设备从属的Ctrl与当前默认ctrL不一致,忽略*/
 
 	if (!g_dbus_proxy_get_property(proxy, "Address", &iter))
 		return;
@@ -679,6 +683,7 @@ static void update_device_info(GDBusProxy *proxy)
 
 		memcpy(dev->dev_uuid, prov_data.dev_uuid, 16);
 
+		/*添加mesh设备*/
 		adapter->mesh_devices = g_list_append(adapter->mesh_devices,
 							dev);
 		print_device(proxy, COLORED_NEW);
@@ -707,6 +712,7 @@ static void update_device_info(GDBusProxy *proxy)
 	}
 }
 
+/*添加新的adapter*/
 static void adapter_added(GDBusProxy *proxy)
 {
 	struct adapter *adapter = g_malloc0(sizeof(struct adapter));
@@ -715,7 +721,7 @@ static void adapter_added(GDBusProxy *proxy)
 	ctrl_list = g_list_append(ctrl_list, adapter);
 
 	if (!default_ctrl)
-		default_ctrl = adapter;
+		default_ctrl = adapter;/*设置首个adapter为默认controller*/
 
 	print_adapter(proxy, COLORED_NEW);
 }
@@ -966,18 +972,18 @@ static void proxy_added(GDBusProxy *proxy, void *user_data)
 	interface = g_dbus_proxy_get_interface(proxy);
 
 	if (!strcmp(interface, "org.bluez.Device1")) {
-		update_device_info(proxy);
+		update_device_info(proxy);/*添加 mesh　device*/
 
 	} else if (!strcmp(interface, "org.bluez.Adapter1")) {
 
-		adapter_added(proxy);
+		adapter_added(proxy);/*添加adapter*/
 
 	} else if (!strcmp(interface, "org.bluez.GattService1") &&
 						service_is_mesh(proxy, NULL)) {
 
 		bt_shell_printf("Service added %s\n",
 				g_dbus_proxy_get_path(proxy));
-		service_list = g_list_append(service_list, proxy);
+		service_list = g_list_append(service_list, proxy);/*添加gatt service*/
 
 	} else if (!strcmp(interface, "org.bluez.GattCharacteristic1") &&
 						char_is_mesh(proxy, NULL)) {
@@ -985,7 +991,7 @@ static void proxy_added(GDBusProxy *proxy, void *user_data)
 		bt_shell_printf("Char added %s:\n",
 				g_dbus_proxy_get_path(proxy));
 
-		char_list = g_list_append(char_list, proxy);
+		char_list = g_list_append(char_list, proxy);/*添加gatt char*/
 	}
 }
 
@@ -1025,6 +1031,7 @@ static struct mesh_device *find_device_by_proxy(GList *source,
 	return NULL;
 }
 
+/*移除其个mesh设备*/
 static void device_removed(GDBusProxy *proxy)
 {
 	struct adapter *adapter = find_parent(proxy);
@@ -1298,6 +1305,7 @@ static gboolean parse_argument_on_off(int argc, char *argv[],
 	return FALSE;
 }
 
+/*显示所有controller*/
 static void cmd_list(int argc, char *argv[])
 {
 	GList *list;
@@ -1310,6 +1318,7 @@ static void cmd_list(int argc, char *argv[])
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 }
 
+/*显示具体一个controller的信息*/
 static void cmd_show(int argc, char *argv[])
 {
 	struct adapter *adapter;
@@ -1320,10 +1329,12 @@ static void cmd_show(int argc, char *argv[])
 
 	if (argc < 2 || !strlen(argv[1])) {
 		if (check_default_ctrl() == FALSE)
+			/*还未设置默认ctrl*/
 			return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
 		proxy = default_ctrl->proxy;
 	} else {
+		/*按地址选择出对应的adapter*/
 		adapter = find_ctrl_by_address(ctrl_list, argv[1]);
 		if (!adapter) {
 			bt_shell_printf("Controller %s not available\n",
@@ -1333,12 +1344,14 @@ static void cmd_show(int argc, char *argv[])
 		proxy = adapter->proxy;
 	}
 
+	/*取controller地址*/
 	if (g_dbus_proxy_get_property(proxy, "Address", &iter) == FALSE)
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
 	dbus_message_iter_get_basic(&iter, &address);
 	bt_shell_printf("Controller %s\n", address);
 
+	/*显示其它属性*/
 	print_property(proxy, "Name");
 	print_property(proxy, "Alias");
 	print_property(proxy, "Class");
@@ -1357,17 +1370,19 @@ static void cmd_select(int argc, char *argv[])
 
 	adapter = find_ctrl_by_address(ctrl_list, argv[1]);
 	if (!adapter) {
+		/*没有找到对应的adapter,报错*/
 		bt_shell_printf("Controller %s not available\n", argv[1]);
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 	}
 
 	if (default_ctrl && default_ctrl->proxy == adapter->proxy)
+		/*指定的adapter已为默认的ctrl,不做变更,直接返回*/
 		return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 
 	forget_mesh_devices();
 
-	default_ctrl = adapter;
-	print_adapter(adapter->proxy, NULL);
+	default_ctrl = adapter;/*将指定的adapter设置为默认ctrl*/
+	print_adapter(adapter->proxy, NULL);/*显示此ctrl信息*/
 
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 }
@@ -1460,12 +1475,13 @@ static void set_discovery_filter_reply(DBusMessage *message, void *user_data)
 
 	dbus_error_init(&error);
 	if (dbus_set_error_from_message(&error, message) == TRUE) {
+		/*设置失败*/
 		bt_shell_printf("SetDiscoveryFilter failed: %s\n", error.name);
 		dbus_error_free(&error);
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 	}
 
-	bt_shell_printf("SetDiscoveryFilter success\n");
+	bt_shell_printf("SetDiscoveryFilter success\n");/*设置成功*/
 
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 }
@@ -1483,15 +1499,16 @@ static void set_scan_filter_commit(void)
 	args.pathloss = filtered_scan_pathloss;
 	args.rssi = filtered_scan_rssi;
 	args.transport = filtered_scan_transport;
-	args.uuids = filtered_scan_uuids;
-	args.uuids_len = filtered_scan_uuids_len;
+	args.uuids = filtered_scan_uuids;/*设置filtered scan uuids*/
+	args.uuids_len = filtered_scan_uuids_len;/*指明过滤数目*/
 	args.duplicate = TRUE;
 
 	if (check_default_ctrl() == FALSE)
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
+	/*设置discovery filter*/
 	if (g_dbus_proxy_method_call(default_ctrl->proxy, "SetDiscoveryFilter",
-		set_discovery_filter_setup, set_discovery_filter_reply,
+		set_discovery_filter_setup/*命令编码*/, set_discovery_filter_reply/*命令响应结果处理*/,
 		&args, NULL) == FALSE) {
 		bt_shell_printf("Failed to set discovery filter\n");
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
@@ -1507,6 +1524,7 @@ static void set_scan_filter_uuids(char *filters[])
 	if (!filters)
 		goto commit;
 
+	/*设置scan uuids*/
 	filtered_scan_uuids = g_strdupv(filters);
 	if (!filtered_scan_uuids) {
 		bt_shell_printf("Failed to parse input\n");
@@ -1525,6 +1543,7 @@ static void cmd_scan_unprovisioned(int argc, char *argv[])
 	char *filters[] = { MESH_PROV_SVC_UUID, NULL };
 	const char *method;
 
+	/*确定参数是启动/停止*/
 	if (parse_argument_on_off(argc, argv, &enable) == FALSE)
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
@@ -1532,13 +1551,16 @@ static void cmd_scan_unprovisioned(int argc, char *argv[])
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
 	if (enable == TRUE) {
+		/*启动,设置关注MESH_PROV_SVC_UUID服务,并指明动作为启动扫描*/
 		discover_mesh = false;
 		set_scan_filter_uuids(filters);
 		method = "StartDiscovery";
 	} else {
+		/*指明动作为停止扫描*/
 		method = "StopDiscovery";
 	}
 
+	/*启动/停止扫描*/
 	if (g_dbus_proxy_method_call(default_ctrl->proxy, method,
 				NULL, start_discovery_reply,
 				GUINT_TO_POINTER(enable), NULL) == FALSE) {
@@ -1558,12 +1580,15 @@ static void cmd_info(int argc, char *argv[])
 	if (!proxy)
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
+	/*取设备地址*/
 	if (g_dbus_proxy_get_property(proxy, "Address", &iter) == FALSE)
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
+	/*显示设备地址信息*/
 	dbus_message_iter_get_basic(&iter, &address);
 	bt_shell_printf("Device %s\n", address);
 
+	/*显示设备其它信息*/
 	print_property(proxy, "Name");
 	print_property(proxy, "Alias");
 	print_property(proxy, "Class");
@@ -1606,11 +1631,13 @@ static void cmd_security(int argc, char *argv[])
 
 	level = strtol(argv[1], &end, 10);
 	if (end == argv[1] || !prov_set_sec_level(level)) {
+		/*参数有误*/
 		bt_shell_printf("Invalid security level %s\n", argv[1]);
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 	}
 
 done:
+	/*显示变更后的Security Level*/
 	bt_shell_printf("Provision Security Level set to %u (%s)\n",
 			prov_get_sec_level(),
 			security2str(prov_get_sec_level()));
@@ -1618,19 +1645,23 @@ done:
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 }
 
+/*指定我们关注的服务MESH_PROXY_SVC_UUID,设置变量connection,并启动扫描*/
 static void cmd_connect(int argc, char *argv[])
 {
 	char *filters[] = { MESH_PROXY_SVC_UUID, NULL };
 
 	if (check_default_ctrl() == FALSE)
+		/*未设置默认ctrl,报错*/
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
 	memset(&connection, 0, sizeof(connection));
 
 	if (argc < 2 || !strlen(argv[1])) {
+		/*未指定网络idx,使用默认网络idx*/
 		connection.net_idx = NET_IDX_PRIMARY;
 	} else {
 		char *end;
+		/*转换参数指定的网络idx*/
 		connection.net_idx = strtol(argv[1], &end, 16);
 		if (end == argv[1]) {
 			connection.net_idx = NET_IDX_INVALID;
@@ -1643,23 +1674,26 @@ static void cmd_connect(int argc, char *argv[])
 	}
 
 	if (discovering)
+		/*正在discovering,通过dbus要求停止discovery*/
 		g_dbus_proxy_method_call(default_ctrl->proxy, "StopDiscovery",
 						NULL, NULL, NULL, NULL);
 
+	/*设置我们关注的服务*/
 	set_scan_filter_uuids(filters);
 	discover_mesh = true;
 
 	if (connection.unicast == UNASSIGNED_ADDRESS) {
-		connection.type = CONN_TYPE_NETWORK;
+		connection.type = CONN_TYPE_NETWORK;/*连接到网强行*/
 		bt_shell_printf("Looking for mesh network with net index "
 				"%4.4x\n", connection.net_idx);
 	} else {
-		connection.type = CONN_TYPE_IDENTITY;
+		connection.type = CONN_TYPE_IDENTITY;/*连接到具体NODE*/
 		bt_shell_printf("Looking for node id %4.4x"
 				" on network with net index %4.4x\n",
 				connection.unicast, connection.net_idx);
 	}
 
+	/*触发启动扫描*/
 	if (g_dbus_proxy_method_call(default_ctrl->proxy,
 			"StartDiscovery", NULL, start_discovery_reply,
 				GUINT_TO_POINTER(TRUE), NULL) == FALSE) {
@@ -1778,7 +1812,7 @@ static void cmd_start_prov(int argc, char *argv[])
 	memset(connection.dev_uuid, 0, 16);
 	str2hex(argv[1], len, connection.dev_uuid, len/2);
 
-	node = node_find_by_uuid(connection.dev_uuid);
+	node = node_find_by_uuid(connection.dev_uuid);/*通过参数指定的uuid查找Node*/
 	if (!node) {
 		bt_shell_printf("Device with UUID %s not found.\n", argv[1]);
 		bt_shell_printf("Stale services? Remove device and "
@@ -1809,6 +1843,7 @@ static void cmd_start_prov(int argc, char *argv[])
 
 	connection.type = CONN_TYPE_PROVISION;
 
+	/*指明连接此设备*/
 	if (g_dbus_proxy_method_call(proxy, "Connect", NULL, connect_reply,
 							proxy, NULL) == FALSE) {
 		bt_shell_printf("Failed to connect ");
@@ -1823,6 +1858,7 @@ static void cmd_start_prov(int argc, char *argv[])
 
 static void cmd_print_mesh(int argc, char *argv[])
 {
+	/*显示mesh_prov_db_filename文件内容*/
 	if (!prov_db_show(mesh_prov_db_filename)) {
 		bt_shell_printf("Unavailable\n");
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
@@ -1833,6 +1869,7 @@ static void cmd_print_mesh(int argc, char *argv[])
 
  static void cmd_print_local(int argc, char *argv[])
 {
+	 /*显示mesh_local_config_filename文件内容*/
 	if (!prov_db_show(mesh_local_config_filename)) {
 		bt_shell_printf("Unavailable\n");
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
@@ -1841,14 +1878,20 @@ static void cmd_print_mesh(int argc, char *argv[])
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 }
 
+ /*meshctl支持的命令*/
 static const struct bt_shell_menu main_menu = {
 	.name = "main",
 	.entries = {
+	/*显示所有controller*/
 	{ "list",         NULL,       cmd_list, "List available controllers"},
+	/*显示具体一个controller的信息*/
 	{ "show",         "[ctrl]",   cmd_show, "Controller information"},
+	/*指定默认ctrl*/
 	{ "select",       "<ctrl>",   cmd_select, "Select default controller"},
+	/*变更安全级别*/
 	{ "security",     "[0(low)/1(medium)/2(high)]", cmd_security,
 				"Display or change provision security level"},
+	/*显示设备信息*/
 	{ "info",         "[dev]",    cmd_info, "Device information"},
 	{ "connect",      "[net_idx] [dst]", cmd_connect,
 				"Connect to mesh network or node on network"},
@@ -1857,8 +1900,10 @@ static const struct bt_shell_menu main_menu = {
 	{ "provision",    "<uuid>",   cmd_start_prov, "Initiate provisioning"},
 	{ "power",        "<on/off>", cmd_power, "Set controller power" },
 	{ "disconnect",   "[dev]",    cmd_disconn, "Disconnect device"},
+	/*显示mesh文件内容*/
 	{ "mesh-info",    NULL,       cmd_print_mesh,
 					"Mesh networkinfo (provisioner)" },
+	/*显示LOCAL文件内容*/
 	{ "local-info",    NULL,      cmd_print_local, "Local mesh node info" },
 	{ } },
 };
@@ -1985,15 +2030,16 @@ int main(int argc, char *argv[])
 	dbus_conn = g_dbus_setup_bus(DBUS_BUS_SYSTEM, NULL, NULL);
 	client = g_dbus_client_new(dbus_conn, "org.bluez", "/org/bluez");
 
-	g_dbus_client_set_connect_watch(client, connect_handler, NULL);
+	g_dbus_client_set_connect_watch(client, connect_handler/*连接建立时调用*/, NULL);
 	g_dbus_client_set_disconnect_watch(client, disconnect_handler, NULL);
-	g_dbus_client_set_signal_watch(client, message_handler, NULL);
+	g_dbus_client_set_signal_watch(client, message_handler/*收到通知*/, NULL);
 
-	g_dbus_client_set_proxy_handlers(client, proxy_added, proxy_removed,
-							property_changed, NULL);
+	g_dbus_client_set_proxy_handlers(client, proxy_added/*PROXY通知处理*/, proxy_removed,
+							property_changed/*处理属性变化*/, NULL);
 
 	g_dbus_client_set_ready_watch(client, client_ready, NULL);
 
+	/*初始化client*/
 	if (!config_client_init())
 		g_printerr("Failed to initialize mesh configuration client\n");
 
@@ -2003,7 +2049,7 @@ int main(int argc, char *argv[])
 	if (!onoff_client_init(PRIMARY_ELEMENT_IDX))
 		g_printerr("Failed to initialize mesh generic On/Off client\n");
 
-	status = bt_shell_run();
+	status = bt_shell_run();/*执行shell*/
 
 	g_dbus_client_unref(client);
 

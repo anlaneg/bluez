@@ -34,6 +34,7 @@ struct media_item;
 struct media_player_callback {
 	bool (*set_setting)(struct media_player *mp, const char *key,
 				const char *value, void *user_data);
+	/*用于指定mp执行PLAY*/
 	int (*play)(struct media_player *mp, void *user_data);
 	int (*pause)(struct media_player *mp, void *user_data);
 	int (*stop)(struct media_player *mp, void *user_data);
@@ -43,8 +44,10 @@ struct media_player_callback {
 	int (*rewind)(struct media_player *mp, void *user_data);
 	int (*press)(struct media_player *mp, uint8_t avc_key,
 							void *user_data);
+	/*用于指导mp执行按下按钮avc_key,且保持*/
 	int (*hold)(struct media_player *mp, uint8_t avc_key,
 							void *user_data);
+	/*用于指导mp释放按钮*/
 	int (*release)(struct media_player *mp, void *user_data);
 	int (*list_items)(struct media_player *mp, const char *name,
 				uint32_t start, uint32_t end, void *user_data);

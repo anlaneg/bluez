@@ -224,6 +224,7 @@ static int ct_previous(struct media_player *mp, void *user_data)
 	return bt_mcp_previous_track(mcp);
 }
 
+/*按mcp支持的请求player执行相应动作*/
 static const struct media_player_callback ct_cbs = {
 	.play		= ct_play,
 	.pause		= ct_pause,

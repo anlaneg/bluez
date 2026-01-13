@@ -43,9 +43,9 @@
 struct mesh_config {
 	json_object *jnode;
 	char *node_dir_path;/*配置文件路径及名称*/
-	uint8_t uuid[16];
+	uint8_t uuid[16];/*node 对应的UUID*/
 	uint32_t write_seq;
-	struct timeval write_time;
+	struct timeval write_time;/*配置写入时间*/
 	struct l_queue *idles;
 };
 
@@ -86,6 +86,7 @@ static const char *disabled = "disabled";
 static const char *unsupported = "unsupported";
 
 
+/*将jnode存入到fname文件中*/
 static bool save_config(json_object *jnode, const char *fname)
 {
 	FILE *outfile;
@@ -98,8 +99,10 @@ static bool save_config(json_object *jnode, const char *fname)
 		return false;
 	}
 
+	/*转换成字符串*/
 	str = json_object_to_json_string_ext(jnode, JSON_C_TO_STRING_PRETTY);
 
+	/*写入文件*/
 	if (fwrite(str, sizeof(char), strlen(str), outfile) < strlen(str))
 		l_warn("Incomplete write of mesh configuration");
 	else
@@ -625,7 +628,7 @@ fail:
 	return false;
 }
 
-static bool write_int(json_object *jobj, const char *desc, int val)
+static bool write_int(json_object *jobj, const char *desc/*属性名称*/, int val)
 {
 	json_object *jvalue;
 
@@ -1748,9 +1751,9 @@ static void add_model(void *a, void *b)
 }
 
 /* Add unprovisioned node (local) */
-static struct mesh_config *create_config(const char *cfg_path,
-					const uint8_t uuid[16],
-					struct mesh_config_node *node)
+static struct mesh_config *create_config(const char *cfg_path/*配置文件路径*/,
+					const uint8_t uuid[16]/*节点对应的UUID*/,
+					struct mesh_config_node *node/*节点对应的存储对象*/)
 {
 	struct mesh_config_modes *modes = &node->modes;
 	const struct l_queue_entry *entry;
@@ -1816,6 +1819,7 @@ static struct mesh_config *create_config(const char *cfg_path,
 
 	entry = l_queue_get_entries(node->elements);
 
+	/*写elements*/
 	for (; entry; entry = entry->next) {
 		struct mesh_config_element *ele = entry->data;
 		json_object *jelement, *jmodels;
@@ -1849,7 +1853,7 @@ static struct mesh_config *create_config(const char *cfg_path,
 
 	cfg = l_new(struct mesh_config, 1);
 
-	cfg->jnode = jnode;
+	cfg->jnode = jnode;/*生成的json obj*/
 	memcpy(cfg->uuid, uuid, 16);
 	cfg->node_dir_path = l_strdup(cfg_path);
 	cfg->write_seq = node->seq_number;
@@ -1912,6 +1916,7 @@ void mesh_config_reset(struct mesh_config *cfg, struct mesh_config_node *node)
 	json_object_object_add(cfg->jnode, elements, jelems);
 }
 
+/*写配置到node.json*/
 struct mesh_config *mesh_config_create(const char *cfgdir_name,
 		const uint8_t uuid[16], struct mesh_config_node *db_node)
 {
@@ -1932,17 +1937,19 @@ struct mesh_config *mesh_config_create(const char *cfgdir_name,
 		return NULL;
 
 	ret = snprintf(name_buf, PATH_MAX, "%s/%s%s", cfgdir_name, uuid_buf,
-								cfgnode_name);
+								cfgnode_name);/*生成配置文件名称*/
 	if (ret < 0)
 		return NULL;
 
 	l_debug("New node config %s", name_buf);
 
-	cfg = create_config(name_buf, uuid, db_node);
+	/*将db_node打包成json obj,转换成cfg*/
+	cfg = create_config(name_buf/*配置文件路径*/, uuid/*节点对应的UUID*/, db_node/*节点对应的存储对象*/);
 	if (!cfg)
 		return NULL;
 
-	if (!mesh_config_save(cfg, true, NULL, NULL)) {
+	/*保存配置*/
+	if (!mesh_config_save(cfg, true/*立即写*/, NULL/*无回调*/, NULL)) {
 		mesh_config_release(cfg);
 		return NULL;
 	}
@@ -2362,6 +2369,7 @@ bool mesh_config_write_seq_number(struct mesh_config *cfg, uint32_t seq,
 		return false;
 
 	if (!cache) {
+		/*更新sequencenumber,并写配置*/
 		if (!write_int(cfg->jnode, sequenceNumber, seq))
 			return false;
 
@@ -2422,7 +2430,7 @@ bool mesh_config_write_seq_number(struct mesh_config *cfg, uint32_t seq,
 		if (!write_int(cfg->jnode, sequenceNumber, cached))
 			return false;
 
-		return mesh_config_save(cfg, false, NULL, NULL);
+		return mesh_config_save(cfg, false/*不立即写*/, NULL, NULL);
 	}
 
 	return true;
@@ -2582,34 +2590,39 @@ void mesh_config_release(struct mesh_config *cfg)
 	l_free(cfg);
 }
 
+/*保存配置文件*/
 static void idle_save_config(struct l_idle *idle, void *user_data)
 {
 	struct write_info *info = user_data;
 	char *fname_tmp, *fname_bak, *fname_cfg;
 	bool result = false;
 
-	fname_cfg = info->cfg->node_dir_path;
-	fname_tmp = l_strdup_printf("%s%s", fname_cfg, tmp_ext);
-	fname_bak = l_strdup_printf("%s%s", fname_cfg, bak_ext);
-	remove(fname_tmp);
+	fname_cfg = info->cfg->node_dir_path;/*要写的位置*/
+	fname_tmp = l_strdup_printf("%s%s", fname_cfg, tmp_ext);/*临时文件名称*/
+	fname_bak = l_strdup_printf("%s%s", fname_cfg, bak_ext);/*备份文件名称*/
+	remove(fname_tmp);/*移除临时文件*/
 
+	/*写内容到临时文件*/
 	result = save_config(info->cfg->jnode, fname_tmp);
 
 	if (result) {
+		/*写成功,将原备份文件移除*/
 		remove(fname_bak);
 
+		/*重命名当前配置文件为备份文件,将临时命名为配置文件*/
 		if (rename(fname_cfg, fname_bak) < 0 ||
 					rename(fname_tmp, fname_cfg) < 0)
 			result = false;
 	}
 
-	remove(fname_tmp);
+	remove(fname_tmp);/*防止写失败,移除临时文件*/
 
 	l_free(fname_tmp);
 	l_free(fname_bak);
 
 	gettimeofday(&info->cfg->write_time, NULL);
 
+	/*配置写完成,调用info->cb*/
 	if (info->cb)
 		info->cb(info->user_data, result);
 
@@ -2622,24 +2635,28 @@ static void idle_save_config(struct l_idle *idle, void *user_data)
 
 }
 
-bool mesh_config_save(struct mesh_config *cfg, bool no_wait,
-				mesh_config_status_func_t cb, void *user_data)
+/*保存此配置到文件*/
+bool mesh_config_save(struct mesh_config *cfg, bool no_wait/*是否不等待,立即执行*/,
+				mesh_config_status_func_t cb/*配置保存后调用此回调*/, void *user_data)
 {
 	struct write_info *info;
 
 	if (!cfg)
 		return false;
 
+	/*再打包成函数参数*/
 	info = l_new(struct write_info, 1);
 	info->cfg = cfg;
 	info->cb = cb;
 	info->user_data = user_data;
 
 	if (no_wait) {
+		/*不等待,立即执行*/
 		idle_save_config(NULL, info);
 	} else {
 		struct l_idle *idle;
 
+		/*转给ELL在主循环中执行*/
 		idle = l_idle_create(idle_save_config, info, NULL);
 		l_queue_push_tail(cfg->idles, idle);
 	}
@@ -2647,7 +2664,7 @@ bool mesh_config_save(struct mesh_config *cfg, bool no_wait,
 	return true;
 }
 
-/*加载node.json*/
+/*加载cfgdir_name下所有node.json*/
 bool mesh_config_load_nodes(const char *cfgdir_name/*配置目录*/, mesh_config_node_func_t cb/*配置加载成功的处理回调*/,
 								void *user_data/*回调参数*/)
 {

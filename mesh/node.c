@@ -74,13 +74,13 @@ struct node_composition {
 
 struct mesh_node {
 	struct mesh_net *net;
-	struct l_queue *elements;
+	struct l_queue *elements;/*此节点包含有element*/
 	struct l_queue *pages;
 	char *app_path;
 	char *owner;
 	char *obj_path;
 	struct mesh_agent *agent;
-	struct mesh_config *cfg;
+	struct mesh_config *cfg;/*用于记录mesh json格式的配置内容*/
 	char *storage_dir;/*配置目录*/
 	uint32_t disc_watch;
 	uint32_t seq_number;
@@ -93,7 +93,7 @@ struct mesh_node {
 		uint8_t cnt;
 		uint8_t mode;
 	} relay;
-	uint8_t uuid[16];
+	uint8_t uuid[16];/*节点唯一标识*/
 	uint8_t dev_key[16];
 	uint8_t token[8];
 	uint8_t num_ele;
@@ -119,15 +119,15 @@ struct node_import {
 };
 
 struct managed_obj_request {
-	struct mesh_node *node;
+	struct mesh_node *node;/*关联的node*/
 	union {
-		node_ready_func_t ready_cb;
+		node_ready_func_t ready_cb;/*创建node后回调*/
 		node_join_ready_func_t join_ready_cb;
 	};
-	struct l_dbus_message *pending_msg;
-	enum request_type type;
+	struct l_dbus_message *pending_msg;/*回调参数*/
+	enum request_type type;/*指明请求类型*/
 	union {
-		struct mesh_node *attach;
+		struct mesh_node *attach;/*指定要attach的node*/
 		struct node_import *import;
 	};
 };
@@ -139,6 +139,7 @@ struct send_options {
 
 static struct l_queue *nodes;
 
+/*检查参数B所给的uuid与参数A所给的mesh_node是否匹配*/
 static bool match_device_uuid(const void *a, const void *b)
 {
 	const struct mesh_node *node = a;
@@ -147,6 +148,7 @@ static bool match_device_uuid(const void *a, const void *b)
 	return (memcmp(node->uuid, uuid, 16) == 0);
 }
 
+/*通过token查找mesh_node*/
 static bool match_token(const void *a, const void *b)
 {
 	const struct mesh_node *node = a;
@@ -194,11 +196,13 @@ struct mesh_node *node_find_by_uuid(uint8_t uuid[16])
 	return l_queue_find(nodes, match_device_uuid, uuid);
 }
 
+/*按token查找对应的mesh node*/
 struct mesh_node *node_find_by_token(uint64_t token)
 {
 	return l_queue_find(nodes, match_token, (void *) &token);
 }
 
+/*取mesh node的唯一标识*/
 uint8_t *node_uuid_get(struct mesh_node *node)
 {
 	if (!node)
@@ -224,7 +228,7 @@ static void set_defaults(struct mesh_node *node)
 }
 
 /*利用uuid创建mesh_node*/
-static struct mesh_node *node_new(const uint8_t uuid[16])
+static struct mesh_node *node_new(const uint8_t uuid[16]/*此节点的唯一标识*/)
 {
 	struct mesh_node *node;
 
@@ -401,6 +405,7 @@ static bool init_storage_dir(struct mesh_node *node)
 	if (node->storage_dir)
 		return true;/*已初始化*/
 
+	/*将此节点uuid转换为字符串形式*/
 	if (!hex2str(node->uuid, 16, uuid, sizeof(uuid)))
 		return false;
 
@@ -978,6 +983,7 @@ static uint16_t node_generate_comp(struct mesh_node *node, uint8_t *buf,
 	return n;
 }
 
+/*按page num匹配mesh_config_comp_page*/
 static bool match_page(const void *a, const void *b)
 {
 	const struct mesh_config_comp_page *page = a;
@@ -986,6 +992,7 @@ static bool match_page(const void *a, const void *b)
 	return page->page_num == page_num;
 }
 
+/*由mesh_node转换为mesh_config_node,这个结构用于存储转换*/
 static void convert_node_to_storage(struct mesh_node *node,
 					struct mesh_config_node *db_node)
 {
@@ -1047,19 +1054,21 @@ static void free_db_storage(struct mesh_config_node *db_node)
 	l_queue_destroy(db_node->elements, l_free);
 }
 
+/*为mesh node生成配置文件及相关目录*/
 static bool create_node_config(struct mesh_node *node, const uint8_t uuid[16])
 {
 	struct mesh_config_node db_node;
 	const struct l_queue_entry *entry;
 	const char *storage_dir;
 
-	convert_node_to_storage(node, &db_node);
-	storage_dir = mesh_get_storage_dir();
+	convert_node_to_storage(node, &db_node);/*转换为db_node*/
+	storage_dir = mesh_get_storage_dir();/*拿到配置文件*/
 	node->cfg = mesh_config_create(storage_dir, uuid, &db_node);
 
 	if (node->cfg)
-		init_storage_dir(node);
+		init_storage_dir(node);/*创建此node对应的rpl目录*/
 
+	/*释放临时变量mesh_config_node*/
 	/* Free temporarily allocated resources */
 	entry = l_queue_get_entries(db_node.elements);
 
@@ -1117,14 +1126,17 @@ const uint8_t *node_get_comp(struct mesh_node *node, uint8_t page_num,
 	struct mesh_config_comp_page *page = NULL;
 
 	if (node)
+		/*查找mesh_config_comp_page*/
 		page = l_queue_find(node->pages, match_page,
 						L_UINT_TO_PTR(page_num));
 
 	if (!page) {
+		/*没有此page,长度为0*/
 		*len = 0;
 		return NULL;
 	}
 
+	/*如果找到此page,则返回page对应的长度及buf内容*/
 	*len = page->len;
 	return page->data;
 }
@@ -1181,6 +1193,7 @@ static bool register_node_object(struct mesh_node *node)
 	if (!hex2str(node->uuid, sizeof(node->uuid), uuid, sizeof(uuid)))
 		return false;
 
+	/*节点的obj_path包含了其对应的uuid*/
 	node->obj_path = l_strdup_printf(BLUEZ_MESH_PATH MESH_NODE_PATH_PREFIX
 								"%s", uuid);
 
@@ -1518,6 +1531,7 @@ static void update_model_options(struct mesh_node *node,
 	}
 }
 
+/*检查请求node,注:如果请求类型不是attach,则直接生成此NODE配置*/
 static bool check_req_node(struct managed_obj_request *req)
 {
 	struct mesh_node *node;
@@ -1529,8 +1543,9 @@ static bool check_req_node(struct managed_obj_request *req)
 	if (req->type != REQUEST_TYPE_ATTACH) {
 		node = req->node;
 
+		/*生成此Node对应的配置*/
 		if (!create_node_config(node, node->uuid))
-			return false;
+			return false;/*生成此node配置失败*/
 	} else
 		node = req->attach;
 
@@ -1669,7 +1684,7 @@ static void get_managed_objects_cb(struct l_dbus_message *msg, void *user_data)
 	uint8_t dev_key[16];
 
 	if (req->type == REQUEST_TYPE_ATTACH)
-		req->attach->busy = false;
+		req->attach->busy = false;/*指明不再busy(已等到对方响应)*/
 
 	if (!msg || l_dbus_message_is_error(msg)) {
 		l_error("Failed to get app's dbus objects");
@@ -1838,15 +1853,16 @@ fail:
 
 static void send_managed_objects_request(const char *destination,
 						const char *path,
-						struct managed_obj_request *req)
+						struct managed_obj_request *req/*请求*/)
 {
 	struct l_dbus_message *msg;
 
+	/*向目的方请求调用GetManagedObjects*/
 	msg = l_dbus_message_new_method_call(dbus_get_bus(), destination, path,
 						L_DBUS_INTERFACE_OBJECT_MANAGER,
 						"GetManagedObjects");/*构造消息*/
 	l_dbus_message_set_arguments(msg, "");
-	dbus_send_with_timeout(dbus_get_bus(), msg, get_managed_objects_cb,
+	dbus_send_with_timeout(dbus_get_bus(), msg, get_managed_objects_cb/*收到响应后采用此回调处理*/,
 					req/*回调参数*/, l_free, DEFAULT_DBUS_TIMEOUT);/*发送并处理响应*/
 }
 
@@ -1857,6 +1873,7 @@ void node_attach(const char *app_root, const char *sender, uint64_t token,
 	struct managed_obj_request *req;
 	struct mesh_node *node;
 
+	/*通过token查找到mesh_node*/
 	node = l_queue_find(nodes, match_token, (void *) &token);
 	if (!node) {
 		cb(user_data, MESH_ERROR_NOT_FOUND, NULL);
@@ -1865,12 +1882,14 @@ void node_attach(const char *app_root, const char *sender, uint64_t token,
 
 	/* Check if there is a pending request associated with this node */
 	if (node->busy) {
+		/*遇到node busy*/
 		cb(user_data, MESH_ERROR_BUSY, NULL);
 		return;
 	}
 
 	/* Check if the node is already in use */
 	if (node->owner) {
+		/*已被设置owner*/
 		l_warn("The node is already in use");
 		cb(user_data, MESH_ERROR_ALREADY_EXISTS, NULL);
 		return;
@@ -1882,14 +1901,14 @@ void node_attach(const char *app_root, const char *sender, uint64_t token,
 	 * Create a temporary node to collect composition data from attaching
 	 * application. Existing node is passed in req->attach.
 	 */
-	req->node = node_new(node->uuid);
+	req->node = node_new(node->uuid);/*新建一个同样uuid的node*/
 	req->node->owner = l_strdup(sender);
 	req->ready_cb = cb;
 	req->pending_msg = user_data;
 	req->attach = node;
-	req->type = REQUEST_TYPE_ATTACH;
+	req->type = REQUEST_TYPE_ATTACH;/*指明执行ATTACH*/
 
-	node->busy = true;
+	node->busy = true;/*指明正在执行操作*/
 
 	send_managed_objects_request(sender, app_root, req);
 }
@@ -1948,12 +1967,12 @@ void node_create(const char *app_root, const char *sender, const uint8_t *uuid,
 	l_debug("");
 
 	req = l_new(struct managed_obj_request, 1);
-	req->node = node_new(uuid);
-	req->ready_cb = cb;
-	req->pending_msg = user_data;
+	req->node = node_new(uuid);/*新创建一个节点*/
+	req->ready_cb = cb;/*创建成功后回调*/
+	req->pending_msg = user_data;/*创建参数*/
 	req->type = REQUEST_TYPE_CREATE;
 
-	send_managed_objects_request(sender, app_root, req);
+	send_managed_objects_request(sender/*发送者*/, app_root, req);
 }
 
 static void build_element_config(void *a, void *b)

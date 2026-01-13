@@ -619,6 +619,7 @@ static void transport_a2dp_remove_owner(struct media_transport *transport,
 	a2dp->cancel_resume = FALSE;
 }
 
+/*获取音量*/
 static int transport_a2dp_get_volume(struct media_transport *transport)
 {
 	struct a2dp_transport *a2dp = transport->data;
@@ -2537,7 +2538,7 @@ static void *transport_asha_init(struct media_transport *transport, void *data)
 	.destroy = _destroy \
 }
 
-#define A2DP_OPS(_uuid, _init, _set_volume, _set_delay, _destroy) \
+#define A2DP_OPS(_uuid, _init, _set_volume/*设置音量*/, _set_delay, _destroy) \
 	TRANSPORT_OPS(_uuid, transport_a2dp_properties, NULL, \
 			transport_a2dp_remove_owner, _init,	      \
 			transport_a2dp_resume, transport_a2dp_suspend, \
@@ -2576,7 +2577,7 @@ static const struct media_transport_ops transport_ops[] = {
 #ifdef HAVE_A2DP
 	A2DP_OPS(A2DP_SOURCE_UUID, transport_a2dp_src_init,
 #ifdef HAVE_AVRCP
-			transport_a2dp_src_set_volume,
+			transport_a2dp_src_set_volume/*设置音量*/,
 #else
 			NULL,
 #endif
@@ -2584,7 +2585,7 @@ static const struct media_transport_ops transport_ops[] = {
 			transport_a2dp_src_destroy),
 	A2DP_OPS(A2DP_SINK_UUID, transport_a2dp_snk_init,
 #ifdef HAVE_AVRCP
-			transport_a2dp_snk_set_volume,
+			transport_a2dp_snk_set_volume/*设置音量*/,
 #else
 			NULL,
 #endif

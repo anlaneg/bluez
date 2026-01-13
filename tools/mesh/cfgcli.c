@@ -60,12 +60,13 @@ static model_send_msg_func_t send_msg;
 static delete_remote_func_t mgr_del_remote;
 
 static void *key_data;
-static key_send_func_t send_key_msg;
+static key_send_func_t send_key_msg;/*设置key发送函数*/
 
 static uint32_t rsp_timeout = DEFAULT_TIMEOUT;
 static uint16_t target = UNASSIGNED_ADDRESS;
 static uint32_t parms[8];
 
+/*各opcode对应的响应值及描述信息*/
 static const struct cfg_cmd cmds[] = {
 	{ OP_APPKEY_ADD, OP_APPKEY_STATUS, "AppKeyAdd" },
 	{ OP_APPKEY_DELETE, OP_APPKEY_STATUS, "AppKeyDelete" },
@@ -164,6 +165,7 @@ static const struct cfg_cmd cmds[] = {
 	{ OP_VEND_MODEL_APP_LIST, NO_RESPONSE, "VendorModelAppList" }
 };
 
+/*通过opcode找cfg_cmd*/
 static const struct cfg_cmd *get_cmd(uint32_t opcode)
 {
 	uint32_t n;
@@ -412,6 +414,7 @@ static bool match_group_addr(const void *a, const void *b)
 	return grp->addr == addr;
 }
 
+/*消息接收函数*/
 static bool msg_recvd(uint16_t src, uint16_t idx, uint8_t *data,
 							uint16_t len)
 {
@@ -943,6 +946,7 @@ static uint16_t put_model_id(uint8_t *buf, uint32_t *args, bool vendor)
 	return n;
 }
 
+/*均转换为int(按16进制)型数据*/
 static uint32_t read_input_parameters(int argc, char *argv[])
 {
 	uint32_t i;
@@ -954,14 +958,15 @@ static uint32_t read_input_parameters(int argc, char *argv[])
 	++argv;
 
 	if (!argc || argv[0][0] == '\0')
-		return 0;
+		return 0;/*参数数为0*/
 
+	/*全部转换为数字*/
 	for (i = 0; i < L_ARRAY_SIZE(parms) && i < (uint32_t) argc; i++) {
 		if (sscanf(argv[i], "%x", &parms[i]) != 1)
 			break;
 	}
 
-	return i;
+	return i;/*返回参数总数*/
 }
 
 static int compare_group_addr(const void *a, const void *b, void *user_data)
@@ -1010,7 +1015,7 @@ static void cmd_timeout_set(int argc, char *argv[])
 	if (read_input_parameters(argc, argv) != 1)
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
-	rsp_timeout = parms[0];
+	rsp_timeout = parms[0];/*设置响应超时时间*/
 
 	bt_shell_printf("Timeout to wait for remote node's response: %d secs\n",
 								rsp_timeout);
@@ -1018,12 +1023,13 @@ static void cmd_timeout_set(int argc, char *argv[])
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 }
 
+/*设置target*/
 static void cmd_dst_set(int argc, char *argv[])
 {
 	uint32_t dst;
 	char *end;
 
-	dst = strtol(argv[1], &end, 16);
+	dst = strtol(argv[1], &end, 16);/*转换目标地址*/
 
 	if (end != (argv[1] + 4)) {
 		bt_shell_printf("Bad unicast address %s: "
@@ -1034,37 +1040,41 @@ static void cmd_dst_set(int argc, char *argv[])
 	}
 
 	bt_shell_printf("Configuring node %4.4x\n", dst);
-	target = dst;
-	set_menu_prompt("config", argv[1]);
+	target = dst;/*设置目标地址*/
+	set_menu_prompt("config", argv[1]);/*进入config*/
 
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 }
 
-static bool config_send(uint8_t *buf, uint16_t len, uint32_t opcode)
+static bool config_send(uint8_t *buf, uint16_t len/*消息长度*/, uint32_t opcode)
 {
 	const struct cfg_cmd *cmd;
 	bool res;
 
 	if (IS_UNASSIGNED(target)) {
+		/*TARGET必须指定*/
 		bt_shell_printf("Destination not set\n");
 		return false;
 	}
 
 	cmd = get_cmd(opcode);
 	if (!cmd)
-		return false;
+		return false;/*此opcode无效*/
 
+	/*检查是否有pending消息还未处理*/
 	if (get_req_by_rsp(target, cmd->rsp)) {
 		bt_shell_printf("Another command is pending\n");
 		return false;
 	}
 
-	res = send_msg(send_data, target, APP_IDX_DEV_REMOTE, buf, len);
+	/*向外发送函数,例如函数:static bool send_msg(void *user_data, uint16_t dst, uint16_t idx,
+			uint8_t *data, uint16_t len)*/
+	res = send_msg(send_data, target/*目标节点*/, APP_IDX_DEV_REMOTE, buf, len);
 	if (!res)
 		bt_shell_printf("Failed to send \"%s\"\n", opcode_str(opcode));
 
 	if (cmd->rsp != NO_RESPONSE)
-		add_request(opcode);
+		add_request(opcode);/*加入pending消息*/
 
 	return res;
 }
@@ -1104,10 +1114,10 @@ static void cmd_composition_get(int argc, char *argv[])
 
 	n = mesh_opcode_set(OP_DEV_COMP_GET, msg);
 
-	/* By default, use page 128 */
-	msg[n++] = (read_input_parameters(argc, argv) == 1) ? parms[0] : 128;
+	/* By default, use page 128 ,占1个字节*/
+	msg[n++] = (read_input_parameters(argc, argv) == 1) ? parms[0]/*取参数1*/ : 128;
 
-	if (!config_send(msg, n, OP_DEV_COMP_GET))
+	if (!config_send(msg, n/*消息长度*/, OP_DEV_COMP_GET))
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
@@ -1123,8 +1133,9 @@ static void cmd_netkey_del(int argc, char *argv[])
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 	}
 
-	n = mesh_opcode_set(OP_NETKEY_DELETE, msg);
+	n = mesh_opcode_set(OP_NETKEY_DELETE, msg);/*指定opcode*/
 
+	/*取参数*/
 	if (read_input_parameters(argc, argv) != 1) {
 		bt_shell_printf("Bad arguments %s\n", argv[1]);
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
@@ -1133,6 +1144,7 @@ static void cmd_netkey_del(int argc, char *argv[])
 	put_le16(parms[0], msg + n);
 	n += 2;
 
+	/*指明为删除NETKEY*/
 	if (!config_send(msg, n, OP_NETKEY_DELETE))
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
@@ -1274,16 +1286,19 @@ static void cmd_key_add(uint32_t opcode, int argc, char *argv[])
 	const struct cfg_cmd *cmd;
 
 	if (IS_UNASSIGNED(target)) {
+		/*还未指定target*/
 		bt_shell_printf("Destination not set\n");
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 	}
 
 	if (!send_key_msg) {
+		/*未设置key发送回调函数*/
 		bt_shell_printf("Send key callback not set\n");
 		return;
 	}
 
 	if (read_input_parameters(argc, argv) != 1) {
+		/*只接收一个参数,长度U32*/
 		bt_shell_printf("Bad arguments %s\n", argv[1]);
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 	}
@@ -1293,6 +1308,7 @@ static void cmd_key_add(uint32_t opcode, int argc, char *argv[])
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 
 	if (get_req_by_rsp(target, cmd->rsp)) {
+		/*已有pending消息*/
 		bt_shell_printf("Another key command is pending\n");
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
 	}
@@ -1310,21 +1326,25 @@ static void cmd_key_add(uint32_t opcode, int argc, char *argv[])
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 }
 
+/*添加netkey*/
 static void cmd_netkey_add(int argc, char *argv[])
 {
 	cmd_key_add(OP_NETKEY_ADD, argc, argv);
 }
 
+/*更新netkey*/
 static void cmd_netkey_update(int argc, char *argv[])
 {
 	cmd_key_add(OP_NETKEY_UPDATE, argc, argv);
 }
 
+/*添加appkey*/
 static void cmd_appkey_add(int argc, char *argv[])
 {
 	cmd_key_add(OP_APPKEY_ADD, argc, argv);
 }
 
+/*更新appkey*/
 static void cmd_appkey_update(int argc, char *argv[])
 {
 	cmd_key_add(OP_APPKEY_UPDATE, argc, argv);
@@ -2073,29 +2093,30 @@ static bool tx_setup(model_send_msg_func_t send_func, void *user_data)
 	if (!send_func)
 		return false;
 
-	send_msg = send_func;
+	send_msg = send_func;/*设置消息发送函数*/
 	send_data = user_data;
 
 	return true;
 }
 
+/*配置菜单*/
 static const struct bt_shell_menu cfg_menu = {
 	.name = "config",
 	.desc = "Configuration Model Submenu",
 	.entries = {
 	{"target", "<unicast>", cmd_dst_set,
-				"Set target node to configure"},
+				"Set target node to configure"},/*指定目标节点*/
 	{"timeout", "<seconds>", cmd_timeout_set,
-				"Set response timeout (seconds)"},
+				"Set response timeout (seconds)"},/*设置响应超时时间*/
 	{"composition-get", "[page_num]", cmd_composition_get,
 				"Get composition data"},
-	{"netkey-add", "<net_idx>", cmd_netkey_add,
+	{"netkey-add", "<net_idx>", cmd_netkey_add,/*添加netkey*/
 				"Add NetKey"},
-	{"netkey-update", "<net_idx>", cmd_netkey_update,
+	{"netkey-update", "<net_idx>", cmd_netkey_update,/*更新netkey*/
 				"Update NetKey"},
-	{"netkey-del", "<net_idx>", cmd_netkey_del,
+	{"netkey-del", "<net_idx>", cmd_netkey_del,/*删除netkey*/
 				"Delete NetKey"},
-	{"netkey-get", NULL, cmd_netkey_get,
+	{"netkey-get", NULL, cmd_netkey_get,/*获取netkey*/
 				"List NetKeys known to the node"},
 	{"kr-phase-get", "<net_idx>", cmd_kr_phase_get,
 				"Get Key Refresh phase of a NetKey"},
@@ -2190,18 +2211,19 @@ static struct model_info cli_info = {
 	.vendor_id = VENDOR_ID_INVALID
 };
 
+/*重要函数:设备CLI发送消息必要的回调*/
 struct model_info *cfgcli_init(key_send_func_t key_send,
 				delete_remote_func_t del_node, void *user_data)
 {
 	if (!key_send)
 		return NULL;
 
-	send_key_msg = key_send;
+	send_key_msg = key_send;/*设置key发送函数*/
 	key_data = user_data;
-	mgr_del_remote = del_node;
+	mgr_del_remote = del_node;/*设置节点删除函数*/
 	requests = l_queue_new();
 	groups = mesh_db_load_groups();
-	bt_shell_add_submenu(&cfg_menu);
+	bt_shell_add_submenu(&cfg_menu);/*添加配置菜单*/
 
 	return &cli_info;
 }

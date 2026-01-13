@@ -41,11 +41,11 @@ uint16_t mesh_opcode_set(uint32_t opcode, uint8_t *buf)
 		buf[0] = opcode;
 		return 1;
 	} else if (opcode >= 0x8000 && opcode <= 0xbfff) {
-		put_be16(opcode, buf);
+		put_be16(opcode, buf);/*两字节的opcode,按大端存*/
 		return 2;
 	} else if (opcode >= 0xc00000 && opcode <= 0xffffff) {
 		buf[0] = (opcode >> 16) & 0xff;
-		put_be16(opcode, buf + 1);
+		put_be16(opcode, buf + 1);/*三字节的opcode*/
 		return 3;
 	}
 

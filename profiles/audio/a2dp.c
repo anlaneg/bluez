@@ -75,12 +75,12 @@ struct a2dp_stream {
 struct a2dp_sep {
 	struct a2dp_server *server;
 	struct a2dp_endpoint *endpoint;
-	uint8_t type;
+	uint8_t type;/*类型,例如AVDTP_SEP_TYPE_SINK*/
 	uint8_t codec;
 	struct avdtp_local_sep *lsep;
 	struct queue *streams;
 	gboolean delay_reporting;
-	void *user_data;
+	void *user_data;/*用户传入的私有数据*/
 	GDestroyNotify destroy;
 };
 
@@ -119,13 +119,13 @@ struct a2dp_server {
 	struct btd_adapter *adapter;/*关联的adapter*/
 	GSList *sinks;
 	GSList *sources;
-	uint32_t source_record_id;
-	uint32_t sink_record_id;
-	gboolean sink_enabled;
-	gboolean source_enabled;/*标记A2DP_SINK_UUID已注册*/
+	uint32_t source_record_id;/*源对应的record_id*/
+	uint32_t sink_record_id;/*SINK对应的record id*/
+	gboolean sink_enabled;/*是否开启sink(即接收端)*/
+	gboolean source_enabled;/*标记是否开启source(即发送端)*/
 	uint64_t seid_pool;
 	GIOChannel *io;
-	struct queue *seps;
+	struct queue *seps;/*记录创建的avdtp_local_sep,SEP 是 Stream End Point（流端点）的缩写*/
 	struct queue *channels;
 };
 
@@ -727,6 +727,7 @@ static gboolean auto_config(gpointer data)
 		service = btd_device_get_service(dev, A2DP_SOURCE_UUID);
 
 	if (service == NULL) {
+		/*没有找到相应的服务*/
 		error("Unable to find btd service");
 		return FALSE;
 	}
@@ -891,8 +892,8 @@ done:
 }
 
 static gboolean endpoint_getcap_ind(struct avdtp *session,
-					struct avdtp_local_sep *sep,
-					gboolean get_all, GSList **caps,
+					struct avdtp_local_sep *sep/*要获取能力的sep*/,
+					gboolean get_all/*是否获取所有*/, GSList **caps,
 					uint8_t *err, void *user_data)
 {
 	struct a2dp_sep *a2dp_sep = user_data;
@@ -913,13 +914,14 @@ static gboolean endpoint_getcap_ind(struct avdtp *session,
 
 	*caps = g_slist_append(*caps, media_transport);
 
-	length = a2dp_sep->endpoint->get_capabilities(a2dp_sep, &capabilities,
+	/*取得此sep的能力列表及长度*/
+	length = a2dp_sep->endpoint->get_capabilities(a2dp_sep, &capabilities/*出参,能力列表*/,
 							a2dp_sep->user_data);
 
 	codec_caps = g_malloc0(sizeof(*codec_caps) + length);
-	codec_caps->media_type = AVDTP_MEDIA_TYPE_AUDIO;
-	codec_caps->media_codec_type = a2dp_sep->codec;
-	memcpy(codec_caps->data, capabilities, length);
+	codec_caps->media_type = AVDTP_MEDIA_TYPE_AUDIO;/*指明为音频*/
+	codec_caps->media_codec_type = a2dp_sep->codec;/*指明支持的编码*/
+	memcpy(codec_caps->data, capabilities, length);/*指明能力列表*/
 
 	media_codec = avdtp_service_cap_new(AVDTP_MEDIA_CODEC, codec_caps,
 						sizeof(*codec_caps) + length);
@@ -1299,6 +1301,7 @@ static void open_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 		setup->reconfigure = FALSE;
 
 	if (err) {
+		/*出错,删除stream*/
 		setup->stream = NULL;
 		setup_error_set(setup, err);
 		if (setup->start)
@@ -1759,9 +1762,10 @@ static struct avdtp_sep_cfm cfm = {
 	.delay_report		= delay_report_cfm,
 };
 
+/*AVDTP 协议中「流端点指示消息（SEP Indication）」*/
 static struct avdtp_sep_ind endpoint_ind = {
 	.match_codec		= endpoint_match_codec_ind,
-	.get_capability		= endpoint_getcap_ind,
+	.get_capability		= endpoint_getcap_ind,/*取指定sep的能力*/
 	.set_configuration	= endpoint_setconf_ind,
 	.get_configuration	= getconf_ind,
 	.open			= open_ind,
@@ -1773,7 +1777,8 @@ static struct avdtp_sep_ind endpoint_ind = {
 	.delayreport		= endpoint_delayreport_ind,
 };
 
-static sdp_record_t *a2dp_record(uint8_t type)
+/*创建A2dp record*/
+static sdp_record_t *a2dp_record(uint8_t type/*类型,例如AVDTP_SEP_TYPE_SINK*/)
 {
 	sdp_list_t *svclass_id, *pfseq, *apseq, *root;
 	uuid_t root_uuid, l2cap_uuid, avdtp_uuid, a2dp_uuid;
@@ -2575,6 +2580,7 @@ struct avdtp *a2dp_avdtp_get(struct btd_device *device)
 
 	/* Check if there is any SEP available */
 	if (!queue_isempty(server->seps))
+		/*当前已有有效的sep*/
 		goto found;
 
 	DBG("Unable to find any available SEP");
@@ -2601,6 +2607,7 @@ static void connect_cb(GIOChannel *io, GError *err, gpointer user_data)
 	}
 
 	if (!chan->session) {
+		/*创建数据通道*/
 		chan->session = avdtp_new(chan->io, chan->device,
 							chan->server->seps);
 		if (!chan->session) {
@@ -2764,6 +2771,7 @@ drop:
 	g_io_channel_shutdown(io, TRUE, NULL);
 }
 
+/*执行监听AVDTP_PSM*/
 static bool a2dp_server_listen(struct a2dp_server *server)
 {
 	GError *err = NULL;
@@ -2870,12 +2878,14 @@ struct a2dp_sep *a2dp_add_sep(struct btd_adapter *adapter, uint8_t type,
 	}
 
 	if (type == AVDTP_SEP_TYPE_SINK && !server->sink_enabled) {
+		/*支明为接收端,但服务未开启*/
 		if (err)
 			*err = -EPROTONOSUPPORT;
 		return NULL;
 	}
 
 	if (type == AVDTP_SEP_TYPE_SOURCE && !server->source_enabled) {
+		/*指明为发送端,但服务未开启*/
 		if (err)
 			*err = -EPROTONOSUPPORT;
 		return NULL;
@@ -2883,9 +2893,10 @@ struct a2dp_sep *a2dp_add_sep(struct btd_adapter *adapter, uint8_t type,
 
 	sep = g_new0(struct a2dp_sep, 1);
 
+	/*为SERVICE添加SEP(Stream End Point)流端点*/
 	sep->lsep = avdtp_register_sep(server->seps, &server->seid_pool, type,
 					AVDTP_MEDIA_TYPE_AUDIO, codec,
-					delay_reporting, &endpoint_ind,
+					delay_reporting, &endpoint_ind/*指明ind回调*/,
 					&cfm, sep);
 
 	if (sep->lsep == NULL) {
@@ -2922,6 +2933,7 @@ struct a2dp_sep *a2dp_add_sep(struct btd_adapter *adapter, uint8_t type,
 		return NULL;
 	}
 
+	/*为此adapter添加record*/
 	if (adapter_service_add(server->adapter, record) < 0) {
 		error("Unable to register A2DP service record");
 		sdp_record_free(record);
@@ -2931,6 +2943,7 @@ struct a2dp_sep *a2dp_add_sep(struct btd_adapter *adapter, uint8_t type,
 		return NULL;
 	}
 
+	/*执行监听*/
 	if (!a2dp_server_listen(server)) {
 		sdp_record_free(record);
 		a2dp_unregister_sep(sep);
@@ -3200,6 +3213,7 @@ fail:
 
 }
 
+/*执行a2dp配置*/
 unsigned int a2dp_config(struct avdtp *session, struct a2dp_sep *sep,
 				a2dp_config_cb_t cb, GSList *caps,
 				void *user_data)
@@ -3213,6 +3227,7 @@ unsigned int a2dp_config(struct avdtp *session, struct a2dp_sep *sep,
 	struct avdtp_media_codec_capability *codec_cap = NULL;
 	int posix_err;
 
+	/*查找到server*/
 	server = find_server(servers, avdtp_get_adapter(session));
 	if (!server)
 		return 0;
@@ -3290,6 +3305,7 @@ unsigned int a2dp_config(struct avdtp *session, struct a2dp_sep *sep,
 			goto failed;
 		}
 
+		/*设置配置*/
 		posix_err = avdtp_set_configuration(session, setup->rsep->sep,
 							sep->lsep, caps,
 							&setup->stream);
@@ -3720,7 +3736,7 @@ static int a2dp_sink_server_probe(struct btd_profile *p,
 		/*找到对应的server，返回*/
 		goto done;
 
-	/*针对此adapter创建对应的server*/
+	/*针对此adapter创建对应的a2dp_server*/
 	server = a2dp_server_register(adapter);
 	if (server == NULL)
 		return -EPROTONOSUPPORT;
@@ -3760,6 +3776,7 @@ static int media_server_probe(struct btd_adapter *adapter)
 {
 	DBG("path %s", adapter_get_path(adapter));
 
+	/*注册"org.bluez.Media1"接口,使APP,PLAYER可以注册给BLUEZ*/
 	return media_register(adapter);
 }
 
@@ -3767,9 +3784,11 @@ static void media_server_remove(struct btd_adapter *adapter)
 {
 	DBG("path %s", adapter_get_path(adapter));
 
+	/*解注册"org.bluez.Media1"接口*/
 	media_unregister(adapter);
 }
 
+/*数据发送方*/
 static struct btd_profile a2dp_source_profile = {
 	.name		= "a2dp-source",
 	.priority	= BTD_PROFILE_PRIORITY_MEDIUM,
@@ -3782,10 +3801,11 @@ static struct btd_profile a2dp_source_profile = {
 	.connect	= a2dp_source_connect,
 	.disconnect	= a2dp_source_disconnect,
 
-	.adapter_probe	= a2dp_sink_server_probe,
+	.adapter_probe	= a2dp_sink_server_probe,/*针对此adapter创建对应的a2dp_server*/
 	.adapter_remove	= a2dp_sink_server_remove,
 };
 
+/*数据接收方*/
 static struct btd_profile a2dp_sink_profile = {
 	.name		= "a2dp-sink",
 	.priority	= BTD_PROFILE_PRIORITY_MEDIUM,
@@ -3798,7 +3818,7 @@ static struct btd_profile a2dp_sink_profile = {
 	.connect	= a2dp_sink_connect,/*连接*/
 	.disconnect	= a2dp_sink_disconnect,
 
-	.adapter_probe	= a2dp_source_server_probe,
+	.adapter_probe	= a2dp_source_server_probe,/*创建对应的a2dp_server*/
 	.adapter_remove	= a2dp_source_server_remove,
 };
 
@@ -3810,7 +3830,7 @@ static struct btd_adapter_driver media_driver = {
 
 static int a2dp_init(void)
 {
-	/*注册media驱动*/
+	/*使能"org.bluez.Media1"接口*/
 	btd_register_adapter_driver(&media_driver);
 	/*注册a2dp-source profile*/
 	btd_profile_register(&a2dp_source_profile);

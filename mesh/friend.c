@@ -441,7 +441,7 @@ update:
 
 
 void friend_poll(struct mesh_net *net, uint16_t src, bool seq,
-					struct mesh_friend *frnd)
+					struct mesh_friend *frnd/*友节点*/)
 {
 	struct l_queue *negotiations = mesh_net_get_negotiations(net);
 	struct mesh_friend *neg;

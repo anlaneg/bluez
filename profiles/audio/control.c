@@ -123,8 +123,9 @@ int control_disconnect(struct btd_service *service)
 	return 0;
 }
 
+/*执行按键操作*/
 static DBusMessage *key_pressed(DBusConnection *conn, DBusMessage *msg,
-					uint8_t op, bool hold, void *data)
+					uint8_t op/*按哪个键*/, bool hold/*是否保持*/, void *data)
 {
 	struct control *control = data;
 	int err;
@@ -134,67 +135,78 @@ static DBusMessage *key_pressed(DBusConnection *conn, DBusMessage *msg,
 		return btd_error_not_connected(msg);
 
 	if (!control->target)
+		/*没有target,报错*/
 		return btd_error_not_supported(msg);
 
+	/*向外发送op cmd*/
 	err = avctp_send_passthrough(control->session, op, hold);
 	if (err < 0)
 		return btd_error_failed(msg, strerror(-err));
 
+	/*响应对端*/
 	return dbus_message_new_method_return(msg);
 }
 
 static DBusMessage *control_volume_up(DBusConnection *conn, DBusMessage *msg,
 								void *data)
 {
+	/*通过BT发送按音量+键*/
 	return key_pressed(conn, msg, AVC_VOLUME_UP, false, data);
 }
 
 static DBusMessage *control_volume_down(DBusConnection *conn, DBusMessage *msg,
 								void *data)
 {
+	/*通过BT发送按音量-键*/
 	return key_pressed(conn, msg, AVC_VOLUME_DOWN, false, data);
 }
 
 static DBusMessage *control_play(DBusConnection *conn, DBusMessage *msg,
 								void *data)
 {
+	/*通过BT发送按play键*/
 	return key_pressed(conn, msg, AVC_PLAY, false, data);
 }
 
 static DBusMessage *control_pause(DBusConnection *conn, DBusMessage *msg,
 								void *data)
 {
+	/*通过BT发送按pause键*/
 	return key_pressed(conn, msg, AVC_PAUSE, false, data);
 }
 
 static DBusMessage *control_stop(DBusConnection *conn, DBusMessage *msg,
 								void *data)
 {
+	/*通过BT发送按stop键*/
 	return key_pressed(conn, msg, AVC_STOP, false, data);
 }
 
 static DBusMessage *control_next(DBusConnection *conn, DBusMessage *msg,
 								void *data)
 {
+	/*通过BT发送按forward键*/
 	return key_pressed(conn, msg, AVC_FORWARD, false, data);
 }
 
 static DBusMessage *control_previous(DBusConnection *conn, DBusMessage *msg,
 								void *data)
 {
+	/*通过BT发送按previous键*/
 	return key_pressed(conn, msg, AVC_BACKWARD, false, data);
 }
 
 static DBusMessage *control_fast_forward(DBusConnection *conn, DBusMessage *msg,
 								void *data)
 {
+	/*通过BT发送按快进键*/
 	return key_pressed(conn, msg, AVC_FAST_FORWARD, true, data);
 }
 
 static DBusMessage *control_rewind(DBusConnection *conn, DBusMessage *msg,
 								void *data)
 {
-	return key_pressed(conn, msg, AVC_REWIND, true, data);
+	return key_pressed(conn, msg, AVC_REWIND, true, data);/*反向播放*/
 }
 
 static gboolean control_property_get_connected(
@@ -232,16 +244,16 @@ static gboolean control_get_player(const GDBusPropertyTable *property,
 }
 
 static const GDBusMethodTable control_methods[] = {
-	{ GDBUS_DEPRECATED_METHOD("Play", NULL, NULL, control_play) },
-	{ GDBUS_DEPRECATED_METHOD("Pause", NULL, NULL, control_pause) },
-	{ GDBUS_DEPRECATED_METHOD("Stop", NULL, NULL, control_stop) },
-	{ GDBUS_DEPRECATED_METHOD("Next", NULL, NULL, control_next) },
-	{ GDBUS_DEPRECATED_METHOD("Previous", NULL, NULL, control_previous) },
-	{ GDBUS_DEPRECATED_METHOD("VolumeUp", NULL, NULL, control_volume_up) },
+	{ GDBUS_DEPRECATED_METHOD("Play", NULL, NULL, control_play) },/*定义播放按键操作*/
+	{ GDBUS_DEPRECATED_METHOD("Pause", NULL, NULL, control_pause) },/*定义暂停按键操作*/
+	{ GDBUS_DEPRECATED_METHOD("Stop", NULL, NULL, control_stop) },/*定义停止按键操作*/
+	{ GDBUS_DEPRECATED_METHOD("Next", NULL, NULL, control_next) },/*定义下一首按键操作*/
+	{ GDBUS_DEPRECATED_METHOD("Previous", NULL, NULL, control_previous) },/*定义上一首按键操作*/
+	{ GDBUS_DEPRECATED_METHOD("VolumeUp", NULL, NULL, control_volume_up) },/*定义音量+按键操作*/
 	{ GDBUS_DEPRECATED_METHOD("VolumeDown", NULL, NULL,
-							control_volume_down) },
+							control_volume_down) },/*定义音量-按键操作*/
 	{ GDBUS_DEPRECATED_METHOD("FastForward", NULL, NULL,
-							control_fast_forward) },
+							control_fast_forward) },/*定义快进按键操作*/
 	{ GDBUS_DEPRECATED_METHOD("Rewind", NULL, NULL, control_rewind) },
 	{ }
 };

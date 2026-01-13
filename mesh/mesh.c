@@ -118,7 +118,7 @@ static bool simple_match(const void *a, const void *b)
 /* Used for any outbound traffic that doesn't have Friendship Constraints */
 /* This includes Beacons, Provisioning and unrestricted Network Traffic */
 bool mesh_send_pkt(uint8_t count, uint16_t interval,
-					void *data, uint16_t len/*数据长度*/)
+					void *data/*要发送的数据*/, uint16_t len/*数据长度*/)
 {
 	struct mesh_io_send_info info = {
 		.type = MESH_IO_TIMING_TYPE_GENERAL,
@@ -146,8 +146,11 @@ static void prov_rx(void *user_data, struct mesh_io_recv_info *info,
 		mesh.prov_rx(mesh.prov_data, data, len);
 }
 
-bool mesh_reg_prov_rx(prov_rx_cb_t cb, void *user_data)
+/*注册配网PDU处理回调*/
+bool mesh_reg_prov_rx(prov_rx_cb_t cb/*配网PDU处理回调*/, void *user_data)
 {
+	//0x29	Mesh Provisioning PDU	配网阶段设备广播配网请求 / 响应
+	//0x29  PB-ADV Mesh Profile Specification, Section 5.2.1
 	uint8_t prov_filter[] = {BT_AD_MESH_PROV};
 
 	if (mesh.prov_rx && mesh.prov_rx != cb)
@@ -182,9 +185,10 @@ static void io_ready_callback(void *user_data, bool result)
 	mesh.initialized = true;/*指明已初始化完成*/
 
 	if (result)
+		/*对所有node进行attach*/
 		node_attach_io_all(mesh.io);
 
-	/*触发回调*/
+	/*触发REQ回调*/
 	req->cb(req->user_data, result);
 
 	l_free(req);
@@ -298,11 +302,11 @@ bool mesh_init(const char *config_dir/*配置文件目录*/, const char *mesh_co
 		return false;/*加载配置失败，直接退出*/
 
 	req = l_new(struct mesh_init_request, 1);
-	req->cb = cb;
+	req->cb = cb;/*io_ready_callback执行成功后,此cb被调用*/
 	req->user_data = user_data;
 
 	/*创建mesh io*/
-	mesh.io = mesh_io_new(type, opts, io_ready_callback, req);
+	mesh.io = mesh_io_new(type, opts, io_ready_callback/*初始化完成后调用,用于attach所有NODE*/, req);
 	if (!mesh.io) {
 		l_free(req);
 		return false;/*创建IO失败*/
@@ -656,11 +660,14 @@ static struct l_dbus_message *attach_call(struct l_dbus *dbus,
 
 	l_debug("Attach");
 
+	/*取attach时传入的path及token*/
 	if (!l_dbus_message_get_arguments(msg, "ot", &app_path, &token))
 		return dbus_error(msg, MESH_ERROR_INVALID_ARGS, NULL);
 
+	/*利用token查找node*/
 	node = node_find_by_token(token);
 	if (!node)
+		/*无此node*/
 		return dbus_error(msg, MESH_ERROR_NOT_FOUND, "Attach failed");
 
 	if (node_is_busy(node)) {
@@ -677,6 +684,7 @@ static struct l_dbus_message *attach_call(struct l_dbus *dbus,
 	pending_msg = l_dbus_message_ref(msg);
 	l_queue_push_tail(pending_queue, pending_msg);
 
+	/*执行node attach*/
 	node_attach(app_path, sender, token, attach_ready_cb, pending_msg);
 
 	return NULL;
@@ -794,6 +802,7 @@ static void create_node_ready_cb(void *user_data, int status,
 	l_dbus_message_unref(pending_msg);
 }
 
+/*接收client发送过来的CreateNetwork调用,创建网络*/
 static struct l_dbus_message *create_network_call(struct l_dbus *dbus,
 						struct l_dbus_message *msg,
 						void *user_data)
@@ -822,7 +831,8 @@ static struct l_dbus_message *create_network_call(struct l_dbus *dbus,
 	pending_msg = l_dbus_message_ref(msg);
 	l_queue_push_tail(pending_queue, pending_msg);/*添加进pending_queue*/
 
-	node_create(app_path, sender, uuid, create_node_ready_cb,
+	/*创建node,发起方可以看mesh-cfgclient create命令*/
+	node_create(app_path, sender, uuid, create_node_ready_cb/*用于向对端发送响应*/,
 								pending_msg);
 
 	return NULL;
@@ -912,7 +922,7 @@ static struct l_dbus_message *import_call(struct l_dbus *dbus,
 	return NULL;
 }
 
-/*注册接口方法*/
+/*注册接口方法,对外提供服务*/
 static void setup_network_interface(struct l_dbus_interface *iface)
 {
 	l_dbus_interface_method(iface, "Join", 0, join_network_call, "",

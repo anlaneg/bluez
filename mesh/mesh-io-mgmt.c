@@ -47,7 +47,7 @@ struct mesh_io_private {
 	uint16_t interval;
 	uint8_t handle;
 	bool sending;
-	bool active;
+	bool active;/*主动扫描(1)/被动扫描(0)*/
 };
 
 struct process_data {
@@ -313,12 +313,12 @@ static bool find_active(const void *a, const void *b)
 	 */
 	if (rx_reg->filter[0] < BT_AD_MESH_PROV ||
 					rx_reg->filter[0] > BT_AD_MESH_BEACON)
-		return true;
+		return true;/*需要主动扫描*/
 
-	return false;
+	return false;/*仅被动扫描即可*/
 }
 
-/*显示开启状态*/
+/*显示mesh开启状态*/
 static void mesh_up(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -327,6 +327,7 @@ static void mesh_up(uint8_t status, uint16_t length,
 	l_debug("HCI%d Mesh up status: %d", index, status);
 }
 
+/*显示le开启执行结果*/
 static void le_up(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -364,7 +365,7 @@ static void ctl_up(uint8_t status, uint16_t length,
 	pvt->tx_id = mesh_mgmt_register(MGMT_EV_MESH_PACKET_CMPLT,
 					index, send_cmplt, pvt, NULL);
 
-	/*开启扫描*/
+	/*设置mesh receiver*/
 	mesh_mgmt_send(MGMT_OP_SET_MESH_RECEIVER, index, len, mesh,
 			mesh_up, L_UINT_TO_PTR(index), NULL);
 	l_debug("done %d mesh startup", index);
@@ -372,7 +373,8 @@ static void ctl_up(uint8_t status, uint16_t length,
 	l_free(mesh);
 
 	if (pvt->send_idx == MGMT_INDEX_NONE) {
-		pvt->send_idx = index;
+		pvt->send_idx = index;/*设置设备*/
+		/*如有ready,执行ready*/
 		if (pvt && pvt->io && pvt->io->ready) {
 			pvt->io->ready(pvt->io->user_data, true/*指明成功*/);
 			pvt->io->ready = NULL;
@@ -423,11 +425,11 @@ static void read_info_cb(uint8_t status, uint16_t length,
 
 		mesh_mgmt_send(MGMT_OP_SET_LE, index,
 				sizeof(le), &le,
-				le_up, L_UINT_TO_PTR(index), NULL);
+				le_up, L_UINT_TO_PTR(index), NULL);/*先开启le模式*/
 
 		mesh_mgmt_send(MGMT_OP_SET_POWERED, index,
 				sizeof(power), &power,
-				ctl_up, L_UINT_TO_PTR(index), NULL);
+				ctl_up, L_UINT_TO_PTR(index), NULL);/*再开启power*/
 	} else {
 
 		l_info("Controller hci %u already in use (%x)",
@@ -454,7 +456,7 @@ static bool dev_init(struct mesh_io *io, void *opts, void *user_data)
 	pvt->send_idx = MGMT_INDEX_NONE;
 
 	/*读取此controller的INFO*/
-	mesh_mgmt_send(MGMT_OP_READ_INFO, index, 0, NULL,
+	mesh_mgmt_send(MGMT_OP_READ_INFO, index/*指定PCI设备*/, 0, NULL,
 				read_info_cb/*处理响应*/, L_UINT_TO_PTR(index), NULL);
 
 	pvt->dup_filters = l_queue_new();
@@ -677,7 +679,7 @@ static void tx_worker(void *user_data)
 }
 
 static bool send_tx(struct mesh_io *io, struct mesh_io_send_info *info,
-					const uint8_t *data, uint16_t len)
+					const uint8_t *data/*要发送的数据*/, uint16_t len/*待发送的数据长度*/)
 {
 	struct tx_pkt *tx;
 	bool sending = false;
@@ -768,8 +770,9 @@ static bool recv_register(struct mesh_io *io, const uint8_t *filter,
 		active = true;
 
 	if (pvt->active != active) {
-		pvt->active = active;
+		pvt->active = active;/*更新*/
 		/* TODO: Request active or passive scanning */
+		/*当前没有实现扫描启动处理*/
 	}
 
 	return true;

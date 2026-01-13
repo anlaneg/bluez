@@ -135,7 +135,7 @@ struct mesh_net {
 	struct l_queue *sar_out;
 	struct l_queue *sar_queue;
 	struct l_queue *frnd_msgs;
-	struct l_queue *friends;
+	struct l_queue *friends;/*用于记录所有友节点(mesh_friend类型)*/
 	struct l_queue *negotiations;
 	struct l_queue *destinations;
 };
@@ -1815,12 +1815,12 @@ static uint16_t key_id_to_net_idx(struct mesh_net *net,
 	if (frnd)
 		*frnd = false;
 
-	/*取得subnet*/
+	/*通过key id取得subnet*/
 	subnet = l_queue_find(net->subnets, match_key_id,
 						L_UINT_TO_PTR(net_key_id));
 
 	if (subnet)
-		return subnet->idx;
+		return subnet->idx;/*返回subnet idx*/
 
 	friend = l_queue_find(net->friends, match_friend_key_id,
 						L_UINT_TO_PTR(net_key_id));
@@ -2083,11 +2083,12 @@ static bool seg_rxed(struct mesh_net *net, bool frnd, uint32_t iv_index,
 	return false;
 }
 
+/*控制消息处理*/
 static bool ctl_received(struct mesh_net *net, uint32_t net_key_id,
 						uint32_t iv_index, uint8_t ttl,
 						uint32_t seq,
 						uint16_t src, uint16_t dst,
-						uint8_t opcode, int8_t rssi,
+						uint8_t opcode/*控制消息opcode*/, int8_t rssi,
 						const uint8_t *pkt, uint8_t len)
 {
 	uint8_t msg[12];
@@ -2110,10 +2111,12 @@ static bool ctl_received(struct mesh_net *net, uint32_t net_key_id,
 
 	switch (opcode) {
 	default:
+		/*对不认识的opcode进行报错*/
 		l_error("Unsupported Ctl Opcode: %2.2x", opcode);
 		break;
 
 	case NET_OP_FRND_POLL:
+		/*由低功耗节点发送至其友节点，用于请求友节点为该低功耗节点存储的所有消息。*/
 		if (len != 1 || ttl || pkt[0] > 1)
 			return false;
 
@@ -2123,6 +2126,7 @@ static bool ctl_received(struct mesh_net *net, uint32_t net_key_id,
 		break;
 
 	case NET_OP_FRND_REQUEST:
+		/*由低功耗节点发送至全友节点固定组地址，用于发起友节点发现流程。*/
 		if (!net->friend_enable)
 			return false;
 
@@ -2141,6 +2145,7 @@ static bool ctl_received(struct mesh_net *net, uint32_t net_key_id,
 		break;
 
 	case NET_OP_FRND_CLEAR_CONFIRM:
+		/*由原友节点发送至目标友节点，用于确认此前的友关系已解除。*/
 		if (len != 4)
 			return false;
 
@@ -2150,6 +2155,7 @@ static bool ctl_received(struct mesh_net *net, uint32_t net_key_id,
 		break;
 
 	case NET_OP_FRND_CLEAR:
+		/*发送至友节点，用于将友关系解除的消息通知给某低功耗节点的原友节点。*/
 		if (len != 4 || dst != net->src_addr)
 			return false;
 
@@ -2161,6 +2167,7 @@ static bool ctl_received(struct mesh_net *net, uint32_t net_key_id,
 		break;
 
 	case NET_OP_PROXY_SUB_ADD:
+		/*发送至友节点，用于在友订阅列表中添加一个或多个地址。*/
 		if (ttl)
 			return false;
 
@@ -2171,6 +2178,7 @@ static bool ctl_received(struct mesh_net *net, uint32_t net_key_id,
 		break;
 
 	case NET_OP_PROXY_SUB_REMOVE:
+		/*发送至友节点，用于从友订阅列表中移除一个或多个地址。*/
 		if (ttl)
 			return false;
 
@@ -2180,6 +2188,7 @@ static bool ctl_received(struct mesh_net *net, uint32_t net_key_id,
 		break;
 
 	case NET_OP_PROXY_SUB_CONFIRM:
+		/*由友节点发送，用于确认友订阅列表的更新。*/
 		if (ttl)
 			return false;
 
@@ -2187,6 +2196,7 @@ static bool ctl_received(struct mesh_net *net, uint32_t net_key_id,
 		break;
 
 	case NET_OP_HEARTBEAT:
+		/*由某节点发送，用于让其他节点确定子网的拓扑结构。*/
 		if (net->hb_sub.enabled && src == net->hb_sub.src) {
 			uint8_t hops = pkt[0] - ttl + 1;
 
@@ -2266,7 +2276,7 @@ static void send_relay_pkt(struct mesh_net *net, uint8_t *data, uint8_t size/*da
 	packet[0] = BT_AD_MESH_DATA;/*利用一个字节指明报文类型*/
 	memcpy(packet + 1, data, size);
 
-	mesh_io_send(io, &info, packet, size + 1);
+	mesh_io_send(io, &info, packet, size + 1);/*发送响应报文*/
 }
 
 static bool simple_match(const void *a, const void *b)
@@ -2323,7 +2333,7 @@ static void send_msg_pkt(struct mesh_net *net, uint8_t cnt, uint16_t interval,
 }
 
 static enum _relay_advice packet_received(struct mesh_net *net,
-				uint32_t net_key_id, uint16_t net_idx,
+				uint32_t net_key_id, uint16_t net_idx/*SUBNET ID号*/,
 				bool frnd, uint32_t iv_index,
 				const uint8_t *data/*收到的报文*/, uint8_t size/*报文长度*/, int8_t rssi)
 {
@@ -2339,7 +2349,7 @@ static enum _relay_advice packet_received(struct mesh_net *net,
 
 	if (!mesh_crypto_packet_parse(data, size, &net_ctl, &net_ttl,
 					&net_seq, &net_src, &net_dst,
-					&cache_cookie, &net_opcode,
+					&cache_cookie, &net_opcode/*收到的opcode*/,
 					&net_segmented, &key_aid, &net_szmic,
 					&net_relay, &net_seqZero, &net_segO,
 					&net_segN, &msg, &app_msg_len)) {
@@ -2348,6 +2358,7 @@ static enum _relay_advice packet_received(struct mesh_net *net,
 	}
 
 	if (net_dst == 0) {
+		/*目的地址为0,无效*/
 		l_error("illegal parms: DST: %4.4x Ctl: %d TTL: %2.2x",
 						net_dst, net_ctl, net_ttl);
 		return RELAY_NONE;
@@ -2369,6 +2380,7 @@ static enum _relay_advice packet_received(struct mesh_net *net,
 
 	if (is_us(net, net_dst, false) ||
 			(net_ctl && net_opcode == NET_OP_HEARTBEAT)) {
+		/*或者控制报文,且为heartbeat*/
 
 		l_debug("RX: App 0x%04x -> 0x%04x : TTL 0x%02x : SEQ 0x%06x",
 					net_src, net_dst, net_ttl, net_seq);
@@ -2394,9 +2406,10 @@ static enum _relay_advice packet_received(struct mesh_net *net,
 							net_seqZero,
 							l_get_be32(msg + 3));
 			} else {
+				/*处理收到的控制消息*/
 				ctl_received(net, net_key_id, iv_index, net_ttl,
 						net_seq, net_src, net_dst,
-						net_opcode, rssi, msg,
+						net_opcode/*控制消息opcode*/, rssi, msg,
 								app_msg_len);
 			}
 		} else if (net_segmented) {
@@ -2460,8 +2473,10 @@ static enum _relay_advice packet_received(struct mesh_net *net,
 		return RELAY_NONE;
 }
 
-static void net_rx(void *net_ptr, void *user_data/*收到的报文*/)
+/*network层报文收取*/
+static void net_rx(void *net_ptr, void *user_data/*收到的Network PDU*/)
 {
+	/*关于Network PDU可以参见Mesh Profile 1.0.1的3.4.4节*/
 	struct net_queue_data *data = user_data;
 	struct mesh_net *net = net_ptr;
 	enum _relay_advice relay_advice;
@@ -2501,7 +2516,7 @@ static void net_rx(void *net_ptr, void *user_data/*收到的报文*/)
 		return;
 
 	relay_advice = packet_received(net, net_key_id, net_idx, frnd,
-						iv_index, out, out_size, rssi);
+						iv_index, out/*解密后的报文内容*/, out_size, rssi);
 	if (relay_advice > data->relay_advice) {
 		/*
 		 * If packet was encrypted with friendship credentials,
@@ -2526,6 +2541,7 @@ static void net_msg_recv(void *user_data, struct mesh_io_recv_info *info,
 	bool isNew;
 	struct net_queue_data net_data = {
 		.info = info,
+		/*跳过了ADV_TYPE,对于mesh message来说跳过的当前为0X2a,按标准规定其报文格式即为Network PDU*/
 		.data = data + 1,
 		.len = len - 1,
 		.relay_advice = RELAY_NONE,
@@ -2542,7 +2558,7 @@ static void net_msg_recv(void *user_data, struct mesh_io_recv_info *info,
 	if (!isNew)
 		return;
 
-	l_queue_foreach(nets, net_rx, &net_data/*收到的数据*/);
+	l_queue_foreach(nets, net_rx, &net_data/*收到的Network PDU*/);
 
 	if (net_data.relay_advice == RELAY_ALWAYS ||
 			net_data.relay_advice == RELAY_ALLOWED) {
@@ -3012,8 +3028,16 @@ bool mesh_net_attach(struct mesh_net *net, struct mesh_io *io)
 	first = l_queue_isempty(nets);
 	if (first) {
 		/*nets队列为空*/
+		//0x2B	Mesh Beacon	节点广播安全信标（如 IV 更新、网络标识)
+		//0x2B  Mesh Beacon Mesh Profile Specification, Section 3.9
+		// 对于Mesh beacon消息,其当前格式为|Length(8bits)|ADV TYPE(8bits)|Beacon Type(8bits)|Beacon data|
+		// 其中adv type=0X2b:
+		// beacon type=0时为Unprovisioned Device beacon;
+		// beacon type=1时为Secure Network beacon
 		const uint8_t snb[] = {BT_AD_MESH_BEACON, 1};
 		const uint8_t mpb[] = {BT_AD_MESH_BEACON, 2};
+		//0x2A	Mesh Networking PDU	已配网节点广播 Mesh 网络层消息
+		//0x2A  Mesh Message Mesh Profile Specification, Section 3.3.1
 		const uint8_t pkt[] = {BT_AD_MESH_DATA};
 
 		if (!nets)
@@ -3028,6 +3052,7 @@ bool mesh_net_attach(struct mesh_net *net, struct mesh_io *io)
 							beacon_recv, NULL);
 		mesh_io_register_recv_cb(io, mpb, sizeof(mpb),
 							beacon_recv, NULL);
+		/*注册接收mesh message的回调*/
 		mesh_io_register_recv_cb(io, pkt, sizeof(pkt),
 							net_msg_recv, NULL);
 	}

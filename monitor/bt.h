@@ -517,6 +517,7 @@ struct bt_lmp_power_control_res {
 
 #define BT_LMP_PING_RES			LMP_ESC4(34)
 
+/*指定cmd报文类型*/
 #define BT_H4_CMD_PKT	0x01
 #define BT_H4_ACL_PKT	0x02
 #define BT_H4_SCO_PKT	0x03
@@ -3298,7 +3299,7 @@ struct bt_hci_evt_qos_setup_complete {
 
 #define BT_HCI_EVT_CMD_COMPLETE			0x0e
 struct bt_hci_evt_cmd_complete {
-	uint8_t  ncmd;
+	uint8_t  ncmd;/*这个参数用于指示控制器可以向hci发送多少个command*/
 	uint16_t opcode;
 } __attribute__ ((packed));
 

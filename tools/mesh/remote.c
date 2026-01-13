@@ -443,11 +443,13 @@ uint16_t remote_get_subnet_idx(uint16_t addr)
 	struct remote_node *rmt;
 	struct remote_key *key;
 
+	/*通过addr获取得remote node*/
 	rmt = l_queue_find(nodes, match_node_addr, L_UINT_TO_PTR(addr));
 
 	if (!rmt || l_queue_isempty(rmt->net_keys))
 		return NET_IDX_INVALID;
 
+	/*这里取首个net key*/
 	key = l_queue_peek_head(rmt->net_keys);
 
 	return key->idx;

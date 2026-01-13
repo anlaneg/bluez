@@ -513,10 +513,10 @@ static bool mesh_crypto_network_clarify(uint8_t *packet,
 	for (i = 0; i < 6; i++)
 		net_hdr[i] = pecb[i] ^ net_hdr[i];
 
-	*src = l_get_be16(net_hdr + 4);
-	*seq = l_get_be32(net_hdr) & SEQ_MASK;
+	*src = l_get_be16(net_hdr + 4);/*取SRC地址*/
+	*seq = l_get_be32(net_hdr) & SEQ_MASK;/*取24位seq*/
 	*ttl = net_hdr[0] & TTL_MASK;/*取ttl*/
-	*ctl = !!(net_hdr[0] & CTL);
+	*ctl = !!(net_hdr[0] & CTL);/*取ctl标记位*/
 
 	return true;
 }
@@ -592,12 +592,13 @@ bool mesh_crypto_packet_build(bool ctl, uint8_t ttl,
 
 /*解析报文内容，获得填充的以下字段*/
 static bool network_header_parse(const uint8_t *packet, uint8_t packet_len,
-				bool *ctl, uint8_t *ttl, uint32_t *seq/*出参，序号*/,
+				bool *ctl/*控制消息/ACCESS消息*/, uint8_t *ttl, uint32_t *seq/*出参，序号*/,
 				uint16_t *src/*出参，源地址*/, uint16_t *dst/*出参，目的地址*/)
 {
 	if (packet_len < 10)
 		return false;
 
+	/*报文格式:|ivi(1bit)|NID(7bits)|ctl(1bit)|ttl(7bits)|seq(24bits)|src(16bits)|dst(16bits)|*/
 	/* Try to keep bits in the order they exist within the packet */
 	if (ctl)
 		*ctl = !!(packet[1] & CTL);/*取是否控制消息*/
@@ -618,10 +619,10 @@ static bool network_header_parse(const uint8_t *packet, uint8_t packet_len,
 
 }
 
-bool mesh_crypto_packet_parse(const uint8_t *packet, uint8_t packet_len,
-				bool *ctl, uint8_t *ttl, uint32_t *seq,
+bool mesh_crypto_packet_parse(const uint8_t *packet/*报文内容*/, uint8_t packet_len,
+				bool *ctl/*出参,是否控制消息,否则ACCESS消息*/, uint8_t *ttl, uint32_t *seq/*出参,序号*/,
 				uint16_t *src/*出参，源地址*/, uint16_t *dst/*出参，目的地址*/,
-				uint32_t *cookie, uint8_t *opcode,
+				uint32_t *cookie, uint8_t *opcode/*出参,指定的opcode*/,
 				bool *segmented/*出参，是否分段报文*/, uint8_t *key_aid,
 				bool *szmic, bool *relay, uint16_t *seqZero,
 				uint8_t *segO, uint8_t *segN,
@@ -633,64 +634,82 @@ bool mesh_crypto_packet_parse(const uint8_t *packet, uint8_t packet_len,
 
 	if (!network_header_parse(packet, packet_len,
 					ctl, ttl, seq, src, &this_dst))
-		return false;
+		return false;/*解析失败,返回false*/
 
 	if (dst)
 		*dst = this_dst;
 
 	if (packet_len < 9 + 4)
-		return false;
+		return false;/*netmic最小是4字节*/
 
 	hdr = l_get_be32(packet + 9);
 
+	/*取segment字段*/
 	is_segmented = !!((hdr >> SEG_HDR_SHIFT) & 0x1);
 	if (segmented)
 		*segmented = is_segmented;
 
+	/*这里有四种情况:
+	 * CTR=0,segmented=0: 此时为Unsegmented Access Message
+	 * CTR=0,segmented=1: Segmented Access Message
+	 * CTR=1,segmented=0: Unsegmented Control Message
+	 * CTR=1,segmented=1: Segmented Control Message
+	 * */
 	if (*ctl) {
-		/*遇到的是control message*/
+		/*遇到的是control message,每个control消息均有一个opcode
+		 * 格式为:|SEG(1BIT)=1|Opcode(7BITS)|RFU(1BIT)|SeqZero(13)|SegO(5)|SegN(5)|Segment m(8-64)|
+		 * 或者为:|SEG(1BIT)=0|Opcode(7BITS)|Parameters(0-88)|
+		 * */
 		uint8_t this_opcode = packet[9] & OPCODE_MASK;/*取opcode*/
 
 		/* NetMIC */
-		packet_len -= 8;
+		packet_len -= 8;/*When the CTL bit is 1, the NetMIC field shall be 64 bits.*/
 
 		if (cookie)
-			*cookie = l_get_be32(packet + 2) ^ packet[6];
+			*cookie = l_get_be32(packet + 2) ^ packet[6];/*????*/
 
 		if (opcode)
-			*opcode = this_opcode;
+			*opcode = this_opcode;/*设置opcode*/
 
 		if (this_dst && this_opcode == NET_OP_SEG_ACKNOWLEDGE) {
+			/*遇到Segment Acknowledgment message
+			 * 报文格式:|SEG(1BIT)=0|Opcode(7BITS)|OBO(1BIT)|SeqZero(13BITS)|RFU(2BITS)|BlockAck(32BITS)|
+			 * */
 			if (relay)
-				*relay = !!((hdr >> RELAY_HDR_SHIFT) & 0x1);
+				*relay = !!((hdr >> RELAY_HDR_SHIFT) & 0x1);/*取OBO字段*/
 
 			if (seqZero)
 				*seqZero = (hdr >> SEQ_ZERO_HDR_SHIFT) &
-								SEQ_ZERO_MASK;
+								SEQ_ZERO_MASK;/*取seqzero字段*/
 
 			if (packet_len < 9)
 				return false;
 
-			*payload = packet + 9;
-			*payload_len = packet_len - 9;
+			*payload = packet + 9;/*指向network header后面*/
+			*payload_len = packet_len - 9;/*transport pdu长度(不含 netmic)*/
 		} else {
 			if (packet_len < 10)
 				return false;
 
-			*payload = packet + 10;
+			*payload = packet + 10;/*指到transport pdu的opcode之后*/
 			*payload_len = packet_len - 10;
 		}
 	} else {
+		/*遇到的是ACCESS message
+		 * 格式为:|SEG(1BIT)=1|AKF(1BIT)|AID(6BIT)|SZMIC(1BIT)|SeqZero(13BIT)|SegO(5BIT)|SegN(5BIT)|Opcode(7BITS)|Segment m(8-96)|
+		 * 或者为:|SEG(1BIT)=0|AKF(1BIT)|AID(6BIT)|Upper Transport Access PDU(40-120)|
+		 * */
 		/* NetMIC */
-		packet_len -= 4;
+		packet_len -= 4;/*When the CTL bit is 0, the NetMIC field shall be 32 bits.*/
 
 		if (cookie)
 			*cookie = l_get_be32(packet + packet_len - 8);
 
 		if (key_aid)
-			*key_aid = (hdr >> KEY_HDR_SHIFT) & KEY_ID_MASK;
+			*key_aid = (hdr >> KEY_HDR_SHIFT) & KEY_ID_MASK;/*取aid字段*/
 
 		if (is_segmented) {
+			/*segmented情况下,取szmic字段*/
 			if (szmic)
 				*szmic = !!((hdr >> SZMIC_HDR_SHIFT) & 0x1);
 
@@ -924,7 +943,7 @@ bool mesh_crypto_packet_decode(const uint8_t *packet, uint8_t packet_len,
 	if (packet_len < 14)
 		return false;
 
-	memcpy(out, packet, packet_len);/*填充到out*/
+	memcpy(out, packet, packet_len);/*将packet内容填充到out*/
 
 	if (!mesh_crypto_network_clarify(out, privacy_key, iv_index,
 						&ctl, &ttl, &seq, &src))

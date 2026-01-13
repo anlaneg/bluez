@@ -91,7 +91,7 @@ static void mesh_ready_callback(void *user_data, bool success)
 		return;
 	}
 
-	/*mesh初始化成功,初始化dbus*/
+	/*mesh初始化成功,初始化dbus,准备收到消息*/
 	if (!dbus_init(dbus)) {
 		l_error("Failed to initialize mesh D-Bus resources");
 		l_main_quit();
@@ -109,7 +109,7 @@ static void request_name_callback(struct l_dbus *dbus, bool success,
 
 	/*执行mesh初始化*/
 	if (!mesh_init(storage_dir, mesh_conf_fname, io_type, io_opts,
-					mesh_ready_callback, dbus)) {
+					mesh_ready_callback/*io_ready_callback执行成功后,此cb被调用*/, dbus)) {
 		l_error("Failed to initialize mesh");
 		l_main_quit();
 	}

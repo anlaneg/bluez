@@ -149,7 +149,7 @@ static int compare_model_id(const void *a, const void *b, void *user_data)
 	return 0;
 }
 
-static struct mesh_model *get_model(struct mesh_node *node, uint8_t ele_idx,
+static struct mesh_model *get_model(struct mesh_node *node, uint8_t ele_idx/*ELEMENT索引*/,
 								uint32_t id)
 {
 	struct l_queue *mods;
@@ -1777,16 +1777,17 @@ void mesh_model_convert_to_storage(struct l_queue *db_mods,
 	}
 }
 
+/*存放opcode*/
 uint16_t mesh_model_opcode_set(uint32_t opcode, uint8_t *buf)
 {
 	if (opcode <= 0x7e) {
 		buf[0] = opcode;
-		return 1;
+		return 1;/*单字节opcode*/
 	}
 
 	if (opcode >= 0x8000 && opcode <= 0xbfff) {
 		l_put_be16(opcode, buf);
-		return 2;
+		return 2;/*双字节OPCODE*/
 	}
 
 	if (opcode >= 0xc00000 && opcode <= 0xffffff) {

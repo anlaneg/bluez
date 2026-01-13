@@ -113,7 +113,7 @@ static void idle_rx_adv(void *user_data)
 
 static void pb_adv_send(struct pb_adv_session *session,
 					uint8_t count, uint16_t interval,
-					void *data, uint16_t len)
+					void *data/*要发送的内容*/, uint16_t len)
 {
 	struct idle_rx *rx;
 

@@ -55,6 +55,7 @@ void *util_malloc(size_t size)
 	return NULL;
 }
 
+/*用于memcopy*/
 void *util_memdup(const void *src, size_t size)
 {
 	void *cpy;

@@ -39,7 +39,7 @@ struct mesh_io_private {
 	struct tx_pkt *tx;
 	uint16_t interval;
 	bool sending;
-	bool active;
+	bool active;/*主动扫描(1)/被动扫描(0)*/
 };
 
 struct process_data {
@@ -80,6 +80,7 @@ static uint32_t instant_remaining_ms(uint32_t instant)
 	return instant;
 }
 
+/*使RX->DATA与FILTER匹配,如果相配,则触发回调*/
 static void process_rx_callbacks(void *v_reg, void *v_rx)
 {
 	struct mesh_io_reg *rx_reg = v_reg;
@@ -90,12 +91,18 @@ static void process_rx_callbacks(void *v_reg, void *v_rx)
 		rx_reg->cb(rx_reg->user_data, &rx->info, rx->data, rx->len);
 }
 
+/*处理收到的报文(总入口)*/
 static void process_rx(struct mesh_io_private *pvt, int8_t rssi,
 					uint32_t instant, const uint8_t *addr,
-					const uint8_t *data, uint8_t len)
+					const uint8_t *data/*收到的报文*/, uint8_t len)
 {
 	struct process_data rx = {
 		.pvt = pvt,
+		/*待与filter匹配的内容,其首字节为AD_TYPE,The first octet of
+		 * the Data field shall contain the AD type field.
+		 * The content of the remaining Length - 1 octets in
+		 * the Data field depends on the value of the AD
+		 * type field and is called the AD data.*/
 		.data = data,
 		.len = len,
 		.info.instant = instant,
@@ -104,7 +111,7 @@ static void process_rx(struct mesh_io_private *pvt, int8_t rssi,
 		.info.rssi = rssi,
 	};
 
-	/*遍历rx_regs，处理此报文*/
+	/*遍历rx_regs，检查filter能与data匹配的收包函数并处理此报文*/
 	l_queue_foreach(pvt->io->rx_regs, process_rx_callbacks, &rx);
 }
 
@@ -130,7 +137,8 @@ static void event_adv_report(struct mesh_io *io, const void *buf, uint8_t size)
 	/* rssi is just beyond last byte of data */
 	rssi = (int8_t) adv[adv_len];
 
-	/*data是由一组AD Structure组成的，AD Structure由1字节的Length + N字节的data组成*/
+	/*data是由一组AD Structure组成的，AD Structure由1字节的Length + N字节的data组成
+	 * 且data的首字节为AD TYPE*/
 	while (len < adv_len - 1) {
 		uint8_t field_len = adv[0];/*取data长度*/
 
@@ -151,20 +159,20 @@ static void event_adv_report(struct mesh_io *io, const void *buf, uint8_t size)
 	}
 }
 
-/*处理关注的LE_META_EVENT事件*/
+/*处理关注的LE_META_EVENT事件,mesh依赖此事件产生的报文工作*/
 static void event_callback(const void *buf, uint8_t size, void *user_data)
 {
 	uint8_t event = l_get_u8(buf);/*取event子类型*/
 	struct mesh_io *io = user_data;
 
 	switch (event) {
-	/*收到le_advertising_report事件*/
+	/*仅处理收到的le_advertising_report事件*/
 	case BT_HCI_EVT_LE_ADV_REPORT:
 		event_adv_report(io, buf + 1/*跳过subevent header*/, size - 1);
 		break;
 
 	default:
-		l_debug("Other Meta Evt - %d", event);
+		l_debug("Other Meta Evt - %d", event);/*忽略其它事件*/
 	}
 }
 
@@ -195,6 +203,7 @@ static void hci_generic_callback(const void *data, uint8_t size,
 		l_error("Failed to initialize HCI");
 }
 
+/*配置HCI设备*/
 static void configure_hci(struct mesh_io_private *io)
 {
 	struct bt_hci_cmd_le_set_scan_parameters cmd;
@@ -203,6 +212,7 @@ static void configure_hci(struct mesh_io_private *io)
 	struct bt_hci_cmd_le_set_random_address cmd_raddr;
 
 	/* Set scan parameters */
+	/*被动扫描*/
 	cmd.type = 0x00; /* Passive Scanning. No scanning PDUs shall be sent */
 	cmd.interval = 0x0030; /* Scan Interval = N * 0.625ms */
 	cmd.window = 0x0030; /* Scan Window = N * 0.625ms */
@@ -232,6 +242,7 @@ static void configure_hci(struct mesh_io_private *io)
 	cmd_sem.mask[6] = 0x00;
 	cmd_sem.mask[7] = 0x20;
 
+	/*以下为le事件MASK*/
 	/* Set LE event mask
 	 *
 	 * Mask: 0x000000000000087f
@@ -257,57 +268,63 @@ static void configure_hci(struct mesh_io_private *io)
 	l_getrandom(cmd_raddr.addr, 6);
 	cmd_raddr.addr[5] |= 0xc0;
 
+	/*此流程见2.1节,图2.1*/
 	/* TODO: Move to suitable place. Set suitable masks */
 	/* Reset Command */
-	bt_hci_send(io->hci, BT_HCI_CMD_RESET, NULL, 0, hci_generic_callback,
+	bt_hci_send(io->hci, BT_HCI_CMD_RESET/*使LINK MANAGER RESET*/, NULL, 0/*参数长度为零*/, hci_generic_callback/*命令完成后执行,仅显示错误状态(KERNEL有处理)*/,
 								NULL, NULL);
 
 	/* Read local supported commands */
 	bt_hci_send(io->hci, BT_HCI_CMD_READ_LOCAL_COMMANDS, NULL, 0,
-					local_commands_callback, NULL, NULL);
+					local_commands_callback/*读本端HCI支持的命令,无处理仅显示错误状态(KERNEL有处理)*/, NULL, NULL);
 
 	/* Read local supported features */
 	bt_hci_send(io->hci, BT_HCI_CMD_READ_LOCAL_FEATURES, NULL, 0,
-					local_features_callback, NULL, NULL);
+					local_features_callback/*读功本HCI支持的features,无处理仅显示错误状态*/, NULL, NULL);
 
 	/* Set event mask */
+	/*看7.3.1 Set Event Mask command*/
 	bt_hci_send(io->hci, BT_HCI_CMD_SET_EVENT_MASK, &cmd_sem,
-			sizeof(cmd_sem), hci_generic_callback, NULL, NULL);
+			sizeof(cmd_sem), hci_generic_callback, NULL, NULL);/*指明开启哪些事件*/
 
 	/* Set LE event mask */
 	bt_hci_send(io->hci, BT_HCI_CMD_LE_SET_EVENT_MASK, &cmd_slem,
-			sizeof(cmd_slem), hci_generic_callback, NULL, NULL);
+			sizeof(cmd_slem), hci_generic_callback, NULL, NULL);/*指明LE开启哪些事件*/
 
 	/* Set LE random address */
 	bt_hci_send(io->hci, BT_HCI_CMD_LE_SET_RANDOM_ADDRESS, &cmd_raddr,
-			sizeof(cmd_raddr), hci_generic_callback, NULL, NULL);
+			sizeof(cmd_raddr), hci_generic_callback, NULL, NULL);/*设置随机地址*/
 
 	/* Scan Params */
 	bt_hci_send(io->hci, BT_HCI_CMD_LE_SET_SCAN_PARAMETERS, &cmd,
-				sizeof(cmd), hci_generic_callback, NULL, NULL);
+				sizeof(cmd), hci_generic_callback, NULL, NULL);/*设置扫描参数*/
 }
 
+/*扫描开启后,此函数被调用*/
 static void scan_enable_rsp(const void *buf, uint8_t size,
 							void *user_data)
 {
 	uint8_t status = *((uint8_t *) buf);
 
 	if (status)
-		l_error("LE Scan enable failed (0x%02x)", status);
+		l_error("LE Scan enable failed (0x%02x)", status);/*指明扫描开启失败*/
 }
 
+/*扫描参数设置成功后,此函数被调用*/
 static void set_recv_scan_enable(const void *buf, uint8_t size,
 							void *user_data)
 {
 	struct mesh_io_private *pvt = user_data;
 	struct bt_hci_cmd_le_set_scan_enable cmd;
 
+	/*开启扫描*/
 	cmd.enable = 0x01;	/* Enable scanning */
 	cmd.filter_dup = 0x00;	/* Report duplicates */
 	bt_hci_send(pvt->hci, BT_HCI_CMD_LE_SET_SCAN_ENABLE,
 			&cmd, sizeof(cmd), scan_enable_rsp, pvt, NULL);
 }
 
+/*扫描被停止后,此回调被触发*/
 static void scan_disable_rsp(const void *buf, uint8_t size,
 							void *user_data)
 {
@@ -324,6 +341,7 @@ static void scan_disable_rsp(const void *buf, uint8_t size,
 	cmd.own_addr_type = 0x01;		/* ADDR_TYPE_RANDOM */
 	cmd.filter_policy = 0x00;		/* Accept all */
 
+	/*设置扫描参数,一直扫描*/
 	bt_hci_send(pvt->hci, BT_HCI_CMD_LE_SET_SCAN_PARAMETERS,
 			&cmd, sizeof(cmd),
 			set_recv_scan_enable, pvt, NULL);
@@ -362,23 +380,25 @@ static bool find_active(const void *a, const void *b)
 	 */
 	if (rx_reg->filter[0] < BT_AD_MESH_PROV ||
 			rx_reg->filter[0] > BT_AD_MESH_BEACON)
-		return true;
+		return true;/*需要主动扫描*/
 
-	return false;
+	return false;/*如上示,仅0X29,0X2a,0X2b不需要主动扫描*/
 }
 
+/*负责重启扫描*/
 static void restart_scan(struct mesh_io_private *pvt)
 {
 	struct bt_hci_cmd_le_set_scan_enable cmd;
 
 	if (l_queue_isempty(pvt->io->rx_regs))
-		return;
+		return;/*无收包函数,不处理*/
 
 	pvt->active = l_queue_find(pvt->io->rx_regs, find_active, NULL);
+	/*先执行关闭扫描*/
 	cmd.enable = 0x00;	/* Disable scanning */
 	cmd.filter_dup = 0x00;	/* Report duplicates */
 	bt_hci_send(pvt->hci, BT_HCI_CMD_LE_SET_SCAN_ENABLE,
-				&cmd, sizeof(cmd), scan_disable_rsp, pvt, NULL);
+				&cmd, sizeof(cmd), scan_disable_rsp/*再由此函数最终开启扫描*/, pvt, NULL);
 }
 
 static void hci_init(void *user_data)
@@ -400,16 +420,19 @@ static void hci_init(void *user_data)
 	}
 
 	if (result) {
+		/*配置hci设备*/
 		configure_hci(io->pvt);
 
+		/*关注LE_META_EVENT事件(看7.7.65 LE Meta event),mesh报文来自于此事件*/
 		bt_hci_register(io->pvt->hci, BT_HCI_EVT_LE_META_EVENT,
-						event_callback, io, NULL);/*关注LE_META_EVENT事件*/
+						event_callback/*关注BT_HCI_EVT_LE_ADV_REPORT子事件*/, io, NULL);
 
 		l_debug("Started mesh on hci %u", io->index);/*在此设备上开启mesh*/
 
-		restart_scan(io->pvt);
+		restart_scan(io->pvt);/*重启扫描(扫描产生le_meta_event事件)*/
 	}
 
+	/*调用ready回调*/
 	if (io->ready)
 		io->ready(io->user_data, result);
 }
@@ -425,6 +448,7 @@ static bool dev_init(struct mesh_io *io, void *opts, void *user_data)
 
 	io->pvt->io = io;
 
+	/*初始化HCI设备,关注mesh消息,挂上rx方向钩子*/
 	l_idle_oneshot(hci_init, io, NULL);
 
 	return true;
@@ -700,7 +724,7 @@ static void tx_worker(void *user_data)
 }
 
 static bool send_tx(struct mesh_io *io, struct mesh_io_send_info *info,
-					const uint8_t *data, uint16_t len)
+					const uint8_t *data/*要发送的数据*/, uint16_t len/*待发送数据长度*/)
 {
 	struct mesh_io_private *pvt = io->pvt;
 	struct tx_pkt *tx;
@@ -786,13 +810,14 @@ static bool tx_cancel(struct mesh_io *io, const uint8_t *data, uint8_t len)
 	return true;
 }
 
-static bool recv_register(struct mesh_io *io, const uint8_t *filter,
-			uint8_t len, mesh_io_recv_func_t cb, void *user_data)
+/*开启扫描(这些报文开启扫描后才能获得)*/
+static bool recv_register(struct mesh_io *io, const uint8_t *filter/*匹配项,当匹配时此CB回调才能被触发*/,
+			uint8_t len/*filter长度*/, mesh_io_recv_func_t cb/*收包回调*/, void *user_data/*函数参数*/)
 {
 	struct bt_hci_cmd_le_set_scan_enable cmd;
 	struct mesh_io_private *pvt = io->pvt;
 	bool already_scanning;
-	bool active = false;
+	bool active = false;/*默认被动扫描*/
 
 	already_scanning = l_queue_length(io->rx_regs) > 1;
 
@@ -800,12 +825,15 @@ static bool recv_register(struct mesh_io *io, const uint8_t *filter,
 	if (l_queue_find(io->rx_regs, find_active, NULL))
 		active = true;
 
+	/*之前未扫描/或者扫描方式与先前的一致,则执行先停再开启扫描*/
 	if (!already_scanning || pvt->active != active) {
 		pvt->active = active;
+		/*停止扫描*/
 		cmd.enable = 0x00;	/* Disable scanning */
 		cmd.filter_dup = 0x00;	/* Report duplicates */
+		/*向HCI发送命令,要求停止扫描(此流程最终会再开启扫描)*/
 		bt_hci_send(pvt->hci, BT_HCI_CMD_LE_SET_SCAN_ENABLE,
-				&cmd, sizeof(cmd), scan_disable_rsp, pvt, NULL);
+				&cmd, sizeof(cmd), scan_disable_rsp/*hci停止后处理此回调*/, pvt/*回调参数*/, NULL/*无destroy*/);
 
 	}
 
@@ -841,7 +869,7 @@ const struct mesh_io_api mesh_io_generic = {
 	.destroy = dev_destroy,
 	.caps = dev_caps,
 	.send = send_tx,/*报文发送*/
-	.reg = recv_register,
+	.reg = recv_register,/*依据注册情况,开启扫描*/
 	.dereg = recv_deregister,
 	.cancel = tx_cancel,
 };

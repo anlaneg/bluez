@@ -61,7 +61,9 @@
 #define QUIRK_NO_RELEASE 1 << 0
 
 /* Message types */
+/*指明为command消息*/
 #define AVCTP_COMMAND		0
+/*指明为响应消息*/
 #define AVCTP_RESPONSE		1
 
 /* Packet types */
@@ -76,15 +78,29 @@
 
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 
+/*<<AV Control Transport Protocol 1.4>> 6.1 AVCTP Packet Headers*/
 struct avctp_header {
+	/*The IPID bit (octet 0, bit 0) is set in a response message to indicate an invalid profile
+identifier received in the command message of the same transaction; otherwise this bit
+is set to zero. In command messages this bit is set to zero.*/
 	uint8_t ipid:1;/*有两个值:在command帧中，总为0；在response帧中如为1，表示pid无效；否则pid有效*/
+	/*C/R (octet 0, bit 1) indicates whether the message conveys a command frame (0) or a
+response frame (1). It is provided by the application.*/
 	uint8_t cr:1;/*有两个值：0指command帧；1指response帧；对于command帧需要响应response帧*/
+	/*The Packet_type field (octet 0, bits 3 and 2) is set to zero (00) to indicate that the
+	command/response message is transmitted in a single L2CAP packet.*/
 	uint8_t packet_type:2;/*报文类型，见AVCTP_PACKET_SINGLE等定义*/
+	/*即:The Transaction label field (octet 0, bits 7-4) value is provided by the application.*/
 	uint8_t transaction:4;/*事务id,会传递给应用，用于表示报文发送序列*/
+	/*The Profile Identifier (PID) field indicates that the command/response frame is coded
+according to the rules defined by the identified profile. The value shall be identical to the
+16-bits UUID of the service class defined for this profile in the Bluetooth Assigned
+Numbers document*/
 	uint16_t pid;/*用于指代Profile Identifier*/
 } __attribute__ ((packed));
 #define AVCTP_HEADER_LENGTH 3
 
+/*<<AV Remote Control Profile 1.6.2>> 30.1.2 AV/C command frame*/
 struct avc_header {
 	uint8_t code:4;
 	uint8_t _hdr0:4;
@@ -135,9 +151,9 @@ struct avctp_control_req {
 	uint8_t code;
 	uint8_t subunit;
 	uint8_t op;
-	uint8_t *operands;
-	uint16_t operand_count;
-	avctp_rsp_cb func;
+	uint8_t *operands;/*操作参数*/
+	uint16_t operand_count;/*指明operands数据长度*/
+	avctp_rsp_cb func;/*此回调将在收到请求响应时被调用(如果发送出错也会模拟注入错误)*/
 	void *user_data;
 };
 
@@ -152,14 +168,14 @@ struct avctp_browsing_req {
 typedef int (*avctp_process_cb) (void *data);
 
 struct avctp_pending_req {
-	struct avctp_queue *queue;
+	struct avctp_queue *queue;/*请求所在的队列*/
 	uint8_t transaction;
 	unsigned int timeout;
 	bool retry;
 	int err;
-	avctp_process_cb process;
+	avctp_process_cb process;/*此请求实际发送请求,如返回0,则排其后面的请求停止本轮执行*/
 	void *data;
-	GDestroyNotify destroy;
+	GDestroyNotify destroy;/*process执行后此函数将被执行*/
 };
 
 struct avctp_queue {
@@ -177,8 +193,8 @@ struct avctp_channel {
 	uint16_t imtu;
 	uint16_t omtu;
 	uint8_t *buffer;
-	GSList *handlers;
-	GSList *queues;/*用于串连创建的avctp_queue结构体*/
+	GSList *handlers;/*用于记录不同AVCTP command对应的处理回调,例如通过函数avctp_register_pdu_handler为AVC_OP_PASSTHROUGH注册了handle_panel_passthrough*/
+	GSList *queues;/*用于串连创建的avctp_queue结构体队列*/
 	GSList *processed;
 	GDestroyNotify destroy;
 };
@@ -195,14 +211,14 @@ struct avctp {
 
 	avctp_state_t state;/*session状态*/
 
-	int uinput;
+	int uinput;/*创建的uinput设备*/
 
 	guint auth_id;
 	unsigned int passthrough_id;
 	unsigned int unit_id;
 	unsigned int subunit_id;
 
-	struct avctp_channel *control;
+	struct avctp_channel *control;/*控制消息处理*/
 	struct avctp_channel *browsing;
 
 	struct avctp_passthrough_handler *handler;
@@ -318,12 +334,14 @@ static int send_event(int fd, uint16_t type, uint16_t code, int32_t value)
 	return write(fd, &event, sizeof(event));
 }
 
-static void send_key(int fd, uint16_t key, int pressed)
+static void send_key(int fd, uint16_t key, int pressed/*1为按下;0为释放*/)
 {
 	if (fd < 0)
 		return;
 
+	/*KEY事件给kernel*/
 	send_event(fd, EV_KEY, key, pressed);
+	/*报造此批事件*/
 	send_event(fd, EV_SYN, SYN_REPORT, 0);
 }
 
@@ -335,7 +353,7 @@ static bool auto_release(gpointer user_data)
 
 	DBG("AV/C: key press timeout");
 
-	send_key(session->uinput, session->key.op, 0);
+	send_key(session->uinput, session->key.op, 0);/*按键弹起*/
 
 	return FALSE;
 }
@@ -349,12 +367,12 @@ static void handle_press(struct avctp *session, uint16_t op)
 		if (session->key.op == op)
 			goto done;
 
-		send_key(session->uinput, session->key.op, 0);
+		send_key(session->uinput, session->key.op, 0);/*按键弹起*/
 	}
 
 	session->key.op = op;
 
-	send_key(session->uinput, op, 1);
+	send_key(session->uinput, op, 1);/*按键弹起*/
 
 done:
 	session->key.timer = timeout_add_seconds(AVC_PRESS_TIMEOUT,
@@ -372,6 +390,7 @@ static void handle_release(struct avctp *session, uint16_t op)
 	send_key(session->uinput, op, 0);
 }
 
+/*收到AVC_OP_PASSTHROUGH后的处理回调*/
 static size_t handle_panel_passthrough(struct avctp *session,
 					uint8_t transaction, uint8_t *code,
 					uint8_t *subunit, uint8_t *operands,
@@ -382,23 +401,24 @@ static size_t handle_panel_passthrough(struct avctp *session,
 	int pressed, i;
 
 	if (*code != AVC_CTYPE_CONTROL || *subunit != AVC_SUBUNIT_PANEL) {
+		/*只处理这一种code和subunit*/
 		*code = AVC_CTYPE_REJECTED;
 		return operand_count;
 	}
 
 	if (operand_count == 0)
-		goto done;
+		goto done;/*操作参数长度为0*/
 
 	if (operands[0] & 0x80) {
 		status = "released";
-		pressed = 0;
+		pressed = 0;/*释放按键*/
 	} else {
 		status = "pressed";
-		pressed = 1;
+		pressed = 1;/*按下按键*/
 	}
 
 	if (session->key.timer == 0 && handler != NULL) {
-		if (handler->cb(session, operands[0] & 0x7F,
+		if (handler->cb(session, operands[0] & 0x7F/*对应的按键*/,
 						pressed, handler->user_data))
 			goto done;
 	}
@@ -407,8 +427,9 @@ static size_t handle_panel_passthrough(struct avctp *session,
 		uint8_t key_quirks;
 
 		if ((operands[0] & 0x7F) != key_map[i].avc)
-			continue;
+			continue;/*跳过和avc不匹配的接键*/
 
+		/*查找到相应的接键*/
 		DBG("AV/C: %s %s", key_map[i].name, status);
 
 		key_quirks = session->key_quirks[key_map[i].avc];
@@ -420,11 +441,12 @@ static size_t handle_panel_passthrough(struct avctp *session,
 			}
 
 			DBG("AV/C: treating key press as press + release");
-			send_key(session->uinput, key_map[i].uinput, 1);
-			send_key(session->uinput, key_map[i].uinput, 0);
+			send_key(session->uinput, key_map[i].uinput, 1);/*按下*/
+			send_key(session->uinput, key_map[i].uinput, 0);/*弹起*/
 			break;
 		}
 
+		/*按"按下"/"弹起"处理*/
 		if (pressed)
 			handle_press(session, key_map[i].uinput);
 		else
@@ -434,6 +456,7 @@ static size_t handle_panel_passthrough(struct avctp *session,
 	}
 
 	if (key_map[i].name == NULL) {
+		/*未知按钮,报错*/
 		DBG("AV/C: unknown button 0x%02X %s",
 						operands[0] & 0x7F, status);
 		*code = AVC_CTYPE_NOT_IMPLEMENTED;
@@ -512,9 +535,11 @@ static void pending_destroy(gpointer data, gpointer user_data)
 {
 	struct avctp_pending_req *req = data;
 
+	/*触发destroy回调*/
 	if (req->destroy)
 		req->destroy(req->data);
 
+	/*移除timeout*/
 	if (req->timeout > 0)
 		timeout_remove(req->timeout);
 
@@ -667,10 +692,10 @@ done:
 	return transaction;
 }
 
-static int avctp_send(struct avctp_channel *control, uint8_t transaction,
-				uint8_t cr, uint8_t code,
+static int avctp_send(struct avctp_channel *control, uint8_t transaction/*有效位4位,由application提供,用作Transaction label field*/,
+				uint8_t cr/*有效位1位,是command还是response报文?*/, uint8_t code,
 				uint8_t subunit, uint8_t opcode,
-				uint8_t *operands, size_t operand_count)
+				uint8_t *operands/*操作参数*/, size_t operand_count/*操作参数长度*/)
 {
 	struct avctp_header *avctp;
 	struct avc_header *avc;
@@ -679,12 +704,12 @@ static int avctp_send(struct avctp_channel *control, uint8_t transaction,
 	int sk, err = 0;
 
 	iov[0].iov_base = control->buffer;
-	iov[0].iov_len  = sizeof(*avctp) + sizeof(*avc);
-	iov[1].iov_base = operands;
+	iov[0].iov_len  = sizeof(*avctp) + sizeof(*avc);/*负责发送AVCTP header与avc header*/
+	iov[1].iov_base = operands;/*负责发送操作参数*/
 	iov[1].iov_len  = operand_count;
 
 	if (control->omtu < (iov[0].iov_len + iov[1].iov_len))
-		return -EOVERFLOW;
+		return -EOVERFLOW;/*长度超限*/
 
 	sk = g_io_channel_unix_get_fd(control->io);
 
@@ -699,7 +724,7 @@ static int avctp_send(struct avctp_channel *control, uint8_t transaction,
 	avctp->transaction = transaction;
 	avctp->packet_type = AVCTP_PACKET_SINGLE;
 	avctp->cr = cr;
-	avctp->pid = htons(AV_REMOTE_SVCLASS_ID);
+	avctp->pid = htons(AV_REMOTE_SVCLASS_ID);/*未设置ipid位,则pid有效*/
 
 	avc->code = code;
 	avc->subunit_type = subunit;
@@ -707,8 +732,9 @@ static int avctp_send(struct avctp_channel *control, uint8_t transaction,
 
 	memset(&msg, 0, sizeof(msg));
 	msg.msg_iov = iov;
-	msg.msg_iovlen = 2;
+	msg.msg_iovlen = 2;/*长度为2*/
 
+	/*发送*/
 	if (sendmsg(sk, &msg, 0) < 0)
 		err = -errno;
 
@@ -761,8 +787,9 @@ static void control_req_destroy(void *data)
 	struct avctp *session = p->queue->chan->session;
 
 	if (p->err == 0 || req->func == NULL)
-		goto done;
+		goto done;/*无错误,直接返回*/
 
+	/*有错误,触发func,并注入错误*/
 	req->func(session, AVC_CTYPE_REJECTED, req->subunit, p->transaction,
 						NULL, 0, req->user_data);
 
@@ -813,40 +840,44 @@ static bool req_timeout(gpointer user_data)
 	return FALSE;
 }
 
+/*发送avctp command请求*/
 static int process_passthrough(void *data)
 {
 	struct avctp_control_req *req = data;
 	struct avctp_pending_req *p = req->p;
 	int ret;
 
-	ret = avctp_send(p->queue->chan, p->transaction, AVCTP_COMMAND,
+	/*发送请求*/
+	ret = avctp_send(p->queue->chan, p->transaction, AVCTP_COMMAND/*发送command报文*/,
 			req->code, req->subunit, req->op, req->operands,
 			req->operand_count);
 	if (ret < 0)
 		return ret;
 
+	/*启动超时定时器*/
 	p->timeout = timeout_add_seconds(AVC_PRESS_TIMEOUT, req_timeout,
 								p->queue, NULL);
 
 	return 0;
 }
 
+/*发送avctp command请求(超时时间与passthrough不同)*/
 static int process_control(void *data)
 {
 	struct avctp_control_req *req = data;
 	struct avctp_pending_req *p = req->p;
 	int ret;
 
-	ret = avctp_send(p->queue->chan, p->transaction, AVCTP_COMMAND,
+	ret = avctp_send(p->queue->chan, p->transaction, AVCTP_COMMAND/*发送command报文*/,
 			req->code, req->subunit, req->op, req->operands,
 			req->operand_count);
 	if (ret < 0)
 		return ret;
 
-	p->retry = !p->retry;
+	p->retry = !p->retry;/*反转retry*/
 
 	p->timeout = timeout_add_seconds(CONTROL_TIMEOUT, req_timeout,
-								p->queue, NULL);
+								p->queue, NULL);/*超时时间不同*/
 
 	return 0;
 }
@@ -868,6 +899,7 @@ static int process_browsing(void *data)
 	return 0;
 }
 
+/*处理某一个avctp queue中的pending req*/
 static gboolean process_queue(void *user_data)
 {
 	struct avctp_queue *queue = user_data;
@@ -878,10 +910,12 @@ static gboolean process_queue(void *user_data)
 	if (p != NULL)
 		return FALSE;
 
+	/*取队头req*/
 	while ((p = g_queue_pop_head(queue->queue))) {
 
+		/*触发process处理此req*/
 		if (p->process(p->data) == 0)
-			break;
+			break;/*执行时返回0,跳出*/
 
 		pending_destroy(p, NULL);
 	}
@@ -907,6 +941,7 @@ static void control_response(struct avctp_channel *control,
 	GSList *l;
 
 	if (avc->opcode == AVC_OP_PASSTHROUGH)
+		/*收到AVC_OP_PASSTHROUG响应*/
 		queue = g_slist_nth_data(control->queues, PASSTHROUGH_QUEUE);
 	else
 		queue = g_slist_nth_data(control->queues, CONTROL_QUEUE);
@@ -942,7 +977,7 @@ done:
 		if (req->op != avc->opcode)
 			continue;
 
-		/*触发回调*/
+		/*收到响应,有响应处理回调,触发回调*/
 		if (req->func && req->func(control->session, avc->code,
 					avc->subunit_type, p->transaction,
 					operands, operand_count,
@@ -1071,6 +1106,7 @@ failed:
 	return FALSE;
 }
 
+/*负责读取并处理控制消息*/
 static gboolean session_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 {
 	struct avctp *session = data;
@@ -1087,6 +1123,7 @@ static gboolean session_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 
 	sock = g_io_channel_unix_get_fd(chan);
 
+	/*读取*/
 	ret = read(sock, buf, control->imtu);
 	if (ret <= 0)
 		goto failed;
@@ -1115,12 +1152,12 @@ static gboolean session_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 	operand_count = ret;
 
 	if (avctp->cr == AVCTP_RESPONSE) {
-		/*处理响应消息*/
+		/*处理响应消息并返回*/
 		control_response(control, avctp, avc, operands, operand_count);
 		return TRUE;
 	}
 
-	/*收到的是command,需要构造response并响应*/
+	/*收到的发送过来的是command,需要构造response并响应*/
 	packet_size = AVCTP_HEADER_LENGTH + AVC_HEADER_LENGTH;
 	avctp->cr = AVCTP_RESPONSE;/*在原buffer上直接修改为response帧*/
 
@@ -1138,11 +1175,11 @@ static gboolean session_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 		goto done;
 	}
 
-	/*查询此opcode处理*/
+	/*查询此opcode处理回调*/
 	handler = find_handler(control->handlers, avc->opcode);
 	if (!handler) {
 		DBG("handler not found for 0x%02x", avc->opcode);
-		packet_size += avrcp_handle_vendor_reject(&code, operands);
+		packet_size += avrcp_handle_vendor_reject(&code, operands);/*没找到对应的handle,响应拒绝*/
 		avc->code = code;
 		goto done;
 	}
@@ -1150,7 +1187,7 @@ static gboolean session_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 	code = avc->code;
 	subunit = avc->subunit_type;
 
-	/*处理此opcode并发送响应*/
+	/*处理此opcode对应的回调*/
 	packet_size += handler->cb(session, avctp->transaction, &code/*入出参*/,
 					&subunit, operands, operand_count,
 					handler->user_data);
@@ -1172,8 +1209,9 @@ failed:
 	return FALSE;
 }
 
+/*创建uinput设备*/
 static int uinput_create(struct btd_device *device, const char *name,
-			 const char *suffix)
+			 const char *suffix/*前缀*/)
 {
 	struct uinput_user_dev dev;
 	int fd, err, i;
@@ -1196,6 +1234,7 @@ static int uinput_create(struct btd_device *device, const char *name,
 	memset(&dev, 0, sizeof(dev));
 
 	if (name) {
+		/*设置设备名称*/
 		strncpy(dev.name, name, UINPUT_MAX_NAME_SIZE - 1);
 		dev.name[UINPUT_MAX_NAME_SIZE - 1] = '\0';
 	}
@@ -1218,11 +1257,13 @@ static int uinput_create(struct btd_device *device, const char *name,
 		}
 	}
 
+	/*设置设备ID*/
 	dev.id.bustype = BUS_BLUETOOTH;
 	dev.id.vendor  = btd_device_get_vendor(device);
 	dev.id.product = btd_device_get_product(device);
 	dev.id.version = btd_device_get_version(device);
 
+	/*创建uinput设备*/
 	if (write(fd, &dev, sizeof(dev)) < 0) {
 		err = -errno;
 		error("Can't write device information: %s (%d)",
@@ -1231,6 +1272,7 @@ static int uinput_create(struct btd_device *device, const char *name,
 		return err;
 	}
 
+	/*设置支持的event,按键,相对值,重复按键,syn*/
 	ioctl(fd, UI_SET_EVBIT, EV_KEY);
 	ioctl(fd, UI_SET_EVBIT, EV_REL);
 	ioctl(fd, UI_SET_EVBIT, EV_REP);
@@ -1239,9 +1281,11 @@ static int uinput_create(struct btd_device *device, const char *name,
 	ba2strlc(btd_adapter_get_address(device_get_adapter(device)), src);
 	ioctl(fd, UI_SET_PHYS, src);
 
+	/*设置支持的按键*/
 	for (i = 0; key_map[i].name != NULL; i++)
 		ioctl(fd, UI_SET_KEYBIT, key_map[i].uinput);
 
+	/*创建input设备*/
 	if (ioctl(fd, UI_DEV_CREATE, NULL) < 0) {
 		err = -errno;
 		error("Can't create uinput device: %s (%d)",
@@ -1250,7 +1294,7 @@ static int uinput_create(struct btd_device *device, const char *name,
 		return err;
 	}
 
-	send_event(fd, EV_REP, REP_DELAY, 300);
+	send_event(fd, EV_REP, REP_DELAY, 300);/*设备rep参数*/
 
 	return fd;
 }
@@ -1267,6 +1311,7 @@ static void init_uinput(struct avctp *session)
 		session->key_quirks[AVC_PAUSE] |= QUIRK_NO_RELEASE;
 	}
 
+	/*创建uinput设备*/
 	session->uinput = uinput_create(session->device, name, " (AVRCP)");
 	if (session->uinput < 0)
 		error("AVRCP: failed to init uinput for %s", name);
@@ -1420,6 +1465,7 @@ static void avctp_connect_cb(GIOChannel *chan, GError *err, gpointer data)
 	DBG("AVCTP: connected to %s", address);
 
 	if (session->control == NULL)
+		/*创建control channel*/
 		session->control = avctp_channel_create(session, chan, 2, NULL);
 
 	session->control->imtu = imtu;
@@ -1427,23 +1473,23 @@ static void avctp_connect_cb(GIOChannel *chan, GError *err, gpointer data)
 	session->control->buffer = g_malloc0(MAX(imtu, omtu));
 	session->control->watch = g_io_add_watch(session->control->io,
 				G_IO_IN/*数据可读*/ | G_IO_ERR | G_IO_HUP | G_IO_NVAL,
-				(GIOFunc) session_cb, session);
+				(GIOFunc) session_cb/*负责读取控制消息*/, session);
 
 	/*注册pdu handle函数*/
 	session->passthrough_id = avctp_register_pdu_handler(session,
 						AVC_OP_PASSTHROUGH,
-						handle_panel_passthrough,
+						handle_panel_passthrough,/*注册收到AVC_OP_PASSTHROUGH后的处理回调*/
 						NULL);
 	session->unit_id = avctp_register_pdu_handler(session,
 						AVC_OP_UNITINFO,
 						handle_unit_info,
-						NULL);
+						NULL);/*注册收到AVC_OP_UNITINFO后的处理回调*/
 	session->subunit_id = avctp_register_pdu_handler(session,
 						AVC_OP_SUBUNITINFO,
 						handle_subunit_info,
-						NULL);
+						NULL);/*注册收到AVC_OP_SUBUNITINFO后的处理回调*/
 
-	init_uinput(session);
+	init_uinput(session);/*初始化uinput设备*/
 
 	avctp_set_state(session, AVCTP_STATE_CONNECTED, 0);
 }
@@ -1725,9 +1771,9 @@ static struct avctp_pending_req *pending_create(struct avctp_queue *queue,
 	struct avctp_pending_req *p;
 
 	p = g_new0(struct avctp_pending_req, 1);
-	p->queue = queue;
+	p->queue = queue;/*指明从属的队列*/
 	p->transaction = chan_get_transaction(queue->chan);
-	p->process = process;
+	p->process = process;/*指定处理函数*/
 	p->data = data;
 	p->destroy = destroy;
 
@@ -1736,8 +1782,8 @@ static struct avctp_pending_req *pending_create(struct avctp_queue *queue,
 
 static int avctp_send_req(struct avctp *session, uint8_t code,
 				uint8_t subunit, uint8_t opcode,
-				uint8_t *operands, size_t operand_count,
-				avctp_rsp_cb func, void *user_data)
+				uint8_t *operands/*操作参数*/, size_t operand_count/*操作参数长度*/,
+				avctp_rsp_cb func/*收到响应时调用*/, void *user_data)
 {
 	struct avctp_channel *control = session->control;
 	struct avctp_queue *queue;
@@ -1756,27 +1802,29 @@ static int avctp_send_req(struct avctp *session, uint8_t code,
 	req->code = code;
 	req->subunit = subunit;
 	req->op = opcode;
-	req->func = func;
-	req->operands = util_memdup(operands, operand_count);
-	req->operand_count = operand_count;
+	req->func = func;/*此回调将在收到响应时被调用(如果发送出错也会模拟注入错误)*/
+	req->operands = util_memdup(operands, operand_count);/*复制一份*/
+	req->operand_count = operand_count;/*指明operands数据长度*/
 	req->user_data = user_data;
 
 	if (opcode == AVC_OP_PASSTHROUGH) {
+		/*取PASSTHROUGH_QUEUE号队列*/
 		queue = g_slist_nth_data(control->queues, PASSTHROUGH_QUEUE);
-		p = pending_create(queue, process_passthrough, req,
-					control_req_destroy);
+		p = pending_create(queue, process_passthrough/*发送请求用*/, req,
+					control_req_destroy);/*创建pending req*/
 	} else {
 		queue = g_slist_nth_data(control->queues, CONTROL_QUEUE);
-		p = pending_create(queue, process_control, req,
-					control_req_destroy);
+		p = pending_create(queue, process_control/*发送请求用*/, req,
+					control_req_destroy);/*创建pending req*/
 	}
 
 	req->p = p;
 
-	g_queue_push_tail(queue->queue, p);
+	g_queue_push_tail(queue->queue, p);/*队尾添加一个元素*/
 
+	/*添加队列处理回调*/
 	if (queue->process_id == 0)
-		queue->process_id = g_idle_add(process_queue, queue);
+		queue->process_id = g_idle_add(process_queue/*负责在loop位置处理此队列*/, queue);
 
 	return 0;
 }
@@ -1829,6 +1877,7 @@ static const char *op2str(uint8_t op)
 	return "UNKNOWN";
 }
 
+/*发送按下op接钮*/
 static int avctp_passthrough_press(struct avctp *session, uint8_t op)
 {
 	uint8_t operands[2];
@@ -1836,15 +1885,16 @@ static int avctp_passthrough_press(struct avctp *session, uint8_t op)
 	DBG("%s", op2str(op));
 
 	/* Button pressed */
-	operands[0] = op & 0x7f;
+	operands[0] = op & 0x7f;/*指明哪个button被按下*/
 	operands[1] = 0;
 
 	return avctp_send_req(session, AVC_CTYPE_CONTROL,
 				AVC_SUBUNIT_PANEL, AVC_OP_PASSTHROUGH,
-				operands, sizeof(operands),
-				avctp_passthrough_rsp, NULL);
+				operands/*参数*/, sizeof(operands)/*参数长度*/,
+				avctp_passthrough_rsp/*收到响应时调用*/, NULL);
 }
 
+/*指明释放OP按钮*/
 static int avctp_passthrough_release(struct avctp *session, uint8_t op)
 {
 	uint8_t operands[2];
@@ -1852,12 +1902,12 @@ static int avctp_passthrough_release(struct avctp *session, uint8_t op)
 	DBG("%s", op2str(op));
 
 	/* Button released */
-	operands[0] = op | 0x80;
+	operands[0] = op | 0x80;/*指明按钮释放*/
 	operands[1] = 0;
 
 	return avctp_send_req(session, AVC_CTYPE_CONTROL,
 				AVC_SUBUNIT_PANEL, AVC_OP_PASSTHROUGH,
-				operands, sizeof(operands),
+				operands/*参数*/, sizeof(operands)/*参数长度*/,
 				NULL, NULL);
 }
 
@@ -1872,6 +1922,7 @@ static bool repeat_timeout(gpointer user_data)
 
 static int release_pressed(struct avctp *session)
 {
+	/*释放按钮*/
 	int ret = avctp_passthrough_release(session, session->key.op);
 
 	if (session->key.timer > 0)
@@ -1905,11 +1956,12 @@ static gboolean avctp_passthrough_rsp(struct avctp *session, uint8_t code,
 	uint8_t op = operands[0];
 
 	if (code != AVC_CTYPE_ACCEPTED)
-		return FALSE;
+		return FALSE;/*执行失败*/
 
 	if (hold_pressed(session, op))
 		return FALSE;
 
+	/*对方已响应按下,释放按钮*/
 	if (op == session->key.op)
 		release_pressed(session);
 
@@ -1925,8 +1977,8 @@ int avctp_send_passthrough(struct avctp *session, uint8_t op, bool hold)
 	if (session->key.op != AVC_INVALID && session->key.op != op)
 		release_pressed(session);
 
-	session->key.op = op;
-	session->key.hold = hold;
+	session->key.op = op;/*指明按键操作*/
+	session->key.hold = hold;/*是否保持按下状态*/
 	return avctp_passthrough_press(session, op);
 }
 
@@ -2007,7 +2059,7 @@ unsigned int avctp_register_passthrough_handler(struct avctp *session,
 		return 0;
 
 	handler = g_new(struct avctp_passthrough_handler, 1);
-	handler->cb = cb;
+	handler->cb = cb;/*注册按键回调*/
 	handler->user_data = user_data;
 	handler->id = ++id;
 
@@ -2183,7 +2235,7 @@ struct avctp *avctp_connect(struct btd_device *device)
 	/*指明源地址*/
 	src = btd_adapter_get_address(session->server->adapter);
 
-	/*连接对端设备AVCTP_CONTROL_PSM*/
+	/*连接对端设备AVCTP_CONTROL_PSM(负责处理AV控制消息)*/
 	io = bt_io_connect(avctp_connect_cb, session, NULL, &err,
 				BT_IO_OPT_SOURCE_BDADDR, src,
 				BT_IO_OPT_DEST_BDADDR,

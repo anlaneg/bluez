@@ -81,6 +81,7 @@ static void sink_set_state(struct sink *sink, sink_state_t new_state)
 	DBG("State changed %s: %s -> %s", device_get_path(dev),
 				str_state[old_state], str_state[new_state]);
 
+	/*触发sink回调*/
 	for (l = sink_callbacks; l != NULL; l = l->next) {
 		struct sink_state_callback *cb = l->data;
 
@@ -415,6 +416,7 @@ int sink_disconnect(struct btd_service *service)
 	return avdtp_close(sink->session, sink->stream, FALSE);
 }
 
+/*添加sink回调*/
 unsigned int sink_add_state_cb(struct btd_service *service, sink_state_cb cb,
 								void *user_data)
 {

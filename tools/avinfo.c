@@ -830,7 +830,7 @@ static ssize_t avdtp_discover(int sk)
 		case AVDTP_MEDIA_TYPE_AUDIO:
 			media = "Audio";
 			break;
-		case AVDTP_MEDIA_TYPE_VIDEO:
+		case AVDTP_MEDIA_TYPE_VIDEO:/*视频*/
 			media = "Video";
 			break;
 		case AVDTP_MEDIA_TYPE_MULTIMEDIA:

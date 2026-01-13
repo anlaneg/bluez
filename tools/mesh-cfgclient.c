@@ -272,11 +272,11 @@ static void print_device(void *a, void *b)
 struct send_data {
 	const char *ele_path;
 	bool rmt;
-	bool is_dev_key;
-	uint16_t dst;
-	uint16_t idx;
-	uint8_t *data;
-	uint16_t len;
+	bool is_dev_key;/*是否DEVKEY*/
+	uint16_t dst;/*目的地址*/
+	uint16_t idx;/*net index编号*/
+	uint8_t *data;/*要发送的内容*/
+	uint16_t len;/*要发送的内容长度*/
 };
 
 struct key_data {
@@ -350,7 +350,7 @@ static bool send_msg(void *user_data, uint16_t dst, uint16_t idx,
 	const char *method_name;
 
 	is_dev_key = (idx == APP_IDX_DEV_REMOTE || idx == APP_IDX_DEV_LOCAL);
-	method_name = is_dev_key ? "DevKeySend" : "Send";
+	method_name = is_dev_key ? "DevKeySend" : "Send";/*依据是否为devkey来分辨具体采用哪个dbus方法发送*/
 
 	if (is_dev_key) {
 		net_idx_tx = remote_get_subnet_idx(dst);
@@ -367,6 +367,7 @@ static bool send_msg(void *user_data, uint16_t dst, uint16_t idx,
 	req->rmt = (idx == APP_IDX_DEV_REMOTE);
 	req->is_dev_key = is_dev_key;
 
+	/*通过dbus调用相应的方法*/
 	return l_dbus_proxy_method_call(local->proxy, method_name,
 					send_msg_setup, NULL, req, l_free) != 0;
 }
@@ -387,11 +388,12 @@ static void send_key_setup(struct l_dbus_message *msg, void *user_data)
 	l_dbus_message_builder_destroy(builder);
 }
 
-static bool send_key(void *user_data, uint16_t dst, uint16_t key_idx,
-						bool is_appkey, bool update)
+static bool send_key(void *user_data, uint16_t dst/*目标Node*/, uint16_t key_idx,
+						bool is_appkey/*添加appkey时为真*/, bool update)
 {
 	struct key_data *req;
 	uint16_t net_idx;
+	/*如非APPKEY,则添加netkey*/
 	const char *method_name = (!is_appkey) ? "AddNetKey" : "AddAppKey";
 
 	net_idx = remote_get_subnet_idx(dst);
@@ -401,6 +403,7 @@ static bool send_key(void *user_data, uint16_t dst, uint16_t key_idx,
 	}
 
 	if (!is_appkey && !keys_subnet_exists(key_idx)) {
+		/*此netkey不存在*/
 		bt_shell_printf("Local NetKey %u (0x%3.3x) not found\n",
 							key_idx, key_idx);
 		return false;
@@ -452,10 +455,11 @@ static void delete_node(uint16_t primary, uint8_t ele_cnt)
 				delete_node_setup, NULL, req, l_free);
 }
 
+/*初始化client,指明CLI处理必须的消息发送实现函数*/
 static void client_init(void)
 {
 	cfgcli = cfgcli_init(send_key, delete_node, (void *) app.ele.path);
-	cfgcli->ops.set_send_func(send_msg, (void *) app.ele.path);
+	cfgcli->ops.set_send_func(send_msg/*指明消息发送函数*/, (void *) app.ele.path);
 }
 
 static bool caps_getter(struct l_dbus *dbus,
@@ -767,7 +771,7 @@ static void attach_node_reply(struct l_dbus_proxy *proxy,
 		l_queue_remove(node_proxies, local->mgmt_proxy);
 
 	/* Initialize config client model */
-	client_init();
+	client_init();/*初始化配置client,重要流程*/
 
 	if (l_dbus_proxy_get_property(local->proxy, "IvIndex", "u", &ivi) &&
 							ivi != iv_index) {
@@ -789,6 +793,7 @@ fail:
 
 static void attach_node_setup(struct l_dbus_message *msg, void *user_data)
 {
+	/*设置app.path及token*/
 	l_dbus_message_set_arguments(msg, "ot", app.path,
 						l_get_be64(local->token.u8));
 }
@@ -814,15 +819,17 @@ static void create_net_setup(struct l_dbus_message *msg, void *user_data)
 
 	builder = l_dbus_message_builder_new(msg);
 
-	l_dbus_message_builder_append_basic(builder, 'o', app.path);
-	append_byte_array(builder, app.uuid, 16);
+	l_dbus_message_builder_append_basic(builder, 'o', app.path);/*设置PATH*/
+	append_byte_array(builder, app.uuid, 16);/*UUID*/
 	l_dbus_message_builder_finalize(builder);
 	l_dbus_message_builder_destroy(builder);
 }
 
+/*调用mesh提供的CreateNetwork接口创建网络*/
 static void cmd_create_network(int argc, char *argv[])
 {
 	if (have_config) {
+		/*有配置文件,则不容许创建网络*/
 		l_error("Mesh network configuration exists (%s)", cfg_fname);
 		return;
 	}
@@ -1359,7 +1366,7 @@ static void mgr_key_setup(struct l_dbus_message *msg, void *user_data)
 	l_dbus_message_set_arguments(msg, "q", idx);
 }
 
-static void mgr_key_cmd(int argc, char *argv[], const char *method_name)
+static void mgr_key_cmd(int argc, char *argv[], const char *method_name/*要调用的dbus方法*/)
 {
 	struct generic_request *req;
 
@@ -1766,6 +1773,7 @@ static void cmd_start_reprov(int argc, char *argv[])
 static const struct bt_shell_menu main_menu = {
 	.name = "main",
 	.entries = {
+			/*调用mesh提供的CreateNetwork接口创建网络*/
 	{ "create", "[unicast_range_low]", cmd_create_network,
 			"Create new mesh network with one initial node" },
 	{ "discover-unprovisioned", "<on/off> [seconds]", cmd_scan_unprov,
@@ -1821,6 +1829,7 @@ static void proxy_added(struct l_dbus_proxy *proxy, void *user_data)
 		 * storage, attach the provisioner/config-client node.
 		 */
 		if (local)
+			/*调用,实现attach*/
 			l_dbus_proxy_method_call(net_proxy, "Attach",
 						attach_node_setup,
 						attach_node_reply, NULL,
@@ -1950,6 +1959,7 @@ static struct l_dbus_message *dev_msg_recv_call(struct l_dbus *dbus,
 
 	/* Pass to the configuration client */
 	if (cfgcli && cfgcli->ops.recv)
+		/*接收消息*/
 		cfgcli->ops.recv(src, APP_IDX_DEV_REMOTE, data, n);
 
 	return l_dbus_message_new_method_return(msg);
@@ -1968,7 +1978,7 @@ static void setup_ele_iface(struct l_dbus_interface *iface)
 	/* Methods */
 	l_dbus_interface_method(iface, "DevKeyMessageReceived", 0,
 				dev_msg_recv_call, "", "qbqay", "source",
-				"remote", "net_index", "data");
+				"remote", "net_index", "data");/*定义devkey消息接收函数*/
 
 	/* TODO: Other methods */
 }
@@ -2330,6 +2340,7 @@ static bool crpl_getter(struct l_dbus *dbus,
 	return true;
 }
 
+/*重要流程:附着到NODE*/
 static void attach_node(void *user_data)
 {
 	l_dbus_proxy_method_call(net_proxy, "Attach", attach_node_setup,
@@ -2414,13 +2425,14 @@ static void setup_app_iface(struct l_dbus_interface *iface)
 	l_dbus_interface_property(iface, "CRPL", 0, "q", crpl_getter, NULL);
 
 	l_dbus_interface_method(iface, "JoinComplete", 0, join_complete,
-							"", "t", "token");
+							"", "t", "token");/*注册joincomplete回调*/
 
 	/* TODO: Methods */
 }
 
 static bool register_app(void)
 {
+	/*注册application接口*/
 	if (!l_dbus_register_interface(dbus, MESH_APPLICATION_INTERFACE,
 						setup_app_iface, NULL, false)) {
 		l_error("Failed to register interface %s",
@@ -2428,6 +2440,7 @@ static bool register_app(void)
 		return false;
 	}
 
+	/*注册provisioner接口*/
 	if (!l_dbus_register_interface(dbus, MESH_PROVISIONER_INTERFACE,
 					setup_prov_iface, NULL, false)) {
 		l_error("Failed to register interface %s",
@@ -2498,11 +2511,13 @@ static void ready_callback(void *user_data)
 		bt_shell_printf("Failed to register the ObjectManager\n");
 }
 
+/*确定配置文件名称及目录,返回true表示成功*/
 static bool setup_cfg_storage(void)
 {
 	struct stat st;
 
 	if (!config_opt) {
+		/*未用参数指定配置文件路径*/
 		char *home;
 		char *mesh_dir;
 
@@ -2526,28 +2541,34 @@ static bool setup_cfg_storage(void)
 		if (stat(mesh_dir, &st) == 0) {
 			if (!S_ISDIR(st.st_mode)) {
 				l_error("%s not a directory", mesh_dir);
-				return false;
+				return false;/*必须是一个目录*/
 			}
 		} else if (errno == ENOENT) {
+			/*不存在,创建这个目录*/
 			if (mkdir(mesh_dir, 0700) != 0) {
 				l_error("Cannot create %s", mesh_dir);
 				return false;
 			}
 		} else {
+			/*打开目录有误*/
 			perror("Cannot open config directory");
 			return false;
 		}
 
+		/*构造配置文件名称*/
 		cfg_fname = l_strdup_printf("%s/%s", mesh_dir,
 							DEFAULT_CFG_FILE);
 		l_free(mesh_dir);
 
 	} else {
+		/*使用参数指定的配置文件名称*/
 		cfg_fname = l_strdup_printf("%s", config_opt);
 	}
 
+	/*检测配置文件*/
 	if (stat(cfg_fname, &st) == -1) {
 		if (errno == ENOENT) {
+			/*显示当前没有提供配置文件*/
 			l_warn("\nWarning: config file \"%s\" not found",
 								cfg_fname);
 			return true;
@@ -2557,14 +2578,16 @@ static bool setup_cfg_storage(void)
 		return false;
 	}
 
-	have_config = true;
+	have_config = true;/*有配置文件*/
 	return true;
 }
 
+/*有配置,读取配置*/
 static bool read_mesh_config(void)
 {
 	uint16_t range_l, range_h;
 
+	/*加载配置文件*/
 	if (!mesh_db_load(cfg_fname)) {
 		l_error("Failed to load config from %s", cfg_fname);
 		return false;
@@ -2604,16 +2627,17 @@ int main(int argc, char *argv[])
 	l_log_set_stderr();
 
 	if (address_opt && sscanf(address_opt, "%04x", &val) == 1)
-		low_addr = (uint16_t) val;
+		low_addr = (uint16_t) val;/*取命令行指定的low_addr*/
 
 	if (low_addr > DEFAULT_MAX_ADDRESS) {
+		/*此地址设置过大*/
 		l_error("Invalid start address");
 			bt_shell_cleanup();
 			return EXIT_FAILURE;
 	}
 
 	if (!low_addr)
-		low_addr = DEFAULT_START_ADDRESS;
+		low_addr = DEFAULT_START_ADDRESS;/*未设置LOW,使用起始值*/
 
 	if (range_opt && sscanf(address_opt, "%04x", &val) == 1) {
 		if (val == 0) {
@@ -2623,16 +2647,17 @@ int main(int argc, char *argv[])
 		}
 
 		/* Inclusive */
-		high_addr = low_addr + val - 1;
+		high_addr = low_addr + val - 1;/*设置high地址*/
 	}
 
 	if (!high_addr || high_addr > DEFAULT_MAX_ADDRESS)
-		high_addr = DEFAULT_MAX_ADDRESS;
+		high_addr = DEFAULT_MAX_ADDRESS;/*未设置HIGH,使用默认值*/
 
+	/*设置net_idx_opt*/
 	if (net_idx_opt && sscanf(net_idx_opt, "%04x", &val) == 1)
 		prov_net_idx = (uint16_t) val;
 	else
-		prov_net_idx = DEFAULT_NET_INDEX;
+		prov_net_idx = DEFAULT_NET_INDEX;/*使用net默认值*/
 
 	if (!setup_cfg_storage()) {
 		bt_shell_cleanup();
@@ -2640,6 +2665,7 @@ int main(int argc, char *argv[])
 	}
 
 	if (have_config && !read_mesh_config()) {
+		/*有配置文件但加载配置失败*/
 		bt_shell_cleanup();
 		return EXIT_FAILURE;
 	}
@@ -2649,14 +2675,15 @@ int main(int argc, char *argv[])
 	dbus = l_dbus_new_default(L_DBUS_SYSTEM_BUS);
 
 	l_dbus_set_ready_handler(dbus, ready_callback, NULL, NULL);
+	/*指明client*/
 	client = l_dbus_client_new(dbus, BLUEZ_MESH_NAME, "/org/bluez/mesh");
 
-	l_dbus_client_set_connect_handler(client, client_connected, NULL, NULL);
-	l_dbus_client_set_disconnect_handler(client, client_disconnected, NULL,
+	l_dbus_client_set_connect_handler(client, client_connected/*建立连接时调用*/, NULL, NULL);
+	l_dbus_client_set_disconnect_handler(client, client_disconnected/*断开连接时调用*/, NULL,
 									NULL);
 	l_dbus_client_set_proxy_handlers(client, proxy_added, proxy_removed,
 						property_changed, NULL, NULL);
-	l_dbus_client_set_ready_handler(client, client_ready, NULL, NULL);
+	l_dbus_client_set_ready_handler(client, client_ready/*客户端连接dbus ready后使能shell*/, NULL, NULL);
 
 	node_proxies = l_queue_new();
 	devices = l_queue_new();

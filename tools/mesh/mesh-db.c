@@ -375,9 +375,11 @@ static bool get_token(json_object *jobj, uint8_t token[8])
 	if (!token)
 		return false;
 
+	/*取token*/
 	if (!json_object_object_get_ex(jobj, "token", &jval))
 		return false;
 
+	/*格式化成16进制*/
 	str = json_object_get_string(jval);
 	if (!str2hex(str, strlen(str), token, 8))
 		return false;
@@ -1430,14 +1432,16 @@ static bool load_keys(json_object *jobj)
 	int net_idx, app_idx;
 	int i, key_cnt;
 
+	/*加载netKeys*/
 	json_object_object_get_ex(jobj, "netKeys", &jarray);
 	if (!jarray || json_object_get_type(jarray) != json_type_array)
-		return false;
+		return false;/*其必须是一个数组类型*/
 
 	key_cnt = json_object_array_length(jarray);
 	if (key_cnt < 0)
 		return false;
 
+	/*遍历每个数组元素*/
 	for (i = 0; i < key_cnt; ++i) {
 		int phase;
 
@@ -1446,14 +1450,15 @@ static bool load_keys(json_object *jobj)
 		if (!get_int(jentry, "index", &net_idx))
 			return false;
 
-		keys_add_net_key((uint16_t) net_idx);
+		keys_add_net_key((uint16_t) net_idx);/*设置net_idx*/
 
 		if (!get_int(jentry, "phase", &phase))
 			return false;
 
-		keys_set_net_key_phase(net_idx, (uint8_t) phase, false);
+		keys_set_net_key_phase(net_idx, (uint8_t) phase, false);/*设置phase*/
 	}
 
+	/*取并遍历appkeys*/
 	json_object_object_get_ex(jobj, "appKeys", &jarray);
 	if (!jarray || json_object_get_type(jarray) != json_type_array)
 		return false;
@@ -2387,6 +2392,7 @@ fail:
 	return false;
 }
 
+/*加载fname对应的内容*/
 bool mesh_db_load(const char *fname)
 {
 	int fd;
@@ -2410,6 +2416,7 @@ bool mesh_db_load(const char *fname)
 		return false;
 	}
 
+	/*加载所有内容*/
 	sz = read(fd, str, st.st_size);
 	if (sz != st.st_size) {
 		close(fd);
@@ -2428,8 +2435,8 @@ bool mesh_db_load(const char *fname)
 
 	cfg = l_new(struct mesh_db, 1);
 
-	cfg->jcfg = jcfg;
-	cfg->cfg_fname = l_strdup(fname);
+	cfg->jcfg = jcfg;/*配置文件对应的JSON*/
+	cfg->cfg_fname = l_strdup(fname);/*配置文件名称*/
 
 	if (!get_token(jcfg, cfg->token)) {
 		l_error("Configuration file missing token");
@@ -2439,9 +2446,9 @@ bool mesh_db_load(const char *fname)
 	if (!load_keys(jcfg))
 		goto fail;
 
-	load_remotes(jcfg);
+	load_remotes(jcfg);/*加载节点*/
 
-	load_rejected_addresses(jcfg);
+	load_rejected_addresses(jcfg);/*加载要排除的地址*/
 
 	return true;
 fail:

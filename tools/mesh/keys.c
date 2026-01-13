@@ -30,6 +30,7 @@ struct net_key {
 
 static struct l_queue *net_keys;
 
+/*通过app_index查找appkey*/
 static bool app_key_present(const struct net_key *key, uint16_t app_idx)
 {
 	const struct l_queue_entry *l;
@@ -208,6 +209,7 @@ void keys_print_keys(void)
 	l_queue_foreach(net_keys, print_netkey, NULL);
 }
 
+/*检查此net key是否存在*/
 bool keys_subnet_exists(uint16_t idx)
 {
 	if (!l_queue_find(net_keys, net_idx_match, L_UINT_TO_PTR(idx)))

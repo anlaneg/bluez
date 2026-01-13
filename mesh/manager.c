@@ -1137,6 +1137,7 @@ static void setup_management_interface(struct l_dbus_interface *iface)
 							"", "q", "net_index");
 	l_dbus_interface_method(iface, "ImportSubnet", 0, import_subnet_call,
 					"", "qay", "net_index", "net_key");
+	/*注册createappkey方法*/
 	l_dbus_interface_method(iface, "CreateAppKey", 0, create_appkey_call,
 					"", "qq", "net_index", "app_index");
 	l_dbus_interface_method(iface, "UpdateAppKey", 0, update_appkey_call,

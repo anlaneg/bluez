@@ -2904,7 +2904,7 @@ static DBusMessage *set_discovery_filter(DBusConnection *conn,
 
 	if (client) {
 		free_discovery_filter(client->discovery_filter);
-		client->discovery_filter = discovery_filter;
+		client->discovery_filter = discovery_filter;/*设置client给定的discovery_filter*/
 
 		if (is_discovering)
 			update_discovery_filter(adapter);
@@ -4011,7 +4011,7 @@ bool btd_adapter_is_uuid_allowed(struct btd_adapter *adapter,
 static const GDBusMethodTable adapter_methods[] = {
 		/*用于启动Discovery*/
 	{ GDBUS_ASYNC_METHOD("StartDiscovery", NULL, NULL, start_discovery) },
-	/*设置DiscoveryFilter*/
+	/*外部程序设置DiscoveryFilter时使用*/
 	{ GDBUS_METHOD("SetDiscoveryFilter",
 				GDBUS_ARGS({ "properties", "a{sv}" }), NULL,
 				set_discovery_filter) },

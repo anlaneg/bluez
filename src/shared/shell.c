@@ -1623,7 +1623,7 @@ void bt_shell_noninteractive_quit(int status)
 {
 	if (data.mode == MODE_INTERACTIVE || data.timeout) {
 		bt_shell_dequeue_exec();
-		return;
+		return;/*当前是交互,直接返回*/
 	}
 
 	/* Ignore EINPROGRESS as it is meant for commands that need to stay

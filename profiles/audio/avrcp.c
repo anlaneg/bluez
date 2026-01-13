@@ -1541,6 +1541,7 @@ static GList *player_list_settings(struct avrcp_player *player)
 	return player->cb->list_settings(player->user_data);
 }
 
+/*执行播放*/
 static bool avrcp_handle_play(struct avrcp *session)
 {
 	struct avrcp_player *player = target_get_player(session);
@@ -1591,8 +1592,9 @@ static bool avrcp_handle_previous(struct avrcp *session)
 	return player->cb->previous(player->user_data);
 }
 
+/*passthrough CODE对应的处理回调*/
 static const struct passthrough_handler passthrough_handlers[] = {
-		{ AVC_PLAY, avrcp_handle_play },
+		{ AVC_PLAY, avrcp_handle_play },/*执行播放*/
 		{ AVC_STOP, avrcp_handle_stop },
 		{ AVC_PAUSE, avrcp_handle_pause },
 		{ AVC_FORWARD, avrcp_handle_next },
@@ -1609,17 +1611,17 @@ static bool handle_passthrough(struct avctp *conn, uint8_t op, bool pressed,
 	for (handler = session->passthrough_handlers; handler->func;
 								handler++) {
 		if (handler->op == op)
-			break;
+			break;/*匹配找对应的op,跳出*/
 	}
 
 	if (handler->func == NULL)
-		return false;
+		return false;/*未匹配到对应的handler,返回false*/
 
 	/* Do not trigger handler on release */
 	if (!pressed)
 		return true;
 
-	return handler->func(session);
+	return handler->func(session);/*执行为op提前放置的处理回调*/
 }
 
 static uint8_t avrcp_handle_register_notification(struct avrcp *session,
@@ -3111,7 +3113,7 @@ static bool ct_set_setting(struct media_player *mp, const char *key,
 	return true;
 }
 
-static int ct_press(struct avrcp_player *player, uint8_t op)
+static int ct_press(struct avrcp_player *player, uint8_t op/*指出操作*/)
 {
 	struct avrcp *session = player->sessions->data;
 
@@ -3120,6 +3122,7 @@ static int ct_press(struct avrcp_player *player, uint8_t op)
 
 	set_ct_player(session, player);
 
+	/*发送按下OP按钮,且不保持*/
 	return avctp_send_passthrough(session->conn, op, false);
 }
 
@@ -3132,6 +3135,7 @@ static int ct_hold(struct avrcp_player *player, uint8_t op)
 
 	set_ct_player(session, player);
 
+	/*发送按下OP按钮,且保持*/
 	return avctp_send_passthrough(session->conn, op, true);
 }
 
@@ -3151,42 +3155,42 @@ static int ct_play(struct media_player *mp, void *user_data)
 {
 	struct avrcp_player *player = user_data;
 
-	return ct_press(player, AVC_PLAY);
+	return ct_press(player, AVC_PLAY);/*发送按下play键*/
 }
 
 static int ct_pause(struct media_player *mp, void *user_data)
 {
 	struct avrcp_player *player = user_data;
 
-	return ct_press(player, AVC_PAUSE);
+	return ct_press(player, AVC_PAUSE);/*发送按下pause键*/
 }
 
 static int ct_stop(struct media_player *mp, void *user_data)
 {
 	struct avrcp_player *player = user_data;
 
-	return ct_press(player, AVC_STOP);
+	return ct_press(player, AVC_STOP);/*发送按下停止按钮*/
 }
 
 static int ct_next(struct media_player *mp, void *user_data)
 {
 	struct avrcp_player *player = user_data;
 
-	return ct_press(player, AVC_FORWARD);
+	return ct_press(player, AVC_FORWARD);/*发送按下next按钮*/
 }
 
 static int ct_previous(struct media_player *mp, void *user_data)
 {
 	struct avrcp_player *player = user_data;
 
-	return ct_press(player, AVC_BACKWARD);
+	return ct_press(player, AVC_BACKWARD);/*发送按下前一首按钮*/
 }
 
 static int ct_fast_forward(struct media_player *mp, void *user_data)
 {
 	struct avrcp_player *player = user_data;
 
-	return ct_hold(player, AVC_FAST_FORWARD);
+	return ct_hold(player, AVC_FAST_FORWARD);/*发送按下快进按钮(且保持)*/
 }
 
 static int ct_rewind(struct media_player *mp, void *user_data)
@@ -3201,7 +3205,7 @@ static int ct_press_key(struct media_player *mp, uint8_t avc_key,
 {
 	struct avrcp_player *player = user_data;
 
-	return ct_press(player, avc_key);
+	return ct_press(player, avc_key);/*按下AVC_KEY指定的按钮*/
 }
 
 static int ct_hold_key(struct media_player *mp, uint8_t avc_key,
@@ -3209,14 +3213,14 @@ static int ct_hold_key(struct media_player *mp, uint8_t avc_key,
 {
 	struct avrcp_player *player = user_data;
 
-	return ct_hold(player, avc_key);
+	return ct_hold(player, avc_key);/*按下AVC_KEY指定的按钮且保持*/
 }
 
 static int ct_release_key(struct media_player *mp, void *user_data)
 {
 	struct avrcp_player *player = user_data;
 
-	return ct_release(player);
+	return ct_release(player);/*释放按钮*/
 }
 
 static int ct_list_items(struct media_player *mp, const char *name,
@@ -3555,6 +3559,7 @@ static int ct_get_total_numberofitems(struct media_player *mp, const char *name,
 	return 0;
 }
 
+/*定义media player的回调函数集*/
 static const struct media_player_callback ct_cbs = {
 	.set_setting	= ct_set_setting,
 	.play		= ct_play,
@@ -3595,7 +3600,7 @@ static struct avrcp_player *create_ct_player(struct avrcp *session,
 	}
 
 	media_player_set_obex_port(mp, session->controller->obex_port);
-	media_player_set_callbacks(mp, &ct_cbs, player);
+	media_player_set_callbacks(mp, &ct_cbs, player);/*通过AVRCP来控制*/
 	player->user_data = mp;
 	player->destroy = (GDestroyNotify) media_player_destroy;
 
@@ -4364,13 +4369,13 @@ static void session_init_control(struct avrcp *session)
 {
 	session->passthrough_id = avctp_register_passthrough_handler(
 							session->conn,
-							handle_passthrough,
+							handle_passthrough,/*PASSTHROUGH按键处理回调*/
 							session);
 	session->passthrough_handlers = passthrough_handlers;
 	session->control_id = avctp_register_pdu_handler(session->conn,
 							AVC_OP_VENDORDEP,
 							handle_vendordep_pdu,
-							session);
+							session);/*注册收到AVC_OP_VENDORDEP后的处理回调*/
 	session->control_handlers = control_handlers;
 
 	if (btd_device_get_service(session->dev, AVRCP_TARGET_UUID) != NULL)
@@ -4570,7 +4575,7 @@ struct avrcp_player *avrcp_register_player(struct btd_adapter *adapter,
 	player = g_new0(struct avrcp_player, 1);
 	player->id = ++id;
 	player->server = server;
-	player->cb = cb;
+	player->cb = cb;/*注册PLAYER的动作回调*/
 	player->user_data = user_data;
 	player->destroy = destroy;
 

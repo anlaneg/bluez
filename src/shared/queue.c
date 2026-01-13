@@ -153,6 +153,7 @@ bool queue_push_after(struct queue *queue, void *entry, void *data)
 	return true;
 }
 
+/*自队列中弹出一个entry*/
 void *queue_pop_head(struct queue *queue)
 {
 	struct queue_entry *entry;
@@ -161,18 +162,20 @@ void *queue_pop_head(struct queue *queue)
 	if (!queue || !queue->head)
 		return NULL;
 
-	entry = queue->head;
+	entry = queue->head;/*取首个元素*/
 
 	if (!queue->head->next) {
+		/*取完后,队列为空*/
 		queue->head = NULL;
 		queue->tail = NULL;
 	} else
-		queue->head = queue->head->next;
+		queue->head = queue->head->next;/*取完后,队列不为空,更新head*/
 
+	/*返回队列内容*/
 	data = entry->data;
 
 	free(entry);
-	queue->entries--;
+	queue->entries--;/*元素数减1*/
 
 	return data;
 }

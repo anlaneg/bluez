@@ -114,10 +114,10 @@ struct avdtp_continue_header {
 struct seid_info {
 	uint8_t rfa0:1;
 	uint8_t inuse:1;
-	uint8_t seid:6;
+	uint8_t seid:6;/*唯一编号*/
 	uint8_t rfa2:3;
-	uint8_t type:1;
-	uint8_t media_type:4;
+	uint8_t type:1;/*sink(接收端)/source(发送端)*/
+	uint8_t media_type:4;/*媒体类型,例如音频(AVDTP_MEDIA_TYPE_AUDIO)/视频*/
 } __attribute__ ((packed));
 
 struct seid {
@@ -319,12 +319,15 @@ struct avdtp_remote_sep {
 	void *user_data;
 };
 
+/*SEP 是 Stream End Point（流端点）的缩写，
+ * 用于标识设备上提供特定音频 / 视频传输服务与能力的逻辑端点，
+ * 每个 SEP 有唯一的 SEID（Stream End Point Identifier，流端点标识）供协议交互引用。*/
 struct avdtp_local_sep {
 	struct seid_info info;
 	uint8_t codec;
 	gboolean delay_reporting;
 	GSList *caps;
-	struct avdtp_sep_ind *ind;
+	struct avdtp_sep_ind *ind;//AVDTP 协议中「流端点指示消息（SEP Indication）」,当前为endpoint_ind*/
 	struct avdtp_sep_cfm *cfm;
 	void *user_data;
 };
@@ -475,8 +478,8 @@ static gboolean try_send(int sk, void *data, size_t len)
 }
 
 static gboolean avdtp_send(struct avdtp *session, uint8_t transaction,
-				uint8_t message_type, uint8_t signal_id,
-				void *data, size_t len)
+				uint8_t message_type/*消息类型*/, uint8_t signal_id,
+				void *data/*负责内容*/, size_t len)
 {
 	unsigned int cont_fragments, sent;
 	struct avdtp_start_header start;
@@ -529,10 +532,12 @@ static gboolean avdtp_send(struct avdtp *session, uint8_t transaction,
 	start.no_of_packets = cont_fragments + 1;
 	start.signal_id = signal_id;
 
+	/*填写待发送内容*/
 	memcpy(session->buf, &start, sizeof(start));
 	memcpy(session->buf + sizeof(start), data,
 					session->omtu - sizeof(start));
 
+	/*执行发送*/
 	if (!try_send(sock, session->buf, session->omtu))
 		return FALSE;
 
@@ -855,6 +860,7 @@ static void handle_transport_connect(struct avdtp *session, GIOChannel *io,
 	if (buf_size < min_buf_size) {
 		DBG("send buffer size to be increassed to %d",
 				min_buf_size);
+		/*设置send buffer size*/
 		set_send_buffer_size(sk, min_buf_size);
 	}
 
@@ -1261,6 +1267,7 @@ static bool match_by_seid(const void *data, const void *user_data)
 	return sep->info.seid == seid;
 }
 
+/*通过seid获取对应的avdtp_local_sep结构*/
 static struct avdtp_local_sep *find_local_sep_by_seid(struct avdtp *session,
 								uint8_t seid)
 {
@@ -1412,6 +1419,8 @@ static void copy_seps(void *data, void *user_data)
 	*p = *p + 1;
 }
 
+/* AVDTP_DISCOVER 消息的核心目的是「发现蓝牙设备上支持的 AVDTP 服务能力与可用流端点（SEP）」，
+ * 解决蓝牙音频设备之间「互相知晓对方的音频处理能力、确定后续音频流建立的基础条件」问题*/
 static gboolean avdtp_discover_cmd(struct avdtp *session, uint8_t transaction,
 							void *buf, int size)
 {
@@ -1432,8 +1441,10 @@ static gboolean avdtp_discover_cmd(struct avdtp *session, uint8_t transaction,
 	seps = g_new0(struct seid_info, sep_count);
 	p = seps;
 
+	/*将lseps上的seid_info复制到seps缓冲中*/
 	queue_foreach(session->lseps, copy_seps, &p);
 
+	/*给对方答复*/
 	ret = avdtp_send(session, transaction, AVDTP_MSG_TYPE_ACCEPT,
 				AVDTP_DISCOVER, seps, rsp_size);
 	g_free(seps);
@@ -1443,7 +1454,7 @@ static gboolean avdtp_discover_cmd(struct avdtp *session, uint8_t transaction,
 
 static gboolean avdtp_getcap_cmd(struct avdtp *session, uint8_t transaction,
 					struct seid_req *req, unsigned int size,
-					gboolean get_all)
+					gboolean get_all/*是否获取所有*/)
 {
 	GSList *l, *caps;
 	struct avdtp_local_sep *sep = NULL;
@@ -1458,6 +1469,7 @@ static gboolean avdtp_getcap_cmd(struct avdtp *session, uint8_t transaction,
 		goto failed;
 	}
 
+	/*取得对端请求获取的sep*/
 	sep = find_local_sep_by_seid(session, req->acp_seid);
 	if (!sep) {
 		err = AVDTP_BAD_ACP_SEID;
@@ -1466,7 +1478,7 @@ static gboolean avdtp_getcap_cmd(struct avdtp *session, uint8_t transaction,
 
 	if (!sep->ind->get_capability(session, sep, get_all, &caps,
 							&err, sep->user_data))
-		goto failed;
+		goto failed;/*获取其能力不成功*/
 
 	for (l = caps, rsp_size = 0; l != NULL; l = g_slist_next(l)) {
 		struct avdtp_service_capability *cap = l->data;
@@ -1474,7 +1486,7 @@ static gboolean avdtp_getcap_cmd(struct avdtp *session, uint8_t transaction,
 		if (rsp_size + cap->length + 2 > sizeof(buf))
 			break;
 
-		memcpy(ptr, cap, cap->length + 2);
+		memcpy(ptr, cap, cap->length + 2);/*填写sep能力列表*/
 		rsp_size += cap->length + 2;
 		ptr += cap->length + 2;
 
@@ -1483,6 +1495,7 @@ static gboolean avdtp_getcap_cmd(struct avdtp *session, uint8_t transaction,
 
 	g_slist_free(caps);
 
+	/*执行响应*/
 	return avdtp_send(session, transaction, AVDTP_MSG_TYPE_ACCEPT, cmd,
 								buf, rsp_size);
 
@@ -1801,6 +1814,7 @@ static gboolean avdtp_open_cmd(struct avdtp *session, uint8_t transaction,
 
 	avdtp_check_collision(session, AVDTP_OPEN, stream);
 
+	//接收方返回 OPENED 响应，确认通道已就绪，为后续 START 命令做准备。
 	if (!avdtp_send(session, transaction, AVDTP_MSG_TYPE_ACCEPT,
 						AVDTP_OPEN, NULL, 0))
 		return FALSE;
@@ -1862,6 +1876,7 @@ static gboolean avdtp_start_cmd(struct avdtp *session, uint8_t transaction,
 		avdtp_stream_set_state(stream, AVDTP_STATE_STREAMING);
 	}
 
+	//接收方（如 A2DP - SINK 耳机）返回 STARTED 响应，确认流已启动，媒体通道开始传输数据
 	return avdtp_send(session, transaction, AVDTP_MSG_TYPE_ACCEPT,
 						AVDTP_START, NULL, 0);
 
@@ -2078,15 +2093,20 @@ static gboolean avdtp_parse_cmd(struct avdtp *session, uint8_t transaction,
 	switch (signal_id) {
 	case AVDTP_DISCOVER:
 		DBG("Received DISCOVER_CMD");
+		/*给对方响应蓝牙设备上支持的 AVDTP 服务能力与可用流端点*/
 		return avdtp_discover_cmd(session, transaction, buf, size);
 	case AVDTP_GET_CAPABILITIES:
 		DBG("Received  GET_CAPABILITIES_CMD");
+		/*用于查询此设备上具体的一个sep能力*/
 		return avdtp_getcap_cmd(session, transaction, buf, size,
-									FALSE);
+									FALSE/*获取单个*/);
 	case AVDTP_GET_ALL_CAPABILITIES:
+		/*获取所有的*/
 		DBG("Received  GET_ALL_CAPABILITIES_CMD");
-		return avdtp_getcap_cmd(session, transaction, buf, size, TRUE);
+		return avdtp_getcap_cmd(session, transaction, buf, size, TRUE/*获取所有*/);
 	case AVDTP_SET_CONFIGURATION:
+		//协商并确定双方设备共用的、具体的音频流传输参数，解决「能力范围已知，但无统一执行参数」
+		// 的问题，为后续音频流的 OPEN/START 奠定可执行的配置基础。
 		DBG("Received SET_CONFIGURATION_CMD");
 		return avdtp_setconf_cmd(session, transaction, buf, size);
 	case AVDTP_GET_CONFIGURATION:
@@ -2096,9 +2116,11 @@ static gboolean avdtp_parse_cmd(struct avdtp *session, uint8_t transaction,
 		DBG("Received RECONFIGURE_CMD");
 		return avdtp_reconf_cmd(session, transaction, buf, size);
 	case AVDTP_OPEN:
+		//发起方发送 OPEN 命令建立媒体通道
 		DBG("Received OPEN_CMD");
 		return avdtp_open_cmd(session, transaction, buf, size);
 	case AVDTP_START:
+		//发起方（如 A2DP - SOURCE 手机）发送 START 命令，请求启动已配置好的媒体流
 		DBG("Received START_CMD");
 		return avdtp_start_cmd(session, transaction, buf, size);
 	case AVDTP_CLOSE:
@@ -2135,8 +2157,10 @@ static enum avdtp_parse_result avdtp_parse_data(struct avdtp *session,
 	struct in_buf *in;
 
 	if (header->message_type == AVDTP_MSG_TYPE_COMMAND)
+		/*收到command消息*/
 		in = &session->in_cmd;
 	else
+		/*收到响应消息*/
 		in = &session->in_resp;
 
 	switch (header->packet_type) {
@@ -2251,6 +2275,7 @@ static enum avdtp_parse_result avdtp_parse_data(struct avdtp *session,
 	return PARSE_SUCCESS;
 }
 
+/*负责读取数据消息*/
 static gboolean session_cb(GIOChannel *chan, GIOCondition cond,
 				gpointer data)
 {
@@ -2270,6 +2295,7 @@ static gboolean session_cb(GIOChannel *chan, GIOCondition cond,
 		goto failed;
 
 	fd = g_io_channel_unix_get_fd(chan);
+	/*读取数据*/
 	size = read(fd, session->buf, session->imtu);
 	if (size < 0) {
 		error("IO Channel read error");
@@ -2281,6 +2307,7 @@ static gboolean session_cb(GIOChannel *chan, GIOCondition cond,
 		goto failed;
 	}
 
+	/*解析读取到的内容*/
 	switch (avdtp_parse_data(session, session->buf, size)) {
 	case PARSE_ERROR:
 		goto failed;
@@ -2291,6 +2318,7 @@ static gboolean session_cb(GIOChannel *chan, GIOCondition cond,
 	}
 
 	if (header->message_type == AVDTP_MSG_TYPE_COMMAND) {
+		/*处理command消息*/
 		if (!avdtp_parse_cmd(session, session->in_cmd.transaction,
 				     session->in_cmd.signal_id,
 				     session->in_cmd.buf,
@@ -2440,7 +2468,7 @@ static void avdtp_connect_cb(GIOChannel *chan, GError *err, gpointer user_data)
 		session->io_id = g_io_add_watch(chan,
 						G_IO_IN | G_IO_ERR | G_IO_HUP
 						| G_IO_NVAL,
-						(GIOFunc) session_cb, session);
+						(GIOFunc) session_cb/*负责处理数据消息*/, session);
 
 		if (session->stream_setup)
 			set_disconnect_timer(session);
@@ -2509,6 +2537,7 @@ uint16_t avdtp_get_version(struct avdtp *session)
 	return session->version;
 }
 
+/*连接到L2CAP,用于处理数据消息*/
 static GIOChannel *l2cap_connect(struct avdtp *session, BtIOMode mode)
 {
 	GError *err = NULL;
@@ -2517,12 +2546,12 @@ static GIOChannel *l2cap_connect(struct avdtp *session, BtIOMode mode)
 	src = btd_adapter_get_address(device_get_adapter(session->device));
 
 	if (session->phy)
-		io = bt_io_connect(avdtp_connect_cb, session,
+		io = bt_io_connect(avdtp_connect_cb/*连接回调*/, session,
 					NULL, &err,
 					BT_IO_OPT_SOURCE_BDADDR, src,
 					BT_IO_OPT_DEST_BDADDR,
-					device_get_address(session->device),
-					BT_IO_OPT_PSM, AVDTP_PSM,
+					device_get_address(session->device),/*目的地址*/
+					BT_IO_OPT_PSM, AVDTP_PSM,/*连接到数据消息*/
 					BT_IO_OPT_MODE, mode,
 					BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_MEDIUM,
 					/* Set Input MTU to 0 to auto-tune */
@@ -2533,8 +2562,8 @@ static GIOChannel *l2cap_connect(struct avdtp *session, BtIOMode mode)
 					NULL, &err,
 					BT_IO_OPT_SOURCE_BDADDR, src,
 					BT_IO_OPT_DEST_BDADDR,
-					device_get_address(session->device),
-					BT_IO_OPT_PSM, AVDTP_PSM,
+					device_get_address(session->device),/*目的地址*/
+					BT_IO_OPT_PSM, AVDTP_PSM,/*连接到数据消息*/
 					BT_IO_OPT_MODE, mode,
 					BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_MEDIUM,
 					BT_IO_OPT_INVALID);
@@ -3481,6 +3510,7 @@ int avdtp_discover(struct avdtp *session, avdtp_discover_cb_t cb,
 		}
 	}
 
+	/*发送avdtp discover*/
 	err = send_request(session, FALSE, NULL, AVDTP_DISCOVER, NULL, 0);
 	if (err == 0) {
 		session->discover->cb = cb;
@@ -3520,6 +3550,7 @@ gboolean avdtp_stream_remove_cb(struct avdtp *session,
 	return TRUE;
 }
 
+/*添加stream cb*/
 unsigned int avdtp_stream_add_cb(struct avdtp *session,
 					struct avdtp_stream *stream,
 					avdtp_stream_state_cb cb, void *data)
@@ -3836,14 +3867,15 @@ struct avdtp_local_sep *avdtp_register_sep(struct queue *lseps,
 						void *user_data)
 {
 	struct avdtp_local_sep *sep;
-	uint8_t seid = util_get_uid(seid_pool, MAX_SEID);
+	uint8_t seid = util_get_uid(seid_pool, MAX_SEID);/*分配一个id*/
 
 	if (!seid)
 		return NULL;
 
+	/*创建SEP对象*/
 	sep = g_new0(struct avdtp_local_sep, 1);
 
-	sep->info.seid = seid;
+	sep->info.seid = seid;/*设置分配的ID*/
 	sep->info.type = type;
 	sep->info.media_type = media_type;
 	sep->codec = codec_type;
@@ -3856,6 +3888,7 @@ struct avdtp_local_sep *avdtp_register_sep(struct queue *lseps,
 			sep->info.type, sep->codec, seid_pool,
 			sep->info.seid);
 
+	/*加入队列*/
 	if (!queue_push_tail(lseps, sep)) {
 		g_free(sep);
 		util_clear_uid(seid_pool, seid);

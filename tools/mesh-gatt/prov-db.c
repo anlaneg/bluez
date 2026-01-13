@@ -182,12 +182,12 @@ static bool parse_unicast_range(json_object *jobject)
 		char *str;
 
 		jrange = json_object_array_get_idx(jobject, i);
-		json_object_object_get_ex(jrange, "lowAddress", &jvalue);
+		json_object_object_get_ex(jrange, "lowAddress", &jvalue);/*取低地址*/
 		str = (char *)json_object_get_string(jvalue);
 		if (sscanf(str, "%04hx", &low) != 1)
 			return false;
 
-		json_object_object_get_ex(jrange, "highAddress", &jvalue);
+		json_object_object_get_ex(jrange, "highAddress", &jvalue);/*取高地址*/
 		str = (char *)json_object_get_string(jvalue);
 		if (sscanf(str, "%04hx", &high) != 1)
 			return false;
@@ -1461,6 +1461,7 @@ done:
 	return true;
 }
 
+/*显示文件内容*/
 bool prov_db_show(const char *filename)
 {
 	char *str;
@@ -1518,7 +1519,7 @@ static bool read_json_db(const char *filename, bool provisioner, bool local)
 		*/
 		if (provisioner) {
 			res = result;
-			goto done;
+			goto done;/*当local与provisioner均为TRUE,则只解析node节点配置*/
 		}
 	}
 
@@ -1535,16 +1536,18 @@ static bool read_json_db(const char *filename, bool provisioner, bool local)
 
 	value_int = json_object_get_int(jvalue);
 
-	net_set_iv_index(index, value_int);
+	net_set_iv_index(index, value_int);/*设置iv index与iv update*/
 
 	/* Network key(s) */
 	json_object_object_get_ex(jmain, "netKeys", &jarray);
 	if (!jarray)
-		goto done;
+		goto done;/*netkeys不存在,报错*/
 
+	/*取数组长度*/
 	len = json_object_array_length(jarray);
 	bt_shell_printf("# netkeys = %d\n", len);
 
+	/*遍历netkeys中的各个元素*/
 	for (i = 0; i < len; ++i) {
 		uint32_t idx;
 
@@ -1556,6 +1559,7 @@ static bool read_json_db(const char *filename, bool provisioner, bool local)
 
 		json_object_object_get_ex(jtemp, "key", &jvalue);
 		if (!jvalue) {
+			/*如果没有指定key则随机生成*/
 			if (!mesh_get_random_bytes(key, 16))
 				goto done;
 			add_key(jtemp, "key", key);
@@ -1567,6 +1571,7 @@ static bool read_json_db(const char *filename, bool provisioner, bool local)
 			}
 		}
 
+		/*添加此net key*/
 		if (!keys_net_key_add(idx, key, false))
 			goto done;
 
@@ -1580,9 +1585,10 @@ static bool read_json_db(const char *filename, bool provisioner, bool local)
 	/* App keys */
 	json_object_object_get_ex(jmain, "appKeys", &jarray);
 	if (jarray) {
-		len = json_object_array_length(jarray);
+		len = json_object_array_length(jarray);/*取appkey长度*/
 		bt_shell_printf("# appkeys = %d\n", len);
 
+		/*遍历APPKEY的每个数组元素*/
 		for (i = 0; i < len; ++i) {
 			int app_idx;
 			int net_idx;
@@ -1591,14 +1597,15 @@ static bool read_json_db(const char *filename, bool provisioner, bool local)
 			json_object_object_get_ex(jtemp, "index",
 						&jvalue);
 			if (!jvalue)
-				goto done;
+				goto done;/*index配置必须*/
 
 			app_idx = json_object_get_int(jvalue);
 			if (!CHECK_KEY_IDX_RANGE(app_idx))
-				goto done;
+				goto done;/*APP INDEX无效*/
 
 			json_object_object_get_ex(jtemp, "key", &jvalue);
 			if (!jvalue) {
+				/*如果未设置KEY,则随机生成*/
 				if (!mesh_get_random_bytes(key, 16))
 					goto done;
 				add_key(jtemp, "key", key);
@@ -1612,7 +1619,7 @@ static bool read_json_db(const char *filename, bool provisioner, bool local)
 			json_object_object_get_ex(jtemp, "boundNetKey",
 							&jvalue);
 			if (!jvalue)
-				goto done;
+				goto done;/*boundnetkey必须*/
 
 			net_idx = json_object_get_int(jvalue);
 			if (!CHECK_KEY_IDX_RANGE(net_idx))
@@ -1627,9 +1634,10 @@ static bool read_json_db(const char *filename, bool provisioner, bool local)
 	if (!jarray)
 		goto done;
 
-	len = json_object_array_length(jarray);
+	len = json_object_array_length(jarray);/*取provisioners数组长度*/
 	bt_shell_printf("# provisioners = %d\n", len);
 
+	/*遍历provisioners数组的每个元素*/
 	for (i = 0; i < len; ++i) {
 
 		jprov = json_object_array_get_idx(jarray, i);
@@ -1647,20 +1655,20 @@ static bool read_json_db(const char *filename, bool provisioner, bool local)
 		}
 	}
 
-	json_object_object_get_ex(jmain, "nodes", &jarray);
+	json_object_object_get_ex(jmain, "nodes", &jarray);/*取nodes数组*/
 	if (!jarray) {
 		res = true;
 		goto done;
 	}
 
-	len = json_object_array_length(jarray);
+	len = json_object_array_length(jarray);/*取nodes数组长度*/
 
 	bt_shell_printf("# provisioned nodes = %d\n", len);
 	for (i = 0; i < len; ++i) {
 		json_object *jnode;
 		jnode = json_object_array_get_idx(jarray, i);
 
-		if (!jnode || !parse_node(jnode, false))
+		if (!jnode || !parse_node(jnode, false)/*解析此nodes*/)
 			goto done;
 	}
 

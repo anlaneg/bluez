@@ -237,7 +237,7 @@ static void decrypt_net_pkt(void *a, void *b)
 						key->enc_key, key->prv_key);
 
 	if (result) {
-		cache_id = key->id;
+		cache_id = key->id;/*设置成功解密的KEY ID*/
 		cache_plainlen = cache_len;
 	}
 }
@@ -251,19 +251,20 @@ uint32_t net_key_decrypt(uint32_t iv_index, const uint8_t *pkt/*源内容*/, siz
 		if (cache_iv_index != iv_index)
 			return 0;
 
-		goto done;
+		goto done;/*与cache一致*/
 	}
 
-	cache_id = 0;
-	memcpy(cache_pkt, pkt, len);/*源内容写入到cache_pkt中*/
-	cache_len = len;
-	cache_iv_index = iv_index;
+	cache_id = 0;/*指明无cache*/
+	memcpy(cache_pkt, pkt, len);/*将源内容写入到cache_pkt中*/
+	cache_len = len;/*记录cache长度*/
+	cache_iv_index = iv_index;/*记录cache iv index*/
 
 	/* Try all network keys known to us */
 	l_queue_foreach(keys, decrypt_net_pkt, NULL);
 
 done:
 	if (cache_id) {
+		/*返回解密后内容*/
 		*plain = cache_plain;
 		*plain_len = cache_plainlen;
 	}

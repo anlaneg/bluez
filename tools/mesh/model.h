@@ -14,8 +14,8 @@ typedef bool (*model_send_msg_func_t) (void *user_data, uint16_t dst,
 				uint16_t app_idx, uint8_t *data, uint16_t len);
 typedef bool (*model_send_pub_func_t) (void *user_data, uint16_t vendor_id,
 				uint16_t mod_id, uint8_t *data, uint16_t len);
-typedef bool (*model_set_send_func_t)(model_send_msg_func_t func,
-							void *user_data);
+typedef bool (*model_set_send_func_t)(model_send_msg_func_t func/*发送函数*/,
+							void *user_data/*发送函数首个函数参数*/);
 typedef bool (*model_set_pub_func_t)(model_send_pub_func_t func,
 							void *user_data);
 
@@ -41,8 +41,10 @@ struct model_pub {
 typedef int (*model_pub_func_t)(struct model_pub *pub);
 
 struct model_ops {
+	/*用于设备发送函数及发送函数首个参数*/
 	model_set_send_func_t set_send_func;
 	model_set_pub_func_t set_pub_func;
+	/*消息接收函数*/
 	model_recv_func_t recv;
 	model_bind_func_t bind;
 	model_pub_func_t pub;

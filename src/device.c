@@ -244,7 +244,7 @@ struct btd_device {
 	struct btd_adapter	*adapter;/*设备所属的adapter*/
 	GSList		*uuids;/*用于记录此设备上的UUID*/
 	GSList		*primaries;		/* List of primary services */
-	/*应用于此设备的所有services*/
+	/*应用于此设备的所有services(类型btd_service)*/
 	GSList		*services;		/* List of btd_service */
 	GSList		*pending;		/* Pending services */
 	GSList		*watches;		/* List of disconnect_data */
@@ -2807,6 +2807,7 @@ resolve_services:
 static DBusMessage *dev_connect(DBusConnection *conn, DBusMessage *msg,
 							void *user_data)
 {
+	/*响应到设备的连接*/
 	struct btd_device *dev = user_data;
 	uint8_t bdaddr_type;
 
@@ -6520,7 +6521,7 @@ done:
 	}
 }
 
-/*执行连接*/
+/*执行LE连接*/
 int device_connect_le(struct btd_device *dev)
 {
 	struct btd_adapter *adapter = dev->adapter;
