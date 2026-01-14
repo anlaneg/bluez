@@ -406,6 +406,7 @@ static void asha_source_endpoint_register(struct bt_asha_device *asha_dev)
 	if (!path)
 		goto error;
 
+	/*注册"org.bluez.MediaEndpoint1"接口，方法为空*/
 	if (g_dbus_register_interface(btd_get_dbus_connection(),
 				path, MEDIA_ENDPOINT_INTERFACE,
 				asha_ep_methods, NULL,

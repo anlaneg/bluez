@@ -2596,7 +2596,7 @@ static void setup_connect_io(struct bap_data *data, struct bap_setup *setup,
 				device_get_address(data->device),
 				BT_IO_OPT_DEST_TYPE,
 				device_get_le_address_type(data->device),
-				BT_IO_OPT_MODE, BT_IO_MODE_ISO,
+				BT_IO_OPT_MODE, BT_IO_MODE_ISO,/*指明创建iso socket*/
 				BT_IO_OPT_QOS, qos,
 				BT_IO_OPT_DEFER_TIMEOUT, defer,
 				BT_IO_OPT_INVALID);
@@ -2700,7 +2700,7 @@ static void setup_listen_io(struct bap_data *data, struct bt_bap_stream *stream,
 				BDADDR_ANY,
 				BT_IO_OPT_DEST_TYPE,
 				BDADDR_LE_PUBLIC,
-				BT_IO_OPT_MODE, BT_IO_MODE_ISO,
+				BT_IO_OPT_MODE, BT_IO_MODE_ISO,/*指明创建为iso socket*/
 				BT_IO_OPT_QOS, qos,
 				BT_IO_OPT_INVALID);
 	if (!io) {

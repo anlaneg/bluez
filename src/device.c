@@ -2318,6 +2318,7 @@ static DBusMessage *dev_disconnect(DBusConnection *conn, DBusMessage *msg,
 	return NULL;
 }
 
+/*遍历dev->pending中所有service,尝试第一个连接成功的*/
 static int connect_next(struct btd_device *dev)
 {
 	struct btd_service *service;
@@ -2329,9 +2330,9 @@ static int connect_next(struct btd_device *dev)
 
 		err = btd_service_connect(service);
 		if (!err)
-			return 0;
+			return 0;/*连接此服务成功，返回*/
 
-		/*移除已处理的dev->pending,更新到下一个元素*/
+		/*移除刚已处理的dev->pending,尝试下一个元素*/
 		dev->pending = g_slist_delete_link(dev->pending, dev->pending);
 	}
 
@@ -2521,10 +2522,10 @@ static struct btd_service *find_connectable_service(struct btd_device *dev,
 		struct btd_profile *p = btd_service_get_profile(service);
 
 		if (!p->connect || !p->remote_uuid)
-			continue;
+			continue;/*无connect回调等，跳过*/
 
 		if (strcasecmp(uuid, p->remote_uuid) == 0)
-			return service;
+			return service;/*uuid与remote_uuid匹配*/
 	}
 
 	return NULL;
@@ -2589,6 +2590,7 @@ void btd_device_update_allowed_services(struct btd_device *dev)
 	}
 }
 
+/*如果指定了uuid,则查询对应的service,如果未指定uuid,则考虑所有dev->services*/
 static GSList *create_pending_list(struct btd_device *dev, const char *uuid)
 {
 	struct btd_service *service;
@@ -2623,7 +2625,7 @@ static GSList *create_pending_list(struct btd_device *dev, const char *uuid)
 		}
 
 		if (g_slist_find(dev->pending, service))
-			continue;
+			continue;/*跳过已存在的*/
 
 		if (btd_service_get_state(service) !=
 						BTD_SERVICE_STATE_DISCONNECTED)
@@ -2701,6 +2703,7 @@ int btd_device_connect_services(struct btd_device *dev, GSList *services)
 
 	bdaddr_type = select_conn_bearer(dev);
 	if (bdaddr_type != BDADDR_BREDR) {
+		/*非br/edr模式*/
 		if (dev->le_state.connected)
 			return -EALREADY;
 
@@ -2711,14 +2714,14 @@ int btd_device_connect_services(struct btd_device *dev, GSList *services)
 		return -ENOENT;
 
 	if (services) {
-		/*遍历service,将其均加入dev->pending链表，准备连接*/
+		/*指定了services,遍历services,将其均加入dev->pending链表，准备连接*/
 		for (l = services; l; l = g_slist_next(l)) {
 			struct btd_service *service = l->data;
 
 			dev->pending = g_slist_append(dev->pending, service);
 		}
 	} else {
-		/*无service,需要先创建并建立services，再连接*/
+		/*未指定services*/
 		dev->pending = create_pending_list(dev, NULL);
 	}
 
@@ -2856,7 +2859,7 @@ static DBusMessage *dev_connect(DBusConnection *conn, DBusMessage *msg,
 	}
 
 	/*BDADDR_BREDR地址类型连接*/
-	return connect_profiles(dev, bdaddr_type, msg, NULL);
+	return connect_profiles(dev, bdaddr_type, msg, NULL/*未指定uuid*/);
 }
 
 static DBusMessage *connect_profile(DBusConnection *conn, DBusMessage *msg,
@@ -2878,7 +2881,7 @@ static DBusMessage *connect_profile(DBusConnection *conn, DBusMessage *msg,
 		return btd_error_invalid_args_str(msg,
 					ERR_BREDR_CONN_INVALID_ARGUMENTS);
 
-	reply = connect_profiles(dev, BDADDR_BREDR, msg, uuid);
+	reply = connect_profiles(dev, BDADDR_BREDR, msg, uuid/*指定uuid*/);
 	free(uuid);
 
 	return reply;
@@ -3591,9 +3594,9 @@ static DBusMessage *get_service_records(DBusConnection *conn, DBusMessage *msg,
 /*定义针对设备的方法*/
 static const GDBusMethodTable device_methods[] = {
 	{ GDBUS_ASYNC_METHOD("Disconnect", NULL, NULL, dev_disconnect) },
-	{ GDBUS_ASYNC_METHOD("Connect", NULL, NULL, dev_connect) },
+	{ GDBUS_ASYNC_METHOD("Connect", NULL, NULL, dev_connect) },/*连接服务*/
 	{ GDBUS_ASYNC_METHOD("ConnectProfile", GDBUS_ARGS({ "UUID", "s" }),
-						NULL, connect_profile) },
+						NULL, connect_profile) },/*连接指定服务*/
 	{ GDBUS_ASYNC_METHOD("DisconnectProfile", GDBUS_ARGS({ "UUID", "s" }),
 						NULL, disconnect_profile) },
 	/*与设备配对*/
@@ -4914,7 +4917,7 @@ static struct btd_device *device_new(struct btd_adapter *adapter,
 
 	DBG("Creating device %s", device->path);
 
-	/*注册"org.bluez.Device1"接口,用于管理设备*/
+	/*为此设备注册"org.bluez.Device1"接口,用于管理设备（建立连接，执行配对）*/
 	if (g_dbus_register_interface(dbus_conn,
 					device->path, DEVICE_INTERFACE,
 					device_methods, device_signals,

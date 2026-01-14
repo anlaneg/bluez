@@ -600,6 +600,7 @@ static DBusMessage *channel_acquire_continue(struct hdp_tmp_dc_data *data,
 
 	fd = mcap_mdl_get_fd(data->hdp_chann->mdl);
 	if (fd >= 0)
+		/*响应fd*/
 		return g_dbus_create_reply(data->msg, DBUS_TYPE_UNIX_FD, &fd,
 							DBUS_TYPE_INVALID);
 

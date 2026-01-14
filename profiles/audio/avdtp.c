@@ -2444,7 +2444,7 @@ static void avdtp_connect_cb(GIOChannel *chan, GError *err, gpointer user_data)
 	bt_io_get(chan, &err,
 			BT_IO_OPT_OMTU, &session->omtu,
 			BT_IO_OPT_IMTU, &session->imtu,
-			BT_IO_OPT_INVALID);
+			BT_IO_OPT_INVALID);/*取得omtu,imtu*/
 	if (err) {
 		err_no = err->code;
 		error("%s", err->message);
@@ -3340,6 +3340,7 @@ gboolean avdtp_stream_get_transport(struct avdtp_stream *stream, int *sock,
 		return FALSE;
 
 	if (sock)
+		/*取stream->io对应的socket*/
 		*sock = g_io_channel_unix_get_fd(stream->io);
 
 	if (omtu)

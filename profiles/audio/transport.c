@@ -383,6 +383,7 @@ static void media_transport_remove_owner(struct media_transport *transport)
 	media_transport_suspend(transport, NULL);
 }
 
+/*设置transport fd/imtu/omtu*/
 static gboolean media_transport_set_fd(struct media_transport *transport,
 					int fd, uint16_t imtu, uint16_t omtu)
 {
@@ -518,6 +519,7 @@ static void a2dp_resume_complete(struct avdtp *session, int err,
 	if (stream == NULL)
 		goto fail;
 
+	/*取得fd,imtu,omtu*/
 	ret = avdtp_stream_get_transport(stream, &fd, &imtu, &omtu, NULL);
 	if (ret == FALSE)
 		goto fail;
@@ -525,7 +527,7 @@ static void a2dp_resume_complete(struct avdtp *session, int err,
 	media_transport_set_fd(transport, fd, imtu, omtu);
 
 	ret = g_dbus_send_reply(btd_get_dbus_connection(), req->msg,
-						DBUS_TYPE_UNIX_FD, &fd,
+						DBUS_TYPE_UNIX_FD, &fd/*响应fd*/,
 						DBUS_TYPE_UINT16, &imtu,
 						DBUS_TYPE_UINT16, &omtu,
 						DBUS_TYPE_INVALID);
@@ -1846,6 +1848,7 @@ static void bap_resume_complete(struct media_transport *transport)
 		owner->pending->id = 0;
 
 	if (transport->fd < 0) {
+		/*fd无效，响应EIO*/
 		media_transport_remove_owner(transport);
 		return;
 	}
@@ -1853,9 +1856,10 @@ static void bap_resume_complete(struct media_transport *transport)
 	if (owner->pending) {
 		gboolean ret;
 
+		/*发送响应*/
 		ret = g_dbus_send_reply(btd_get_dbus_connection(),
 					owner->pending->msg,
-					DBUS_TYPE_UNIX_FD, &transport->fd,
+					DBUS_TYPE_UNIX_FD, &transport->fd/*响应fd*/,
 					DBUS_TYPE_UINT16, &transport->imtu,
 					DBUS_TYPE_UINT16, &transport->omtu,
 						DBUS_TYPE_INVALID);
@@ -2185,6 +2189,7 @@ static gboolean bap_transport_fd_ready(GIOChannel *chan, GIOCondition cond,
 	GError *err = NULL;
 
 	if (cond & (G_IO_HUP | G_IO_ERR | G_IO_NVAL)) {
+		/*fd有误*/
 		error("Transport connection failed");
 		goto done;
 	}
@@ -2192,12 +2197,13 @@ static gboolean bap_transport_fd_ready(GIOChannel *chan, GIOCondition cond,
 	if (!bt_io_get(chan, &err, BT_IO_OPT_OMTU, &omtu,
 					BT_IO_OPT_IMTU, &imtu,
 					BT_IO_OPT_INVALID)) {
+		/*取omtu,imtu出错*/
 		error("%s", err->message);
 		goto done;
 	}
 
-	fd = g_io_channel_unix_get_fd(chan);
-	media_transport_set_fd(transport, fd, imtu, omtu);
+	fd = g_io_channel_unix_get_fd(chan);/*取chan对应的unix fd*/
+	media_transport_set_fd(transport, fd, imtu, omtu);/*设置transport fd*/
 	transport_update_playing(transport, TRUE);
 
 done:
@@ -2260,14 +2266,14 @@ static void bap_state_changed(struct bt_bap_stream *stream, uint8_t old_state,
 		goto done;
 	}
 
-	io = bt_bap_stream_get_io(stream);
+	io = bt_bap_stream_get_io(stream);/*取stream io*/
 	if (!io) {
 		error("Unable to get stream IO");
 		/* TODO: Fail if IO has not been established */
 		goto done;
 	}
 
-	fd = io_get_fd(io);
+	fd = io_get_fd(io);/*取io对应的fd*/
 	if (fd < 0) {
 		error("Unable to get IO fd");
 		goto done;
@@ -2277,10 +2283,11 @@ static void bap_state_changed(struct bt_bap_stream *stream, uint8_t old_state,
 	bap_clear_chan(bap);
 
 	chan = g_io_channel_unix_new(fd);
+	/*关注channel 读写错误等事件*/
 	bap->chan_id = g_io_add_watch(chan,
 				G_IO_OUT | G_IO_IN |
 				G_IO_HUP | G_IO_ERR | G_IO_NVAL,
-				bap_transport_fd_ready, transport);
+				bap_transport_fd_ready/*事件有效时，设置transport fd*/, transport);
 	g_io_channel_unref(chan);
 	if (bap->chan_id)
 		return;
@@ -2682,6 +2689,7 @@ struct media_transport *media_transport_create(struct btd_device *device,
 			goto fail;
 	}
 
+	/*定义media数据传输接口，用于app获取media fd*/
 	if (g_dbus_register_interface(btd_get_dbus_connection(),
 				transport->path, MEDIA_TRANSPORT_INTERFACE,
 				transport_methods, NULL, ops->properties,

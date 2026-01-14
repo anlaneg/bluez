@@ -16,12 +16,13 @@ struct btd_service;
 
 struct btd_profile {
 	const char *name;/*名称*/
-	int priority;/*优先级*/
+	/*优先级（当构建pending_list后，连接时会在第一个成功连接后直接返回，故优先级越小越先被尝试）*/
+	int priority;
 
 	const char *local_uuid;/*本端uuid*/
 	const char *remote_uuid;
 
-	bool auto_connect;
+	bool auto_connect;/*是否支持自动连接*/
 	/* Some profiles are considered safe to be handled internally and also
 	 * be exposed in the GATT API. This flag give such profiles exception
 	 * from being claimed internally.
@@ -43,7 +44,7 @@ struct btd_profile {
 	/*设备自此service中移除时，此回调调用*/
 	void (*device_remove) (struct btd_service *service);
 
-	/*检查此service是否可连接成功*/
+	/*检查此service是否可连接成功，返回0，表示连接成功*/
 	int (*connect) (struct btd_service *service);
 	/*与此服务断开连接*/
 	int (*disconnect) (struct btd_service *service);

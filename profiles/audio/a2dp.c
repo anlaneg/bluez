@@ -2179,7 +2179,7 @@ static const GDBusMethodTable sep_methods[] = {
 	{ GDBUS_ASYNC_METHOD("SetConfiguration",
 					GDBUS_ARGS({ "endpoint", "o" },
 						{ "properties", "a{sv}" } ),
-					NULL, set_configuration) },
+					NULL, set_configuration) },/*设置endpoint配置*/
 	{ },
 };
 
@@ -2310,6 +2310,7 @@ static struct a2dp_remote_sep *register_remote_sep(void *data, void *user_data)
 		goto done;
 	}
 
+	/*注册"org.bluez.MediaEndpoint1"接口，设置endpoint配置*/
 	if (g_dbus_register_interface(btd_get_dbus_connection(),
 				sep->path, MEDIA_ENDPOINT_INTERFACE,
 				sep_methods, NULL, sep_properties,
@@ -3356,7 +3357,7 @@ unsigned int a2dp_resume(struct avdtp *session, struct a2dp_sep *sep,
 		return 0;
 
 	cb_data = setup_cb_add(setup);
-	cb_data->resume_cb = cb;
+	cb_data->resume_cb = cb;/*设置回调*/
 	cb_data->user_data = user_data;
 
 	if (setup->reconfigure)

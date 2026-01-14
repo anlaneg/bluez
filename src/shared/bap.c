@@ -1539,6 +1539,7 @@ static bool stream_set_state(struct bt_bap_stream *stream, uint8_t state)
 		return false;
 	}
 
+	/*设置stream新状态*/
 	if (stream->ops && stream->ops->set_state)
 		stream->ops->set_state(stream, state);
 
@@ -2386,8 +2387,8 @@ static void bap_bcast_set_state(struct bt_bap_stream *stream, uint8_t state)
 	struct bt_bap *bap = stream->bap;
 	const struct queue_entry *entry;
 
-	stream->old_state = stream->state;
-	stream->state = state;
+	stream->old_state = stream->state;/*记录旧状态*/
+	stream->state = state;/*指定新状态*/
 
 	bt_bap_stream_ref(stream);
 
@@ -2396,6 +2397,7 @@ static void bap_bcast_set_state(struct bt_bap_stream *stream, uint8_t state)
 			bt_bap_stream_statestr(stream->old_state),
 			bt_bap_stream_statestr(stream->state));
 
+	/*遍历执行所有state_cbs，知会状态变化*/
 	for (entry = queue_get_entries(bap->state_cbs); entry;
 							entry = entry->next) {
 		struct bt_bap_state *state = entry->data;
@@ -2938,7 +2940,7 @@ static struct bt_bap_stream_io *stream_get_io(struct bt_bap_stream *stream)
 
 	bap = stream->bap;
 
-	io = stream->ops->get_io(stream);
+	io = stream->ops->get_io(stream);/*取stream对应的io*/
 
 	bt_bap_unref(bap);
 
@@ -2980,7 +2982,7 @@ static bool bap_stream_io_attach(struct bt_bap_stream *stream, int fd,
 	return true;
 }
 
-static void bap_stream_set_io(void *data, void *user_data)
+static void bap_stream_set_io(void *data, void *user_data/*传入的fd*/)
 {
 	struct bt_bap_stream *stream = data;
 	int fd = PTR_TO_INT(user_data);
@@ -2988,6 +2990,7 @@ static void bap_stream_set_io(void *data, void *user_data)
 	uint8_t state;
 
 	if (fd >= 0)
+		/*设置stream对应的fd*/
 		ret = bap_stream_io_attach(stream, fd, false);
 	else
 		ret = bap_stream_io_detach(stream);
@@ -5813,7 +5816,7 @@ unsigned int bt_bap_state_register(struct bt_bap *bap,
 	state->destroy = destroy;
 	state->data = user_data;
 
-	queue_push_tail(bap->state_cbs, state);
+	queue_push_tail(bap->state_cbs, state);/*为此bap注册状态变更回调*/
 
 	return state->id;
 }
@@ -6651,6 +6654,7 @@ static bool stream_io_disconnected(struct io *io, void *user_data)
 	return false;
 }
 
+/*设置fd*/
 bool bt_bap_stream_set_io(struct bt_bap_stream *stream, int fd)
 {
 	bool ret;

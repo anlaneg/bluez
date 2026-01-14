@@ -765,7 +765,7 @@ static void service_cb(struct btd_service *service,
 	DBG("Added %s reconnect %u", profile->name, reconnect->reconnect);
 }
 
-/*执行重连*/
+/*执行重连超时*/
 static bool reconnect_timeout(gpointer data)
 {
 	struct reconnect_data *reconnect = data;

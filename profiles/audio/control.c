@@ -325,7 +325,7 @@ static struct control *control_init(struct btd_service *service)
 
 	control = g_new0(struct control, 1);
 
-	/*注册接口org.bluez.MediaControl1*/
+	/*注册接口org.bluez.MediaControl1，定义对player的控制接口*/
 	if (!g_dbus_register_interface(btd_get_dbus_connection(),
 					device_get_path(dev),
 					AUDIO_CONTROL_INTERFACE,

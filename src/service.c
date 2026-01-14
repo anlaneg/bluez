@@ -285,7 +285,7 @@ int btd_service_connect(struct btd_service *service)
 		return -ECONNABORTED;
 	}
 
-	/*触发profile connect回调*/
+	/*尝试执行profile connect回调，与服务建立连接*/
 	err = profile->connect(service);
 	if (err == 0) {
 		/*连接服务成功，返回0*/

@@ -1065,6 +1065,7 @@ static DBusMessage *media_folder_change_folder(DBusConnection *conn,
 	if (folder->msg != NULL)
 		return btd_error_failed(msg, strerror(EBUSY));
 
+	/*查找指定目录*/
 	folder = media_player_find_folder(mp, path);
 	if (folder == NULL)
 		return btd_error_invalid_args(msg);
@@ -1152,6 +1153,7 @@ static gboolean get_items(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+/*目录操作方法*/
 static const GDBusMethodTable media_folder_methods[] = {
 	{ GDBUS_ASYNC_METHOD("Search",
 			GDBUS_ARGS({ "string", "s" }, { "filter", "a{sv}" }),
@@ -1177,6 +1179,7 @@ static void media_player_set_scope(struct media_player *mp,
 						struct media_folder *folder)
 {
 	if (mp->scope == NULL) {
+		/*定义目录操作方法："org.bluez.MediaFolder1"*/
 		if (!g_dbus_register_interface(btd_get_dbus_connection(),
 					mp->path, MEDIA_FOLDER_INTERFACE,
 					media_folder_methods,
@@ -1303,6 +1306,7 @@ struct media_player *media_player_controller_create(const char *path,
 							g_free, g_free);
 	mp->progress = g_timer_new();
 
+	/*定义"org.bluez.MediaPlayer1"接口，用于player的play,pause操作(向外发送协议msg)*/
 	if (!g_dbus_register_interface(btd_get_dbus_connection(),
 					mp->path, MEDIA_PLAYER_INTERFACE,/*注册MediaPlayer1接口*/
 					media_player_methods,/*BLUEZ实现此接口供外部APP调用*/

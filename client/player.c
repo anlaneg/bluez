@@ -5084,8 +5084,9 @@ static void prompt_acquire(const char *input, void *user_data)
 	GDBusProxy *proxy = user_data;
 
 	if (!strcasecmp(input, "y") || !strcasecmp(input, "yes")) {
+		/*发送Acquire dbus method*/
 		if (g_dbus_proxy_method_call(proxy, "Acquire", NULL,
-						acquire_reply, proxy, NULL)) {
+						acquire_reply/*处理Acquire响应*/, proxy, NULL)) {
 			transport_set_acquiring(proxy, true);
 			return;
 		}
@@ -5125,8 +5126,9 @@ static void transport_acquire(GDBusProxy *proxy, bool prompt)
 	if (ep->auto_accept || !prompt) {
 		if (!prompt)
 			bt_shell_printf("auto acquiring...\n");
+		/*发送Acquire dbus method*/
 		if (!g_dbus_proxy_method_call(proxy, "Acquire", NULL,
-						acquire_reply, proxy, NULL)) {
+						acquire_reply/*处理Acquire响应*/, proxy, NULL)) {
 			bt_shell_printf("failed acquire transport\n");
 			return;
 		}
